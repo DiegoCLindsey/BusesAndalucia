@@ -1,0 +1,3575 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Próxima Salida · Consorcio de Transportes de Sevilla (no oficial)</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2F6F4F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Próxima Salida">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Expanded:wght@600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#EEF1EC;
+    --paper-2:#E1E7DD;
+    --card:#FFFFFF;
+    --ink:#1C2321;
+    --ink-soft:#4B5650;
+    --ink-faint:#7C8880;
+    --green:#2F6F4F;
+    --green-dark:#1E4A34;
+    --amber:#FFB100;
+    --board-bg:#10151A;
+    --board-line:#232B24;
+    --brick:#C1443B;
+    --border:#D3DBCE;
+    --radius:12px;
+    --font-display:'Archivo Expanded', sans-serif;
+    --font-body:'Inter', sans-serif;
+    --font-mono:'IBM Plex Mono', monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--font-body);
+    line-height:1.45;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--green-dark);}
+  /* ---------- Armazón responsive ---------- */
+  header{
+    position:sticky; top:0; z-index:50;
+    background:var(--paper);
+    border-bottom:1px solid var(--border);
+    padding:10px 16px;
+  }
+  .headline{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    max-width:1080px; margin:0 auto;
+  }
+  h1{
+    font-family:var(--font-display);
+    font-weight:700;
+    font-size:19px;
+    letter-spacing:0.01em;
+    margin:0;
+  }
+  h1 .accent{color:var(--green);}
+  .header-actions{display:flex; align-items:center; gap:8px;}
+  .status-line{
+    font-size:11px;
+    color:var(--ink-faint);
+    font-family:var(--font-mono);
+    max-width:1080px; margin:4px auto 0 auto;
+  }
+  .btn-refresh, .btn-icon{
+    font-family:var(--font-mono);
+    font-size:12px;
+    background:none;
+    border:1px solid var(--border);
+    border-radius:999px;
+    padding:6px 12px;
+    cursor:pointer;
+    color:var(--ink-soft);
+    white-space:nowrap;
+  }
+  .btn-refresh:hover, .btn-icon:hover{border-color:var(--green); color:var(--green-dark);}
+
+  /* Navegación: barra inferior en móvil, superior en escritorio */
+  .nav{
+    position:fixed; bottom:0; left:0; right:0; z-index:60;
+    display:flex; justify-content:space-around; align-items:stretch;
+    background:var(--card);
+    border-top:1px solid var(--border);
+    padding-bottom:env(safe-area-inset-bottom, 0);
+  }
+  .nav-btn{
+    flex:1;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+    background:none; border:none; cursor:pointer;
+    padding:9px 4px 8px 4px;
+    color:var(--ink-faint);
+    font-family:var(--font-body); font-size:10.5px; font-weight:600;
+    border-top:2px solid transparent;
+    min-height:52px;
+  }
+  .nav-btn .nav-ico{font-size:18px; line-height:1;}
+  .nav-btn.active{color:var(--green-dark); border-top-color:var(--green);}
+
+  main{max-width:1080px; margin:0 auto; padding:16px 16px 76px 16px;}
+  .screen{display:none;}
+  .screen.active{display:block;}
+  /* Inicio ocupa todo el alto disponible: es una pantalla-mapa */
+  .screen-full{padding:0;}
+
+  @media (min-width:820px){
+    .nav{
+      position:sticky; top:0; bottom:auto;
+      justify-content:center; gap:6px;
+      border-top:none; border-bottom:1px solid var(--border);
+      background:var(--paper);
+      padding:0 16px;
+    }
+    .nav-btn{
+      flex:0 0 auto;
+      flex-direction:row; gap:7px;
+      font-size:13.5px;
+      padding:12px 16px;
+      border-top:none; border-bottom:2px solid transparent;
+      min-height:0;
+    }
+    .nav-btn.active{border-bottom-color:var(--green); border-top-color:transparent;}
+    .nav-btn .nav-ico{font-size:15px;}
+    main{padding:22px 20px 40px 20px;}
+  }
+
+  /* Drawer lateral de favoritos */
+  .drawer-overlay{
+    position:fixed; inset:0; background:rgba(16,21,26,0.5);
+    z-index:2000; display:none;
+  }
+  .drawer-overlay.open{display:block;}
+  .drawer{
+    position:fixed; top:0; right:0; bottom:0;
+    width:min(400px, 88vw);
+    background:var(--paper);
+    z-index:2010;
+    transform:translateX(100%);
+    transition:transform .22s ease;
+    overflow-y:auto;
+    padding:16px 16px 40px 16px;
+    box-shadow:-4px 0 20px rgba(0,0,0,0.18);
+  }
+  .drawer.open{transform:translateX(0);}
+  .drawer-head{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:12px;
+  }
+  .drawer-title{font-family:var(--font-display); font-weight:700; font-size:17px; margin:0;}
+
+  .tab-panel{display:none;}
+  .tab-panel.active{display:block;}
+
+  .card{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:18px;
+    margin-bottom:16px;
+  }
+  .field-label{
+    display:block;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    color:var(--ink-faint);
+    margin:0 0 4px 0;
+    font-weight:600;
+  }
+  .field{margin-bottom:14px;}
+  .select, .input{
+    width:100%;
+    font-family:var(--font-body);
+    font-size:15px;
+    padding:10px 12px;
+    border-radius:8px;
+    border:1px solid var(--border);
+    background:var(--paper);
+    color:var(--ink);
+  }
+  .select:disabled{opacity:0.5;}
+  .field-row{display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;}
+  .field-row .field{flex:1; min-width:120px; margin-bottom:0;}
+
+  .btn{
+    font-family:var(--font-body);
+    font-weight:600;
+    font-size:14px;
+    padding:10px 16px;
+    border-radius:8px;
+    border:none;
+    cursor:pointer;
+    background:var(--green);
+    color:#fff;
+  }
+  .btn:hover{background:var(--green-dark);}
+  .btn-pdf{
+    display:inline-block;
+    text-decoration:none;
+    margin:10px 0 4px 0;
+  }
+  .btn-back{
+    font-family:var(--font-mono);
+    font-size:12px;
+    background:none;
+    border:1px solid var(--border);
+    border-radius:999px;
+    padding:6px 14px;
+    cursor:pointer;
+    color:var(--ink-soft);
+    margin-bottom:14px;
+  }
+  .btn-back:hover{border-color:var(--green); color:var(--green-dark);}
+
+  .pills{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;}
+  .pill{
+    font-family:var(--font-body);
+    font-size:13px;
+    font-weight:600;
+    padding:7px 12px;
+    border-radius:999px;
+    border:1px solid var(--border);
+    background:var(--paper);
+    color:var(--ink-soft);
+    cursor:pointer;
+  }
+  .pill.active{background:var(--green); border-color:var(--green); color:#fff;}
+
+  .detail-title{
+    font-family:var(--font-display);
+    font-size:19px;
+    margin:0 0 2px 0;
+  }
+  .detail-sub{font-size:14px; color:var(--ink-soft); margin-bottom:2px;}
+  .detail-meta{font-size:12px; color:var(--ink-faint); margin-bottom:14px; font-family:var(--font-mono);}
+
+  .board{
+    background:var(--board-bg);
+    border-radius:var(--radius);
+    padding:18px 20px;
+    margin:6px 0 4px 0;
+  }
+  .board-label{
+    font-family:var(--font-mono);
+    font-size:11px;
+    letter-spacing:0.12em;
+    color:#7c8880;
+    margin-bottom:6px;
+  }
+  .board-time{
+    font-family:var(--font-mono);
+    font-size:44px;
+    font-weight:600;
+    color:var(--amber);
+    letter-spacing:0.02em;
+    line-height:1;
+  }
+  .board-sub{
+    font-family:var(--font-mono);
+    font-size:13px;
+    color:#9fb0a6;
+    margin-top:6px;
+  }
+  .board-note{font-size:11px; color:var(--ink-faint); margin:6px 0 12px 0;}
+
+  .map-note{font-size:11px; color:var(--ink-faint); margin:10px 0 6px 0;}
+  .mapbox{
+    height:300px;
+    border-radius:var(--radius);
+    border:1px solid var(--border);
+    margin-bottom:16px;
+    background:var(--paper-2);
+  }
+
+  .stoprow{
+    border:1px solid var(--border);
+    border-radius:8px;
+    margin-bottom:6px;
+    overflow:hidden;
+    background:var(--paper);
+  }
+  .stoprow-head{
+    display:flex; align-items:center; gap:10px;
+    width:100%;
+    text-align:left;
+    background:none;
+    border:none;
+    cursor:pointer;
+    padding:10px 12px;
+    font-family:var(--font-body);
+  }
+  .stoprow-head:hover{background:var(--paper-2);}
+  .stoprow-order{
+    font-family:var(--font-mono);
+    font-size:11px;
+    color:var(--ink-faint);
+    min-width:20px;
+  }
+  .stoprow-name{flex:1; font-size:14px; font-weight:600; color:var(--ink);}
+  .stoprow-time{
+    font-family:var(--font-mono);
+    font-weight:600;
+    font-size:14px;
+    color:var(--green-dark);
+    text-align:right;
+    white-space:nowrap;
+  }
+  .stoprow-sub{display:block; font-size:10px; color:var(--ink-faint); font-weight:500;}
+  .stoprow-body{
+    padding:0 12px 14px 12px;
+    background:#fff;
+    border-top:1px solid var(--border);
+  }
+
+  .section-title{
+    font-family:var(--font-display);
+    font-size:15px;
+    margin:18px 0 8px 0;
+  }
+  details{
+    border:1px solid var(--border);
+    border-radius:8px;
+    margin-bottom:8px;
+    padding:8px 12px;
+    background:var(--paper);
+  }
+  details[open]{background:#fff;}
+  summary{
+    cursor:pointer;
+    font-weight:600;
+    font-size:13px;
+    padding:4px 0;
+  }
+  .horagrid{display:flex; flex-direction:column; gap:6px; margin-top:8px;}
+  .horacell{display:flex; align-items:flex-start; gap:10px; border-top:1px dashed var(--border); padding-top:6px;}
+  .horacell:first-child{border-top:none; padding-top:0;}
+  .horalabel{
+    font-family:var(--font-mono);
+    font-weight:600;
+    font-size:13px;
+    color:var(--ink-soft);
+    min-width:28px;
+  }
+  .minchips{display:flex; flex-wrap:wrap; gap:5px;}
+  .chip{
+    font-family:var(--font-mono);
+    font-size:12px;
+    background:var(--paper-2);
+    border-radius:5px;
+    padding:2px 6px;
+    color:var(--ink);
+  }
+
+  .empty{color:var(--ink-faint); font-size:14px;}
+
+  .stoplist, .servicelist{list-style:none; margin:0; padding:0;}
+  .stopitem, .serviceitem{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:12px 4px;
+    border-bottom:1px solid var(--border);
+    cursor:pointer;
+  }
+  .stopitem:hover, .serviceitem:hover{background:var(--paper-2);}
+  .stopname{font-weight:600; font-size:14px;}
+  .stopdist{
+    font-family:var(--font-mono);
+    font-size:12px;
+    color:var(--green-dark);
+    background:var(--paper-2);
+    border-radius:999px;
+    padding:3px 9px;
+  }
+  .serviceitem{flex-direction:row; align-items:center; gap:10px;}
+  .servicename{font-weight:700; font-size:14px;}
+  .servicevariant{font-size:12px; color:var(--ink-faint); flex:1;}
+  .servicetime{
+    font-family:var(--font-mono);
+    font-weight:600;
+    font-size:15px;
+    color:var(--green-dark);
+    text-align:right;
+    white-space:nowrap;
+  }
+  .servicesub{display:block; font-size:10px; color:var(--ink-faint); font-weight:500;}
+
+  footer{
+    max-width:960px; margin:0 auto; padding:0 18px 40px 18px;
+    font-size:11px; color:var(--ink-faint);
+  }
+
+  .stop-popup{font-family:var(--font-body); min-width:200px;}
+  .stop-popup-title{
+    font-family:var(--font-display);
+    font-weight:700;
+    font-size:14px;
+    margin-bottom:6px;
+  }
+  .stop-popup-proximos{margin-bottom:10px;}
+  .stop-popup-line{
+    display:flex; justify-content:space-between; align-items:baseline; gap:8px;
+    font-size:12.5px;
+    padding:3px 0;
+  }
+  .stop-popup-time{
+    font-family:var(--font-mono);
+    font-weight:600;
+    color:var(--green-dark);
+    white-space:nowrap;
+  }
+  .stop-popup-sub{font-size:10.5px; color:var(--ink-faint); font-weight:500;}
+  .stop-popup-actions{display:flex; gap:6px; flex-wrap:wrap;}
+  .stop-popup-actions .btn-chip{font-size:12px; padding:6px 9px;}
+  .btn-fav{
+    background:none; border:none; cursor:pointer;
+    font-size:18px; line-height:1; color:var(--amber);
+    padding:0 2px; vertical-align:middle;
+  }
+  .btn-fav:hover{transform:scale(1.15);}
+
+  /* ---------- Pantalla Inicio ---------- */
+  .home-wrap{position:relative;}
+  .home-map{
+    width:100%;
+    height:calc(100vh - 190px);
+    min-height:280px;
+    background:var(--paper-2);
+  }
+  @media (min-width:820px){
+    .home-map{height:calc(100vh - 250px); border-radius:var(--radius); border:1px solid var(--border);}
+  }
+  .home-search{
+    position:absolute; left:12px; right:12px; bottom:12px;
+    background:var(--card);
+    border-radius:14px;
+    border:1px solid var(--border);
+    box-shadow:0 4px 16px rgba(0,0,0,0.14);
+    padding:12px;
+    z-index:900;
+  }
+  @media (min-width:820px){
+    .home-search{left:16px; right:auto; width:380px; top:16px; bottom:auto;}
+  }
+  .home-search-title{
+    font-family:var(--font-display); font-weight:700; font-size:15px;
+    margin:0 0 8px 0;
+  }
+  .home-origen-line{
+    font-size:11.5px; color:var(--ink-soft); margin-top:8px;
+    display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+  }
+  .home-quickfavs{display:flex; gap:6px; flex-wrap:wrap; margin-top:10px;}
+  .quickfav{
+    font-size:12px; font-weight:600;
+    border:1px solid var(--border); background:var(--paper);
+    border-radius:999px; padding:6px 11px; cursor:pointer;
+    color:var(--ink-soft);
+    max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .quickfav:hover{border-color:var(--green); color:var(--green-dark);}
+
+  /* ---------- Pantalla Líneas ---------- */
+  .linea-chip-row{display:flex; gap:8px; flex-wrap:wrap;}
+  .linea-chip{
+    display:flex; align-items:stretch; gap:0;
+    border:1px solid var(--border); border-radius:10px;
+    background:var(--paper); cursor:pointer; overflow:hidden;
+    min-width:150px;
+  }
+  .linea-chip:hover{border-color:var(--green);}
+  .linea-chip-code{
+    font-family:var(--font-display); font-weight:700; font-size:13px;
+    padding:8px 10px; display:flex; align-items:center;
+    background:var(--green); color:#fff; white-space:nowrap;
+  }
+  .linea-chip-times{
+    display:flex; flex-direction:column; justify-content:center;
+    padding:5px 10px; font-family:var(--font-mono); font-size:12px; font-weight:600;
+    color:var(--green-dark); line-height:1.35;
+  }
+  .linea-chip-times .muted{color:var(--ink-faint); font-weight:500; font-size:10.5px;}
+
+  .linea-row{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:11px 4px; border-bottom:1px solid var(--border);
+    cursor:pointer;
+  }
+  .linea-row:hover{background:var(--paper-2);}
+  .linea-row-name{font-size:13.5px; font-weight:600; flex:1;}
+  .linea-row-muni{font-size:11px; color:var(--ink-faint); display:block; font-weight:500;}
+
+  /* ---------- Salidas de cabecera por sentido ---------- */
+  .cabecera-list{display:flex; flex-direction:column; gap:2px; margin:6px 0 4px 0; align-items:stretch;}
+  .cabecera-row{
+    display:flex; align-items:center; gap:9px;
+    padding:8px 8px;
+    border:1px solid var(--border); border-radius:9px;
+    background:var(--paper); cursor:pointer;
+  }
+  .cabecera-row:hover{border-color:var(--green); background:var(--paper-2);}
+  .cabecera-ico{font-size:14px; flex-shrink:0;}
+  .cabecera-body{flex:1; min-width:0;}
+  .cabecera-nombre{
+    display:block; font-size:12.5px; font-weight:600; color:var(--ink);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .cabecera-meta{display:block; font-size:10px; color:var(--ink-faint);}
+  .cabecera-time{
+    font-family:var(--font-mono); font-weight:600; font-size:14px;
+    color:var(--green-dark); text-align:right; white-space:nowrap; flex-shrink:0;
+  }
+  .cabecera-sub{display:block; font-size:9.5px; color:var(--ink-faint); font-weight:500;}
+  .cabecera-next{display:block; font-size:9.5px; color:var(--ink-faint); font-weight:500;}
+
+  /* Bloque destacado de salidas favoritas en Inicio */
+  .home-fav-card{margin-bottom:14px;}
+  .home-fav-title{
+    font-family:var(--font-display); font-weight:700; font-size:17px;
+    margin:0 0 10px 0;
+  }
+  .home-fav-parada{
+    border-top:1px solid var(--border); padding:10px 0 6px 0; cursor:pointer;
+  }
+  .home-fav-parada:first-of-type{border-top:none; padding-top:0;}
+  .home-fav-parada:hover{background:var(--paper-2);}
+  .home-fav-parada-nombre{
+    font-size:12px; font-weight:700; color:var(--ink-soft);
+    text-transform:uppercase; letter-spacing:0.04em; margin-bottom:6px;
+  }
+  .home-fav-fila{
+    display:flex; align-items:center; gap:10px; padding:5px 0;
+  }
+  .home-fav-code{
+    font-family:var(--font-display); font-weight:700; font-size:12px;
+    padding:4px 8px; border-radius:6px;
+    background:var(--paper-2); color:var(--ink-soft); white-space:nowrap;
+  }
+  .home-fav-code.es-fav{background:var(--green); color:#fff;}
+  .home-fav-dir{
+    flex:1; min-width:0; font-size:13.5px; font-weight:600; color:var(--ink);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .home-fav-hora{
+    font-family:var(--font-mono); font-weight:600; font-size:20px;
+    color:var(--green-dark); text-align:right; white-space:nowrap; line-height:1.1;
+  }
+  .home-fav-sub{display:block; font-size:10px; color:var(--ink-faint); font-weight:500;}
+  @media (min-width:820px){
+    .home-fav-title{font-size:20px;}
+    .home-fav-hora{font-size:24px;}
+    .home-fav-dir{font-size:15px;}
+  }
+
+  /* Aviso de salida dentro de la app */
+  .aviso-salida{
+    position:fixed; left:12px; right:12px; bottom:70px;
+    background:var(--board-bg); color:#fff;
+    border-radius:14px; padding:14px 16px; z-index:4000;
+    box-shadow:0 6px 24px rgba(0,0,0,0.35);
+  }
+  @media (min-width:820px){
+    .aviso-salida{left:auto; right:20px; bottom:20px; width:360px;}
+  }
+  .aviso-titulo{font-family:var(--font-display); font-weight:700; font-size:15px; margin-bottom:5px;}
+  .aviso-cuerpo{font-size:13px; color:#d7e0d9; line-height:1.4;}
+  .aviso-nota{font-size:11px; color:#9fb0a6; margin-top:6px;}
+  .aviso-acciones{display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;}
+  .aviso-acciones .btn-chip{background:transparent; color:#fff; border-color:#3d4a42;}
+  .aviso-acciones .btn-chip:hover{border-color:var(--amber); color:var(--amber);}
+
+  .fav-parada-card{
+    border:1px solid var(--border); border-radius:10px;
+    background:var(--card); padding:10px; margin-bottom:8px;
+  }
+  .fav-parada-head{
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    margin-bottom:6px;
+  }
+  .fav-parada-nombre{font-weight:700; font-size:13.5px;}
+  .fav-parada-linea{
+    display:flex; align-items:center; gap:8px;
+    padding:5px 0; border-top:1px dashed var(--border); cursor:pointer;
+  }
+  .fav-parada-linea:first-child{border-top:none;}
+  .fav-parada-linea-code{
+    font-family:var(--font-display); font-weight:700; font-size:11px;
+    padding:3px 7px; border-radius:6px;
+    background:var(--paper-2); color:var(--ink-soft); white-space:nowrap;
+  }
+  .fav-parada-linea-code.es-fav{background:var(--green); color:#fff;}
+  .fav-parada-linea-body{flex:1; min-width:0;}
+  .fav-parada-dir{
+    display:block; font-size:12px; font-weight:600; color:var(--ink);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .fav-parada-mas{
+    font-size:10.5px; color:var(--ink-faint); padding-top:6px; cursor:pointer;
+  }
+
+  .fav-linea-bloque{margin-bottom:14px;}
+  .fav-linea-bloque:last-child{margin-bottom:0;}
+  .fav-linea-header{
+    display:flex; align-items:center; gap:8px; width:100%;
+    background:none; border:none; cursor:pointer; text-align:left;
+    padding:2px 0 6px 0;
+  }
+  .fav-linea-header:hover .fav-linea-titulo{text-decoration:underline;}
+  .fav-linea-titulo{
+    font-family:var(--font-body); font-weight:700; font-size:13px; color:var(--ink);
+    flex:1; min-width:0;
+  }
+
+  .endpoint-row{display:flex; gap:6px;}
+  .endpoint-row .input{flex:1;}
+  .btn-chip{
+    font-size:16px;
+    padding:8px 11px;
+    border-radius:8px;
+    border:1px solid var(--border);
+    background:var(--paper);
+    cursor:pointer;
+  }
+  .btn-chip.armed{background:var(--amber); border-color:var(--amber);}
+  .btn-chip:hover{border-color:var(--green);}
+  .endpoint-status{font-size:12px; color:var(--ink-soft); margin-top:5px; min-height:16px;}
+
+  .itin-summary{
+    font-family:var(--font-display);
+    font-size:17px;
+    margin-bottom:4px;
+  }
+  .itin-summary .accent{color:var(--green);}
+  .itin-summary-detail{font-size:13px; color:var(--ink-soft); margin-bottom:8px;}
+  .itin-leg{
+    display:flex; gap:10px; align-items:flex-start;
+    padding:10px 0;
+    border-top:1px dashed var(--border);
+  }
+  .itin-leg:first-child{border-top:none;}
+  .itin-leg-icon{
+    font-size:16px;
+    width:26px; height:26px;
+    display:flex; align-items:center; justify-content:center;
+    border-radius:50%;
+    background:var(--paper-2);
+    flex-shrink:0;
+  }
+  .itin-leg-body{flex:1;}
+  .itin-leg-title{font-weight:700; font-size:14px;}
+  .itin-leg-sub{font-size:12px; color:var(--ink-faint);}
+  .itin-leg-warn{color:var(--brick); font-weight:600; margin-top:4px;}
+
+  .leaflet-container{z-index:1;}
+  .leaflet-top, .leaflet-bottom{z-index:800;}
+
+  /* Modal genérico */
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(16,21,26,0.55);
+    display:flex; align-items:flex-end; justify-content:center;
+    z-index:3000; padding:0;
+  }
+  .modal-box{
+    background:var(--paper); width:100%; max-width:640px;
+    max-height:88vh; overflow-y:auto;
+    border-radius:16px 16px 0 0;
+    padding:16px 16px 24px 16px;
+    box-shadow:0 -6px 24px rgba(0,0,0,0.25);
+  }
+  @media (min-width:680px){
+    .modal-overlay{align-items:center;}
+    .modal-box{border-radius:16px; max-height:82vh;}
+  }
+  .modal-close{
+    float:right;
+    font-family:var(--font-mono);
+    font-size:13px;
+    background:none; border:1px solid var(--border); border-radius:999px;
+    padding:5px 12px; cursor:pointer; color:var(--ink-soft);
+  }
+  .modal-close:hover{border-color:var(--green); color:var(--green-dark);}
+
+  /* Timeline de itinerario */
+  .timeline-leg{margin-bottom:4px;}
+  .timeline-line-header{
+    display:flex; justify-content:space-between; align-items:baseline;
+    background:none; border:none; width:100%; text-align:left; cursor:pointer;
+    padding:6px 0;
+  }
+  .timeline-line-header:hover .timeline-line-name{text-decoration:underline;}
+  .timeline-line-name{font-family:var(--font-display); font-weight:700; font-size:14px; color:var(--green-dark);}
+  .timeline-line-meta{font-size:11px; color:var(--ink-faint); font-family:var(--font-mono);}
+  .timeline-stops-row{
+    display:flex; align-items:center;
+    overflow-x:auto; padding:6px 2px 10px 2px;
+  }
+  .timeline-stop{
+    display:flex; flex-direction:column; align-items:center;
+    flex-shrink:0; cursor:pointer; padding:0 2px;
+  }
+  .timeline-dot{
+    width:12px; height:12px; border-radius:50%;
+    background:#fff; border:2px solid var(--green);
+  }
+  .timeline-dot.endpoint{
+    width:16px; height:16px; background:var(--green); border-color:var(--green-dark);
+  }
+  .timeline-connector{width:20px; height:2px; background:var(--green); flex-shrink:0;}
+  .timeline-stop-label{
+    font-size:9px; color:var(--ink-faint); max-width:52px; text-align:center;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:3px;
+  }
+  .timeline-transfer{
+    display:flex; align-items:center; gap:10px;
+    padding:8px 4px; margin:2px 0 8px 0;
+    border-left:2px dashed var(--border);
+    margin-left:6px; padding-left:16px;
+  }
+  .timeline-transfer-icon{font-size:16px;}
+  .timeline-transfer-text{font-size:12px; color:var(--ink-soft);}
+  .timeline-transfer-text b{color:var(--ink);}
+  .itin-steps{
+    list-style:none; margin:14px 0 0 0; padding:12px 0 0 0;
+    border-top:1px solid var(--border);
+    font-size:13px;
+  }
+  .itin-steps li{padding:4px 0; color:var(--ink-soft);}
+  .itin-steps li b{color:var(--ink);}
+
+  .criterio-row{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px;}
+  .criterio-pill{
+    font-family:var(--font-body); font-size:12.5px; font-weight:600;
+    padding:7px 12px; border-radius:999px; border:1px solid var(--border);
+    background:var(--paper); color:var(--ink-soft); cursor:pointer;
+  }
+  .criterio-pill.active{background:var(--green); border-color:var(--green); color:#fff;}
+  .itin-leg-time{
+    font-family:var(--font-mono);
+    font-size:13px;
+    color:var(--green-dark);
+    white-space:nowrap;
+    font-weight:600;
+  }
+
+  @media (max-width:600px){
+    .board-time{font-size:36px;}
+    .mapbox{height:240px;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="headline">
+    <h1>Próxima <span class="accent">Salida</span></h1>
+    <div class="header-actions">
+      <button class="btn-icon" id="btnAbrirFavoritos" type="button">★ Favoritos</button>
+      <button class="btn-refresh" id="btnRefresh" type="button">↻</button>
+    </div>
+  </div>
+  <div class="status-line" id="dataStatus">Cargando…</div>
+</header>
+
+<nav class="nav" id="mainNav">
+  <button class="nav-btn active" data-screen="screenInicio" type="button"><span class="nav-ico">🗺️</span>Inicio</button>
+  <button class="nav-btn" data-screen="screenLineas" type="button"><span class="nav-ico">🚌</span>Líneas</button>
+  <button class="nav-btn" data-screen="screenRuta" type="button"><span class="nav-ico">🧭</span>Ruta</button>
+</nav>
+
+<main>
+
+  <section id="screenInicio" class="screen active">
+    <div id="homeFavSalidas"></div>
+    <div class="home-wrap">
+      <div id="homeMap" class="home-map"></div>
+      <div class="home-search">
+        <p class="home-search-title">¿A dónde quieres ir?</p>
+        <input type="text" class="input" id="homeDestinoInput" list="listaParadas" placeholder="Busca una parada de destino…">
+        <div class="home-origen-line" id="homeOrigenLine">
+          <span id="homeOrigenTexto">Localizando…</span>
+          <button class="btn-chip" id="homeBtnUbicacion" type="button" style="font-size:12px; padding:4px 8px;">📍 Usar mi ubicación</button>
+        </div>
+        <div class="home-quickfavs" id="homeQuickFavs"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="screenLineas" class="screen">
+    <div class="card" id="lineasFavCard">
+      <h3 class="section-title" style="margin-top:0;">★ Líneas favoritas</h3>
+      <div id="lineasFavChips"></div>
+    </div>
+    <div class="card">
+      <h3 class="section-title" style="margin-top:0;">Todas las líneas</h3>
+      <div class="field">
+        <input type="text" class="input" id="lineaBuscador" placeholder="Buscar línea por nombre o municipio…">
+      </div>
+      <div class="field" style="margin-bottom:6px;">
+        <label class="field-label">Filtrar por municipio</label>
+        <select class="select" id="selMunicipio"></select>
+      </div>
+      <div id="lineasListado"></div>
+    </div>
+    <div id="lineDetail"></div>
+  </section>
+
+  <section id="screenRuta" class="screen">
+    <div class="card">
+      <div id="routeMap" class="mapbox" style="height:min(46vh, 400px);"></div>
+    </div>
+    <div class="card">
+      <div class="field">
+        <label class="field-label">Origen</label>
+        <div class="endpoint-row">
+          <input type="text" class="input" id="origenInput" list="listaParadas" placeholder="Escribe el nombre de una parada…">
+          <button class="btn-chip" id="origenGeo" type="button" title="Usar mi ubicación">📍</button>
+          <button class="btn-chip" id="origenPin" type="button" title="Marcar en el mapa">🖊</button>
+        </div>
+        <div class="endpoint-status" id="origenStatus"></div>
+      </div>
+      <div class="field">
+        <label class="field-label">Destino</label>
+        <div class="endpoint-row">
+          <input type="text" class="input" id="destinoInput" list="listaParadas" placeholder="Escribe el nombre de una parada…">
+          <button class="btn-chip" id="destinoGeo" type="button" title="Usar mi ubicación">📍</button>
+          <button class="btn-chip" id="destinoPin" type="button" title="Marcar en el mapa">🏁</button>
+        </div>
+        <div class="endpoint-status" id="destinoStatus"></div>
+      </div>
+      <datalist id="listaParadas"></datalist>
+      <div class="field">
+        <label class="field-label">Mejor ruta por</label>
+        <div class="criterio-row" id="criterioRow">
+          <button type="button" class="criterio-pill active" data-criterio="trasbordos">🔀 Menos trasbordos</button>
+          <button type="button" class="criterio-pill" data-criterio="tiempo">🏁 Llegar antes</button>
+          <button type="button" class="criterio-pill" data-criterio="viaje">⚡ Viaje más corto</button>
+          <button type="button" class="criterio-pill" data-criterio="caminar">🚶 Menos caminar</button>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label class="field-label">Salir a las</label>
+          <input type="datetime-local" class="input" id="horaSalida">
+        </div>
+        <button class="btn" id="btnCalcularRuta" type="button">🧭 Calcular ruta</button>
+      </div>
+      <div class="board-note" id="rutaClickHint" style="display:none;"></div>
+    </div>
+    <div id="rutaResultado"></div>
+  </section>
+
+  <!-- Pantalla auxiliar: paradas cercanas (se abre desde Inicio) -->
+  <section id="screenGeo" class="screen">
+    <div class="card">
+      <div class="field-row">
+        <div class="field">
+          <label class="field-label">Radio de búsqueda (km)</label>
+          <input type="number" class="input" id="geoRadius" value="1" min="0.1" max="10" step="0.1">
+        </div>
+        <button class="btn" id="btnGeo" type="button">📍 Buscar cerca de mí</button>
+      </div>
+      <div class="status-line" id="geoStatus" style="margin-top:10px;"></div>
+    </div>
+    <div id="geoResults"></div>
+  </section>
+
+</main>
+
+<div class="drawer-overlay" id="drawerOverlay"></div>
+<aside class="drawer" id="favDrawer">
+  <div class="drawer-head">
+    <h2 class="drawer-title">★ Mis favoritos</h2>
+    <button class="btn-icon" id="btnCerrarFavoritos" type="button">✕</button>
+  </div>
+  <div class="card">
+    <h3 class="section-title" style="margin-top:0;">📍 Paradas</h3>
+    <div id="favParadasList"></div>
+  </div>
+  <div class="card">
+    <h3 class="section-title" style="margin-top:0;">🚌 Líneas</h3>
+    <div id="favLineasList"></div>
+  </div>
+  <div id="favRutasList"></div>
+</aside>
+
+<footer>
+  Herramienta personal, sin relación con el Consorcio de Transportes de Sevilla. Datos extraídos de ctas.es
+  en fecha de generación del archivo (ver arriba); los horarios son los programados, no posición en tiempo real.
+  El trazo entre paradas en el mapa une paradas consecutivas en línea recta, no el recorrido real por calle.
+</footer>
+
+<div id="modalRoot"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+"use strict";
+
+/* ------------------------------------------------------------------ */
+/* Config y estado                                                     */
+/* ------------------------------------------------------------------ */
+const DATA_URL = "ctas_data_app.json";
+const LS_KEY = "ctasAppDataV1";
+const APP = { data: null };
+
+/* ------------------------------------------------------------------ */
+/* Favoritos                                                           */
+/* ------------------------------------------------------------------ */
+const LS_FAVORITOS_KEY = "ctasFavoritosV1";
+let FAVORITOS = { paradas: [], lineas: [], rutas: [], notificaciones: [] };
+
+function cargarFavoritos() {
+  try {
+    const raw = localStorage.getItem(LS_FAVORITOS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      FAVORITOS = {
+        paradas: Array.isArray(parsed.paradas) ? parsed.paradas : [],
+        lineas: Array.isArray(parsed.lineas) ? parsed.lineas : [],
+        rutas: Array.isArray(parsed.rutas) ? parsed.rutas : [],
+        notificaciones: Array.isArray(parsed.notificaciones) ? parsed.notificaciones : []
+      };
+    }
+  } catch (e) {
+    console.warn("No se pudieron cargar los favoritos", e);
+  }
+}
+
+function guardarFavoritos() {
+  try {
+    localStorage.setItem(LS_FAVORITOS_KEY, JSON.stringify(FAVORITOS));
+  } catch (e) {
+    console.warn("No se pudieron guardar los favoritos (¿cuota llena?)", e);
+  }
+}
+
+function esFavoritoParada(id) { return FAVORITOS.paradas.some(p => p.id === id); }
+function esFavoritoLinea(slug) { return FAVORITOS.lineas.some(l => l.slug === slug); }
+function esFavoritoRuta(origenId, destinoId) {
+  return FAVORITOS.rutas.some(r => r.origenId === origenId && r.destinoId === destinoId);
+}
+
+function toggleFavoritoRuta(origenId, destinoId, criterio) {
+  const idx = FAVORITOS.rutas.findIndex(r => r.origenId === origenId && r.destinoId === destinoId);
+  if (idx >= 0) {
+    FAVORITOS.rutas.splice(idx, 1);
+  } else {
+    const pO = APP.data.paradas[origenId], pD = APP.data.paradas[destinoId];
+    FAVORITOS.rutas.push({
+      origenId, destinoId, criterio: criterio || "tiempo",
+      origenNombre: pO ? pO.nombre : origenId, destinoNombre: pD ? pD.nombre : destinoId,
+      cache: null
+    });
+  }
+  guardarFavoritos();
+}
+
+function toggleFavoritoParada(id) {
+  const idx = FAVORITOS.paradas.findIndex(p => p.id === id);
+  if (idx >= 0) {
+    FAVORITOS.paradas.splice(idx, 1);
+  } else {
+    const p = APP.data.paradas[id];
+    FAVORITOS.paradas.push({ id, nombre: p ? p.nombre : id });
+  }
+  guardarFavoritos();
+}
+
+function toggleFavoritoLinea(slug) {
+  const idx = FAVORITOS.lineas.findIndex(l => l.slug === slug);
+  if (idx >= 0) {
+    FAVORITOS.lineas.splice(idx, 1);
+  } else {
+    const linea = APP.data.lineas.find(l => l.slug === slug);
+    // paradasPorSentido: cabeceraId -> paradaId elegida por la persona
+    // para ese sentido concreto (p.ej. en Guillena→Sevilla su parada es
+    // una, y en el sentido contrario otra distinta).
+    FAVORITOS.lineas.push({ slug, titulo: linea ? linea.titulo : slug, paradasPorSentido: {} });
+  }
+  guardarFavoritos();
+}
+
+/** Parada elegida por la persona para un sentido concreto de una línea
+ * favorita, o null si aún no ha elegido ninguna. */
+function paradaFavoritaDeSentido(lineaSlug, cabeceraId) {
+  const fav = FAVORITOS.lineas.find(l => l.slug === lineaSlug);
+  if (!fav || !fav.paradasPorSentido) return null;
+  return fav.paradasPorSentido[cabeceraId] || null;
+}
+
+function setParadaFavoritaDeSentido(lineaSlug, cabeceraId, paradaId) {
+  const fav = FAVORITOS.lineas.find(l => l.slug === lineaSlug);
+  if (!fav) return;
+  if (!fav.paradasPorSentido) fav.paradasPorSentido = {};
+  if (paradaId) fav.paradasPorSentido[cabeceraId] = paradaId;
+  else delete fav.paradasPorSentido[cabeceraId];
+  guardarFavoritos();
+}
+
+/* ------------------------------------------------------------------ */
+/* Notificaciones de salida                                            */
+/* ------------------------------------------------------------------ */
+const SNOOZE_MIN = 5;
+let NOTIF_TIMER = null;
+
+function claveNotificacion(paradaId, lineaSlug) {
+  return paradaId + "|" + (lineaSlug || "*");
+}
+
+function getNotificacion(paradaId, lineaSlug) {
+  return FAVORITOS.notificaciones.find(n => n.clave === claveNotificacion(paradaId, lineaSlug)) || null;
+}
+
+function setNotificacion(paradaId, lineaSlug, antelacionMin) {
+  const clave = claveNotificacion(paradaId, lineaSlug);
+  const idx = FAVORITOS.notificaciones.findIndex(n => n.clave === clave);
+  const entrada = {
+    clave, paradaId, lineaSlug: lineaSlug || null,
+    antelacionMin, activa: true, snoozeHasta: null
+  };
+  if (idx >= 0) FAVORITOS.notificaciones[idx] = entrada;
+  else FAVORITOS.notificaciones.push(entrada);
+  guardarFavoritos();
+  arrancarVigilanteNotificaciones();
+}
+
+function quitarNotificacion(paradaId, lineaSlug) {
+  const clave = claveNotificacion(paradaId, lineaSlug);
+  const idx = FAVORITOS.notificaciones.findIndex(n => n.clave === clave);
+  if (idx >= 0) FAVORITOS.notificaciones.splice(idx, 1);
+  guardarFavoritos();
+}
+
+/** Pide permiso al navegador. Devuelve true si se puede notificar. */
+async function pedirPermisoNotificaciones() {
+  if (!("Notification" in window)) return false;
+  if (Notification.permission === "granted") return true;
+  if (Notification.permission === "denied") return false;
+  const res = await Notification.requestPermission();
+  return res === "granted";
+}
+
+/** Lanza la notificación por el mejor canal disponible.
+ * En Android/Chrome el constructor `new Notification()` está prohibido y
+ * exige un Service Worker; como esta app es un único fichero HTML (no
+ * podemos registrar un SW desde un blob), ahí caemos a un aviso dentro
+ * de la propia página. En escritorio sí sale la notificación del sistema. */
+async function lanzarNotificacion(titulo, cuerpo, onSnooze) {
+  let lanzada = false;
+  if ("Notification" in window && Notification.permission === "granted") {
+    try {
+      // Vía Service Worker: es la única que funciona en Android/Chrome,
+      // y la preferimos siempre que haya uno registrado (no hace falta
+      // que ya controle la página).
+      if (navigator.serviceWorker) {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg && reg.showNotification) {
+          await reg.showNotification(titulo, {
+            body: cuerpo,
+            tag: "proxima-salida",
+            icon: "icon.svg",
+            badge: "icon.svg",
+            requireInteraction: false
+          });
+          lanzada = true;
+        }
+      }
+      if (!lanzada) {
+        new Notification(titulo, { body: cuerpo });
+        lanzada = true;
+      }
+    } catch (e) {
+      console.warn("No se pudo usar la notificación del sistema", e);
+    }
+  }
+  mostrarAvisoEnApp(titulo, cuerpo, onSnooze, lanzada);
+}
+
+/** Aviso visible dentro de la app: sirve de refuerzo en escritorio y de
+ * sustituto real en móvil, donde la notificación de sistema no está
+ * disponible sin Service Worker. */
+function mostrarAvisoEnApp(titulo, cuerpo, onSnooze, yaLanzadaFuera) {
+  const anterior = document.getElementById("avisoSalida");
+  if (anterior) anterior.remove();
+  const box = document.createElement("div");
+  box.id = "avisoSalida";
+  box.className = "aviso-salida";
+  box.innerHTML = `
+    <div class="aviso-titulo">${escapeHtml(titulo)}</div>
+    <div class="aviso-cuerpo">${escapeHtml(cuerpo)}</div>
+    ${yaLanzadaFuera ? "" : '<div class="aviso-nota">Tu navegador no permite notificaciones del sistema aquí; te aviso dentro de la app.</div>'}
+    <div class="aviso-acciones">
+      <button type="button" class="btn-chip" id="avisoSnooze">⏰ Posponer ${SNOOZE_MIN} min</button>
+      <button type="button" class="btn-chip" id="avisoCerrar">✕ Cerrar</button>
+    </div>`;
+  document.body.appendChild(box);
+  box.querySelector("#avisoSnooze").addEventListener("click", () => { if (onSnooze) onSnooze(); box.remove(); });
+  box.querySelector("#avisoCerrar").addEventListener("click", () => box.remove());
+}
+
+/** Próxima salida vigilada para una notificación: si lleva línea
+ * asociada, solo esa línea; si no, cualquier línea de esa parada. */
+function proximaSalidaVigilada(notif) {
+  const p = APP.data.paradas[notif.paradaId];
+  if (!p) return null;
+  const servicios = (p.servicios || []).filter(s => !notif.lineaSlug || s.linea_slug === notif.lineaSlug);
+  if (!servicios.length) return null;
+  const now = new Date();
+  const dep = nextDepartureConOrigen(servicios, now);
+  if (!dep) return null;
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const minutosRestantes = dep.dias * 1440 + dep.h * 60 + dep.m - nowMin;
+  // La línea y la dirección deben salir del MISMO servicio que produce
+  // esa salida concreta: tomar el título de servicios[0] mezclaba la
+  // línea de un servicio con la dirección de otro cuando la parada tiene
+  // varias líneas.
+  const nombreVariante = dep.variantes && dep.variantes.length ? dep.variantes[0] : null;
+  const servicioSalida = nombreVariante
+    ? servicios.find(s => s.variante_nombre === nombreVariante) || servicios[0]
+    : servicios[0];
+  const lineaTitulo = servicioSalida.linea_titulo;
+  let direccion = "";
+  if (nombreVariante) {
+    const od = origenDestinoVariante(nombreVariante);
+    direccion = od ? od.origen + " → " + od.destino : nombreVariante;
+  }
+  return { minutosRestantes, lineaTitulo, direccion, paradaNombre: p.nombre, dep };
+}
+
+function revisarNotificaciones() {
+  if (!APP.data || !FAVORITOS.notificaciones.length) return;
+  const ahora = Date.now();
+  FAVORITOS.notificaciones.forEach(notif => {
+    if (!notif.activa) return;
+    if (notif.snoozeHasta && ahora < notif.snoozeHasta) return;
+    const info = proximaSalidaVigilada(notif);
+    if (!info) return;
+    if (info.minutosRestantes < 0 || info.minutosRestantes > notif.antelacionMin) return;
+
+    const titulo = "🚌 Tu autobús está al salir";
+    const cuerpo = `Quedan ${info.minutosRestantes} minuto${info.minutosRestantes === 1 ? "" : "s"} para que el autobús de la línea ${info.lineaTitulo}` +
+      (info.direccion ? ` salga en dirección ${info.direccion}` : " salga") +
+      ` de ${info.paradaNombre}.`;
+
+    // Por defecto se desactiva tras avisar; si la persona pospone, se
+    // reactiva con una espera de SNOOZE_MIN minutos.
+    notif.activa = false;
+    guardarFavoritos();
+    lanzarNotificacion(titulo, cuerpo, () => {
+      notif.activa = true;
+      notif.snoozeHasta = Date.now() + SNOOZE_MIN * 60000;
+      guardarFavoritos();
+      arrancarVigilanteNotificaciones();
+    });
+  });
+}
+
+function arrancarVigilanteNotificaciones() {
+  if (NOTIF_TIMER) return;
+  NOTIF_TIMER = setInterval(revisarNotificaciones, 30000);
+  revisarNotificaciones();
+}
+
+/** Diálogo para activar/desactivar el aviso de una parada (opcionalmente
+ * restringido a una línea concreta). Pide la antelación en minutos. */
+function abrirDialogoNotificacion(paradaId, lineaSlug, onCambio) {
+  const p = APP.data.paradas[paradaId];
+  const existente = getNotificacion(paradaId, lineaSlug);
+  openModal(container => {
+    container.innerHTML = `
+      <h3 class="detail-title">Avisarme antes de la salida</h3>
+      <div class="detail-meta">${escapeHtml(p ? p.nombre : paradaId)}${lineaSlug ? " · solo esta línea" : " · cualquier línea"}</div>
+      <div class="field" style="margin-top:12px;">
+        <label class="field-label">Antelación (minutos)</label>
+        <input type="number" class="input" id="notifMin" min="1" max="120" step="1" value="${existente ? existente.antelacionMin : 10}">
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button type="button" class="btn" id="notifGuardar">🔔 Activar aviso</button>
+        ${existente ? '<button type="button" class="btn-chip" id="notifQuitar">✕ Quitar aviso</button>' : ""}
+      </div>
+      <p class="board-note" style="margin-top:10px;">Se avisa una sola vez y el aviso se desactiva solo; si lo pospones, vuelve a sonar ${SNOOZE_MIN} minutos después. La app debe estar abierta en una pestaña para poder avisarte.</p>
+      <div class="board-note" id="notifEstado"></div>`;
+
+    container.querySelector("#notifGuardar").addEventListener("click", async () => {
+      const min = parseInt(container.querySelector("#notifMin").value, 10);
+      if (!min || min < 1) {
+        container.querySelector("#notifEstado").textContent = "Introduce un número de minutos válido.";
+        return;
+      }
+      const permitido = await pedirPermisoNotificaciones();
+      setNotificacion(paradaId, lineaSlug, min);
+      container.querySelector("#notifEstado").textContent = permitido
+        ? `Aviso activado: te avisaré ${min} min antes.`
+        : `Aviso activado, pero tu navegador ha bloqueado las notificaciones del sistema: te avisaré dentro de la app.`;
+      if (onCambio) onCambio();
+      setTimeout(closeModal, 1200);
+    });
+    const btnQuitar = container.querySelector("#notifQuitar");
+    if (btnQuitar) btnQuitar.addEventListener("click", () => {
+      quitarNotificacion(paradaId, lineaSlug);
+      if (onCambio) onCambio();
+      closeModal();
+    });
+  });
+}
+
+let CURRENT_MAP_REF = { map: null };
+let CURRENT_MODAL_MAP_REF = { map: null };
+
+/* ------------------------------------------------------------------ */
+/* Utilidades                                                          */
+/* ------------------------------------------------------------------ */
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = d => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function formatDistance(m) {
+  return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
+}
+
+function normalize(s) {
+  return String(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function frecuenciaKeyForDate(date) {
+  const day = date.getDay(); // 0 domingo .. 6 sábado
+  if (day === 0) return "domingo";
+  if (day === 6) return "sabado";
+  return "laborable";
+}
+
+function matchFrecuencia(frecuenciaStr, key) {
+  const n = normalize(frecuenciaStr);
+  const esDomingo = /domingo|festivo/.test(n);
+  const esSabado = /sabado/.test(n);
+  if (key === "domingo") return esDomingo;
+  if (key === "sabado") return esSabado;
+  // laborable: aceptamos "lunes a viernes", "laborable", "diario"... y como
+  // último recurso, cualquier frecuencia que no sea explícitamente de
+  // sábado o domingo/festivo.
+  return /lunes|viernes|laborable|diario/.test(n) || (!esDomingo && !esSabado);
+}
+
+function pickHorarioBucket(horarios, key) {
+  if (!horarios) return null;
+  return horarios.find(h => matchFrecuencia(h.frecuencia, key)) || null;
+}
+
+function normFrecuencia(frecuenciaStr) {
+  const n = normalize(frecuenciaStr);
+  if (/domingo|festivo/.test(n)) return "domingo";
+  if (/sabado/.test(n)) return "sabado";
+  return "laborable";
+}
+
+/** Todos los "servicios" (línea+variante) de una MISMA línea que pasan
+ * físicamente por una parada dada. Una parada puede estar servida por
+ * varias sub-rutas de la misma línea (p.ej. la M-177 tiene 5 recorridos
+ * distintos que comparten tramos). */
+function serviciosDeLineaEnParada(paradaId, lineaSlug) {
+  const p = APP.data.paradas[paradaId];
+  if (!p) return [];
+  return p.servicios.filter(s => s.linea_slug === lineaSlug);
+}
+
+/** Fusiona los horarios de varios "servicios" que pasan por la misma
+ * parada física en un único horario por tipo de día: cualquier bus de
+ * la línea que pase por ahí, venga por la sub-ruta que venga. Esto es
+ * lo que responde de verdad a "¿cuándo sale el próximo autobús de esta
+ * línea desde esta parada?" en vez de atarlo a una única variante. */
+function mergeHorarios(serviciosArray) {
+  const buckets = {}; // 'laborable'|'sabado'|'domingo' -> {frecuencia, pasos:{hora:Set}}
+  serviciosArray.forEach(s => {
+    (s.horarios || []).forEach(h => {
+      const key = normFrecuencia(h.frecuencia);
+      if (!buckets[key]) buckets[key] = { frecuencia: h.frecuencia, pasos: {} };
+      for (const hora of Object.keys(h.pasos || {})) {
+        if (!buckets[key].pasos[hora]) buckets[key].pasos[hora] = new Set();
+        (h.pasos[hora] || []).forEach(m => buckets[key].pasos[hora].add(m));
+      }
+    });
+  });
+  return ["laborable", "sabado", "domingo"].filter(k => buckets[k]).map(k => {
+    const b = buckets[k];
+    const pasos = {};
+    Object.keys(b.pasos).forEach(hora => {
+      pasos[hora] = [...b.pasos[hora]].sort((a, b2) => a - b2);
+    });
+    return { frecuencia: b.frecuencia, pasos };
+  });
+}
+
+/** Como mergeHorarios, pero conserva qué recorrido(s) concreto(s) ofrecen
+ * cada hora de paso, para poder mostrar "próximo bus a las X, por el
+ * recorrido Y" sin atarse a una única variante. */
+function mergeDeparturesConOrigen(serviciosArray) {
+  const buckets = {};
+  serviciosArray.forEach(s => {
+    (s.horarios || []).forEach(h => {
+      const key = normFrecuencia(h.frecuencia);
+      if (!buckets[key]) buckets[key] = { frecuencia: h.frecuencia, slots: new Map() };
+      for (const hora of Object.keys(h.pasos || {})) {
+        (h.pasos[hora] || []).forEach(m => {
+          const k = hora + "-" + m;
+          if (!buckets[key].slots.has(k)) buckets[key].slots.set(k, { h: parseInt(hora, 10), m, variantes: new Map() });
+          buckets[key].slots.get(k).variantes.set(s.variante_nodo_id, s.variante_nombre);
+        });
+      }
+    });
+  });
+  const out = {};
+  Object.keys(buckets).forEach(key => {
+    const arr = [...buckets[key].slots.values()].sort((a, b) => (a.h * 60 + a.m) - (b.h * 60 + b.m));
+    arr.forEach(x => { x.variantes = [...x.variantes.values()]; });
+    out[key] = { frecuencia: buckets[key].frecuencia, slots: arr };
+  });
+  return out;
+}
+
+function nextDepartureConOrigen(serviciosArray, now) {
+  now = now || new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const merged = mergeDeparturesConOrigen(serviciosArray);
+  const bucketHoy = merged[frecuenciaKeyForDate(now)];
+  if (bucketHoy) {
+    const slot = bucketHoy.slots.find(s => s.h * 60 + s.m >= nowMin);
+    if (slot) return { h: slot.h, m: slot.m, dias: 0, variantes: slot.variantes };
+  }
+  for (let add = 1; add <= 7; add++) {
+    const future = new Date(now.getTime() + add * 86400000);
+    const bucket = merged[frecuenciaKeyForDate(future)];
+    if (bucket && bucket.slots.length) {
+      const slot = bucket.slots[0];
+      return { h: slot.h, m: slot.m, dias: add, variantes: slot.variantes };
+    }
+  }
+  return null;
+}
+
+function flattenPasos(pasos) {
+  const out = [];
+  for (const h of Object.keys(pasos || {})) {
+    for (const m of pasos[h]) out.push({ h: parseInt(h, 10), m });
+  }
+  out.sort((a, b) => a.h - b.h || a.m - b.m);
+  return out;
+}
+
+/** Devuelve {h, m, dias} de la próxima salida, o null si la línea no
+ * tiene ningún horario utilizable en los próximos 7 días. */
+function nextDeparture(horarios, now) {
+  now = now || new Date();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const bucketHoy = pickHorarioBucket(horarios, frecuenciaKeyForDate(now));
+  if (bucketHoy) {
+    const pasos = flattenPasos(bucketHoy.pasos);
+    const upcoming = pasos.find(p => p.h * 60 + p.m >= nowMinutes);
+    if (upcoming) return { h: upcoming.h, m: upcoming.m, dias: 0 };
+  }
+  for (let add = 1; add <= 7; add++) {
+    const future = new Date(now.getTime() + add * 86400000);
+    const bucket = pickHorarioBucket(horarios, frecuenciaKeyForDate(future));
+    if (bucket) {
+      const pasos = flattenPasos(bucket.pasos);
+      if (pasos.length) return { h: pasos[0].h, m: pasos[0].m, dias: add };
+    }
+  }
+  return null;
+}
+
+function formatDeparture(dep) {
+  if (!dep) return { main: "—", sub: "Sin servicios programados" };
+  const hh = String(dep.h).padStart(2, "0");
+  const mm = String(dep.m).padStart(2, "0");
+  let sub;
+  if (dep.dias === 0) {
+    const now = new Date();
+    const diff = (dep.h * 60 + dep.m) - (now.getHours() * 60 + now.getMinutes());
+    sub = diff <= 0 ? "saliendo ahora" : `en ${diff} min`;
+  } else if (dep.dias === 1) {
+    sub = "mañana";
+  } else {
+    sub = `en ${dep.dias} días`;
+  }
+  return { main: `${hh}:${mm}`, sub };
+}
+
+function setStatus(msg) {
+  document.getElementById("dataStatus").textContent = msg;
+}
+
+/* ------------------------------------------------------------------ */
+/* Carga de datos con caché en localStorage                            */
+/* ------------------------------------------------------------------ */
+async function loadData(force) {
+  if (!force) {
+    try {
+      const cached = localStorage.getItem(LS_KEY);
+      if (cached) return JSON.parse(cached);
+    } catch (e) {
+      console.warn("No se pudo leer la caché local", e);
+    }
+  }
+  const resp = await fetch(DATA_URL, { cache: "no-store" });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} al pedir ${DATA_URL}`);
+  const json = await resp.json();
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(json));
+  } catch (e) {
+    console.warn("No se pudo cachear en localStorage (¿cuota llena?)", e);
+  }
+  return json;
+}
+
+/* ------------------------------------------------------------------ */
+/* Mapa (Leaflet)                                                      */
+/* ------------------------------------------------------------------ */
+function setMarkerStyle(marker, selected) {
+  marker.setStyle(selected
+    ? { radius: 9, color: "#FFB100", fillColor: "#FFB100", fillOpacity: 1, weight: 2 }
+    : { radius: 6, color: "#2F6F4F", fillColor: "#ffffff", fillOpacity: 1, weight: 2 });
+}
+
+function renderMap(containerEl, paradaIds, onMarkerClick, mapRef) {
+  mapRef = mapRef || CURRENT_MAP_REF;
+  if (mapRef.map) {
+    mapRef.map.remove();
+    mapRef.map = null;
+  }
+  const map = L.map(containerEl, { scrollWheelZoom: false });
+  mapRef.map = map;
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap"
+  }).addTo(map);
+
+  const latlngs = [];
+  const markers = {};
+  (paradaIds || []).forEach(id => {
+    const p = APP.data.paradas[id];
+    if (p && p.lat != null && p.lng != null) {
+      latlngs.push([p.lat, p.lng]);
+      const marker = L.circleMarker([p.lat, p.lng], {
+        radius: 6, weight: 2, color: "#2F6F4F", fillColor: "#ffffff", fillOpacity: 1
+      }).addTo(map).bindTooltip(p.nombre, { direction: "top" });
+      marker.on("click", () => onMarkerClick && onMarkerClick(id));
+      markers[id] = marker;
+    }
+  });
+  if (latlngs.length > 1) {
+    L.polyline(latlngs, { color: "#2F6F4F", weight: 3, opacity: 0.55, dashArray: "1 8" }).addTo(map);
+  }
+  if (latlngs.length) {
+    map.fitBounds(latlngs, { padding: [24, 24] });
+  } else {
+    map.setView([37.389, -5.984], 11); // Sevilla, de referencia
+  }
+  return { map, markers };
+}
+
+/* ------------------------------------------------------------------ */
+/* Render: horario completo + tablero de próxima salida + PDF          */
+/* ------------------------------------------------------------------ */
+function renderBoard(container, servicio) {
+  const dep = nextDeparture(servicio.horarios);
+  const fmt = formatDeparture(dep);
+  container.innerHTML = `
+    <div class="board">
+      <div class="board-label">PRÓXIMA SALIDA</div>
+      <div class="board-time">${fmt.main}</div>
+      <div class="board-sub">${escapeHtml(fmt.sub)}</div>
+    </div>
+    <div class="board-note">Calculado sobre el horario programado, no es posición GPS en tiempo real.</div>`;
+}
+
+function renderPdfBtn(container, servicio) {
+  container.innerHTML = "";
+  if (servicio.pdf_url) {
+    const a = document.createElement("a");
+    a.href = servicio.pdf_url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.className = "btn btn-pdf";
+    a.textContent = "⭳ Descargar PDF de esta parada";
+    container.appendChild(a);
+  } else {
+    container.innerHTML = '<p class="empty">PDF no disponible para esta parada.</p>';
+  }
+}
+
+function renderHorarioSection(container, servicio) {
+  container.innerHTML = "";
+  const todayKey = frecuenciaKeyForDate(new Date());
+  (servicio.horarios || []).forEach(h => {
+    const isToday = matchFrecuencia(h.frecuencia, todayKey);
+    const details = document.createElement("details");
+    details.open = isToday;
+    const summary = document.createElement("summary");
+    summary.textContent = h.frecuencia + (isToday ? " · hoy" : "");
+    details.appendChild(summary);
+
+    const grid = document.createElement("div");
+    grid.className = "horagrid";
+    const horas = Object.keys(h.pasos || {}).map(Number).sort((a, b) => a - b);
+    horas.forEach(hh => {
+      const cell = document.createElement("div");
+      cell.className = "horacell";
+      const label = document.createElement("span");
+      label.className = "horalabel";
+      label.textContent = String(hh).padStart(2, "0") + "h";
+      cell.appendChild(label);
+      const mins = document.createElement("div");
+      mins.className = "minchips";
+      (h.pasos[hh] || []).forEach(m => {
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = String(m).padStart(2, "0");
+        mins.appendChild(chip);
+      });
+      cell.appendChild(mins);
+      grid.appendChild(cell);
+    });
+    details.appendChild(grid);
+    container.appendChild(details);
+  });
+  if (!container.children.length) {
+    container.innerHTML = '<p class="empty">No hay horario disponible para esta parada.</p>';
+  }
+}
+
+/** Vista de detalle completa de una línea: mapa + lista de TODAS sus
+ * paradas (unión de todos sus recorridos, en el orden fusionado
+ * `orden_unificado`), cada una con su propia próxima salida — contando
+ * cualquier recorrido de la línea que pase por ahí — y mostrando qué
+ * recorrido concreto sigue ese autobús. Cada parada es un acordeón: al
+ * abrirla se ve el horario completo de hoy y los PDFs oficiales de cada
+ * recorrido que pasa por esa parada. Reutilizada tanto desde "Buscar
+ * línea" como desde el drill-down de Geolocalización. `defaultStopId`,
+ * si se pasa, se abre y se centra al cargar. `onBack`, si se pasa,
+ * añade un botón de volver. */
+function renderLineDetail(container, linea, defaultStopId, onBack, mapRef) {
+  mapRef = mapRef || CURRENT_MAP_REF;
+  container.innerHTML = `
+    ${onBack ? '<button class="btn-back" id="btnBack">← Volver</button>' : ""}
+    <h3 class="detail-title">${escapeHtml(linea.titulo)} <button type="button" class="btn-fav" id="btnFavLinea">${esFavoritoLinea(linea.slug) ? "★" : "☆"}</button></h3>
+    <div class="detail-meta">${linea.variantes.length} recorrido${linea.variantes.length === 1 ? "" : "s"} combinados</div>
+    <h4 class="section-title" style="margin-top:14px;">Salidas por sentido</h4>
+    <div class="cabecera-list" id="cabecerasBox"></div>
+    <div class="map-note">El trazo entre paradas une paradas consecutivas en línea recta, fusionando todos los recorridos de la línea (no es el trazado real por calle).</div>
+    <div id="mapBox" class="mapbox"></div>
+    <h4 class="section-title">Paradas y próxima salida</h4>
+    <div class="board-note" style="margin-bottom:10px;">Cuenta cualquier autobús de esta línea que pase por cada parada, sea cual sea su recorrido concreto.</div>
+    <div id="stopsList"></div>
+  `;
+  if (onBack) container.querySelector("#btnBack").addEventListener("click", onBack);
+  const cabecerasBox = container.querySelector("#cabecerasBox");
+  const repintarCabeceras = () => renderCabecerasEn(cabecerasBox, linea, repintarCabeceras);
+  repintarCabeceras();
+  container.querySelector("#btnFavLinea").addEventListener("click", e => {
+    toggleFavoritoLinea(linea.slug);
+    e.target.textContent = esFavoritoLinea(linea.slug) ? "★" : "☆";
+    repintarCabeceras();
+  });
+
+  const stopsListEl = container.querySelector("#stopsList");
+  const paradasValidas = (linea.orden_unificado || []).filter(id => APP.data.paradas[id]);
+  if (paradasValidas.length === 0) {
+    stopsListEl.innerHTML = '<p class="empty">Esta línea no tiene paradas con datos.</p>';
+    return;
+  }
+
+  const { markers } = renderMap(container.querySelector("#mapBox"), paradasValidas, id => {
+    const row = stopsListEl.querySelector(`.stoprow[data-id="${cssEscape(id)}"]`);
+    if (row) {
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+      openStopRow(row);
+    }
+  }, mapRef);
+
+  function openStopRow(row) {
+    stopsListEl.querySelectorAll(".stoprow-body").forEach(b => { if (b !== row.querySelector(".stoprow-body")) b.hidden = true; });
+    const body = row.querySelector(".stoprow-body");
+    const wasHidden = body.hidden;
+    body.hidden = !wasHidden ? true : false;
+    const id = row.dataset.id;
+    Object.entries(markers).forEach(([mid, m]) => setMarkerStyle(m, mid === id));
+    const p = APP.data.paradas[id];
+    if (wasHidden && p.lat != null && mapRef.map) mapRef.map.panTo([p.lat, p.lng]);
+    if (wasHidden && !body.dataset.built) {
+      const serviciosLinea = serviciosDeLineaEnParada(id, linea.slug);
+      const merged = mergeHorarios(serviciosLinea);
+      renderBoard(body.querySelector(".boardBox"), { horarios: merged });
+      renderPdfMultiBtn(body.querySelector(".pdfBox"), serviciosLinea);
+      renderHorarioSection(body.querySelector(".horarioBox"), { horarios: merged });
+      body.dataset.built = "1";
+    }
+  }
+
+  let firstRow = null;
+  paradasValidas.forEach((id, idx) => {
+    const p = APP.data.paradas[id];
+    const serviciosLinea = serviciosDeLineaEnParada(id, linea.slug);
+    const dep = nextDepartureConOrigen(serviciosLinea);
+    const fmt = formatDeparture(dep);
+    const recorridoLabel = dep && dep.variantes ? (dep.variantes.length > 1 ? `${dep.variantes.length} recorridos posibles` : dep.variantes[0]) : "";
+
+    const row = document.createElement("div");
+    row.className = "stoprow";
+    row.dataset.id = id;
+    row.innerHTML = `
+      <button type="button" class="stoprow-head">
+        <span class="stoprow-order">${idx + 1}</span>
+        <span class="stoprow-name">${escapeHtml(p.nombre)}<span class="stoprow-recorrido">${escapeHtml(recorridoLabel)}</span></span>
+        <span class="stoprow-time">${fmt.main}<span class="stoprow-sub">${escapeHtml(fmt.sub)}</span></span>
+      </button>
+      <div class="stoprow-body" hidden>
+        <div class="boardBox"></div>
+        <div class="pdfBox"></div>
+        <div class="horarioBox"></div>
+      </div>
+    `;
+    row.querySelector(".stoprow-head").addEventListener("click", () => openStopRow(row));
+    stopsListEl.appendChild(row);
+    if (id === defaultStopId || !firstRow) firstRow = row;
+  });
+
+  openStopRow(firstRow);
+  if (defaultStopId) firstRow.scrollIntoView({ block: "nearest" });
+}
+
+/** Lista, en vez de un único botón, un enlace de PDF por cada recorrido
+ * de la línea que pasa por esta parada (pueden tener PDFs distintos). */
+function renderPdfMultiBtn(container, serviciosArray) {
+  container.innerHTML = "";
+  const conPdf = serviciosArray.filter(s => s.pdf_url);
+  if (!conPdf.length) {
+    container.innerHTML = '<p class="empty">PDF no disponible para esta parada.</p>';
+    return;
+  }
+  const wrap = document.createElement("div");
+  wrap.style.margin = "10px 0 4px 0";
+  conPdf.forEach(s => {
+    const a = document.createElement("a");
+    a.href = s.pdf_url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.className = "btn btn-pdf";
+    a.style.marginRight = "8px";
+    a.style.marginBottom = "6px";
+    a.textContent = `⭳ PDF (${s.variante_nombre})`;
+    wrap.appendChild(a);
+  });
+  container.appendChild(wrap);
+}
+
+/* ------------------------------------------------------------------ */
+/* Sistema de modal genérico                                           */
+/* ------------------------------------------------------------------ */
+function closeModal() {
+  const root = document.getElementById("modalRoot");
+  if (CURRENT_MODAL_MAP_REF.map) { CURRENT_MODAL_MAP_REF.map.remove(); CURRENT_MODAL_MAP_REF.map = null; }
+  root.innerHTML = "";
+}
+
+function openModal(buildContentFn) {
+  const root = document.getElementById("modalRoot");
+  root.innerHTML = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box">
+        <button class="modal-close" id="modalCloseBtn" type="button">✕ Cerrar</button>
+        <div style="clear:both;"></div>
+        <div id="modalContent"></div>
+      </div>
+    </div>`;
+  root.querySelector("#modalOverlay").addEventListener("click", e => {
+    if (e.target.id === "modalOverlay") closeModal();
+  });
+  root.querySelector("#modalCloseBtn").addEventListener("click", closeModal);
+  buildContentFn(root.querySelector("#modalContent"));
+}
+
+/** Abre una línea completa (mapa + paradas + horarios + PDFs) dentro de
+ * un modal. Se usa desde cualquier sitio donde se pulse el nombre de
+ * una línea: itinerario de ruta, popup de parada, etc. */
+function openLineModal(lineaSlug, defaultStopId) {
+  const linea = APP.data.lineas.find(l => l.slug === lineaSlug);
+  if (!linea) return;
+  openModal(container => {
+    renderLineDetail(container, linea, defaultStopId || (linea.orden_unificado || [])[0], null, CURRENT_MODAL_MAP_REF);
+  });
+}
+
+/** Contenido "todas las líneas de esta parada", con horario completo
+ * (no solo las 4 primeras como en el popup del mapa) y cada línea
+ * pulsable para abrir su ficha completa. Pensado para paradas con
+ * muchas líneas donde el popup del mapa se queda corto. */
+function buildStopScheduleModalContent(container, stopId) {
+  const p = APP.data.paradas[stopId];
+  const porLinea = {};
+  (p.servicios || []).forEach(s => {
+    if (!porLinea[s.linea_slug]) porLinea[s.linea_slug] = { linea_titulo: s.linea_titulo, servicios: [] };
+    porLinea[s.linea_slug].servicios.push(s);
+  });
+  const grupos = Object.values(porLinea).map(g => ({ ...g, dep: nextDeparture(mergeHorarios(g.servicios)) }));
+  grupos.sort((a, b) => {
+    const av = a.dep ? a.dep.dias * 1440 + a.dep.h * 60 + a.dep.m : Infinity;
+    const bv = b.dep ? b.dep.dias * 1440 + b.dep.h * 60 + b.dep.m : Infinity;
+    return av - bv;
+  });
+
+  container.innerHTML = `
+    <h3 class="detail-title">${escapeHtml(p.nombre)} <button type="button" class="btn-fav" id="btnFavParadaModal">${esFavoritoParada(stopId) ? "★" : "☆"}</button></h3>
+    <div class="detail-meta">${escapeHtml(p.zona || "")} · ${grupos.length} línea${grupos.length === 1 ? "" : "s"} por esta parada</div>
+    <ul class="servicelist" id="stopScheduleList" style="margin-top:10px;"></ul>
+  `;
+  container.querySelector("#btnFavParadaModal").addEventListener("click", e => {
+    toggleFavoritoParada(stopId);
+    e.target.textContent = esFavoritoParada(stopId) ? "★" : "☆";
+    renderHomeFavSalidas();
+  });
+  const notifParada = getNotificacion(stopId, null);
+  const btnNotif = document.createElement("button");
+  btnNotif.type = "button";
+  btnNotif.className = "btn-chip";
+  btnNotif.style.margin = "8px 0 4px 0";
+  btnNotif.textContent = notifParada ? `🔔 Aviso activo (${notifParada.antelacionMin} min) · editar` : "🔔 Notifícame antes de la salida";
+  btnNotif.addEventListener("click", () => abrirDialogoNotificacion(stopId, null, () => {
+    buildStopScheduleModalContent(container, stopId);
+    renderHomeFavSalidas();
+  }));
+  container.insertBefore(btnNotif, container.querySelector("#stopScheduleList"));
+  const list = container.querySelector("#stopScheduleList");
+  grupos.forEach(g => {
+    const fmt = formatDeparture(g.dep);
+    const li = document.createElement("li");
+    li.className = "serviceitem";
+    li.innerHTML = `
+      <div style="flex:1;">
+        <div class="servicename">${escapeHtml(g.linea_titulo)}</div>
+        <div class="servicevariant">${g.servicios.length > 1 ? g.servicios.length + " recorridos por aquí" : escapeHtml(g.servicios[0].variante_nombre)}</div>
+      </div>
+      <div class="servicetime">${fmt.main}<span class="servicesub">${escapeHtml(fmt.sub)}</span></div>
+    `;
+    li.addEventListener("click", () => openLineModal(g.linea_slug, stopId));
+    list.appendChild(li);
+  });
+}
+
+/** Escapa un valor para usarlo dentro de un selector CSS de atributo
+ * (los IDs de parada son numéricos o "s-slug", pero por seguridad). */
+function cssEscape(s) {
+  return String(s).replace(/["\\]/g, "\\$&");
+}
+
+/* ------------------------------------------------------------------ */
+/* Pantalla "Líneas": favoritas arriba, listado completo debajo        */
+/* ------------------------------------------------------------------ */
+function municipiosConLineas() {
+  const set = new Set();
+  APP.data.lineas.forEach(l => l.municipios.forEach(m => set.add(m)));
+  return APP.data.municipios.filter(m => set.has(m));
+}
+
+function buildMunicipioOptions() {
+  const sel = document.getElementById("selMunicipio");
+  sel.innerHTML = '<option value="">Todos los municipios</option>' +
+    municipiosConLineas().map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join("");
+}
+
+/** Código corto de la línea ("M-177") extraído del título completo. */
+function codigoLinea(titulo) {
+  const m = String(titulo).match(/^\s*([A-Za-zÀ-ÿ]?-?\d+[A-Za-z]?)/);
+  return m ? m[1] : String(titulo).slice(0, 6);
+}
+
+/** Extrae "Origen → Destino" del nombre descriptivo que ctas.es da a
+ * cada variante (p.ej. "M-177 Guillena - Camas - Sevilla (directo)" →
+ * Guillena / Sevilla). Es más informativo para orientarse que la primera
+ * y última parada, porque la mayoría de recorridos son circulares y
+ * empiezan y acaban físicamente en el mismo sitio. */
+function origenDestinoVariante(nombreVariante) {
+  let limpio = String(nombreVariante || "").replace(/^\s*[A-Za-zÀ-ÿ]?-?\d+[A-Za-z]?\s*/, "");
+  limpio = limpio.replace(/\s*\([^)]*\)\s*/g, " ").trim();
+  const partes = limpio.split("-").map(p => p.trim()).filter(Boolean);
+  if (!partes.length) return null;
+  return { origen: partes[0], destino: partes[partes.length - 1] };
+}
+
+/** Etiqueta de sentido para un grupo de variantes que comparten cabecera.
+ * Se queda con el par origen→destino más frecuente entre ellas. */
+function etiquetaSentido(variantes) {
+  const cuenta = new Map();
+  variantes.forEach(v => {
+    const od = origenDestinoVariante(v.nombre);
+    if (!od) return;
+    const clave = od.origen + " → " + od.destino;
+    cuenta.set(clave, (cuenta.get(clave) || 0) + 1);
+  });
+  if (!cuenta.size) return null;
+  return [...cuenta.entries()].sort((a, b) => b[1] - a[1])[0][0];
+}
+
+/** Cabeceras de salida de una línea = paradas donde arranca alguna de
+ * sus variantes. Cada cabecera representa un sentido de circulación
+ * (la mayoría de variantes de ctas.es son circulares y acaban donde
+ * empiezan, así que el sentido lo marca dónde arrancan, no el par
+ * origen-destino). Para cada cabecera se fusionan los horarios de todas
+ * las variantes que salen de ahí y se devuelven las próximas salidas.
+ *
+ * Si la persona ha elegido una parada propia para ese sentido (línea
+ * favorita), las horas se calculan en ESA parada, no en la cabecera. */
+function cabecerasDeLinea(linea, cuantas) {
+  cuantas = cuantas || 2;
+  const grupos = new Map(); // paradaId -> {nombre, variantes:[]}
+  (linea.variantes || []).forEach(v => {
+    const ps = v.paradas || [];
+    if (!ps.length) return;
+    const first = ps[0];
+    if (!APP.data.paradas[first]) return;
+    if (!grupos.has(first)) grupos.set(first, { paradaId: first, nombre: APP.data.paradas[first].nombre, variantes: [] });
+    grupos.get(first).variantes.push(v);
+  });
+
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const out = [];
+  grupos.forEach(g => {
+    const paradaElegida = paradaFavoritaDeSentido(linea.slug, g.paradaId);
+    const paradaMedida = (paradaElegida && APP.data.paradas[paradaElegida]) ? paradaElegida : g.paradaId;
+    const nodoIds = new Set(g.variantes.map(v => v.nodo_id));
+    const servicios = [];
+    const p = APP.data.paradas[paradaMedida];
+    (p.servicios || []).forEach(s => {
+      if (s.linea_slug === linea.slug && nodoIds.has(s.variante_nodo_id)) servicios.push(s);
+    });
+
+    const merged = mergeDeparturesConOrigen(servicios);
+    const bucket = merged[frecuenciaKeyForDate(now)];
+    let horas = [];
+    let dep = null;
+    if (bucket && bucket.slots.length) {
+      const futuras = bucket.slots.filter(s => s.h * 60 + s.m >= nowMin).slice(0, cuantas);
+      horas = futuras.map(s => `${String(s.h).padStart(2, "0")}:${String(s.m).padStart(2, "0")}`);
+      if (futuras.length) dep = { h: futuras[0].h, m: futuras[0].m, dias: 0 };
+    }
+    if (!dep) {
+      // Sin salidas hoy: caemos al buscador general, que barre los
+      // próximos días para no dejar la cabecera "muda".
+      dep = nextDeparture(mergeHorarios(servicios), now);
+    }
+    out.push({
+      paradaId: g.paradaId,
+      nombre: g.nombre,
+      etiqueta: etiquetaSentido(g.variantes) || g.nombre,
+      paradaElegidaId: paradaElegida && APP.data.paradas[paradaElegida] ? paradaElegida : null,
+      paradaMedidaId: paradaMedida,
+      paradaMedidaNombre: APP.data.paradas[paradaMedida] ? APP.data.paradas[paradaMedida].nombre : paradaMedida,
+      horas, dep, numVariantes: g.variantes.length,
+      variantes: g.variantes
+    });
+  });
+  out.sort((a, b) => {
+    const av = a.dep ? a.dep.dias * 1440 + a.dep.h * 60 + a.dep.m : Infinity;
+    const bv = b.dep ? b.dep.dias * 1440 + b.dep.h * 60 + b.dep.m : Infinity;
+    return av - bv;
+  });
+  return out;
+}
+
+/** Todas las paradas que recorre un sentido concreto (unión ordenada de
+ * las paradas de sus variantes), para poder elegir cuál es "mi parada"
+ * en ese sentido. */
+function paradasDeSentido(cabecera) {
+  const vistas = new Set();
+  const out = [];
+  (cabecera.variantes || []).forEach(v => {
+    (v.paradas || []).forEach(pid => {
+      if (vistas.has(pid) || !APP.data.paradas[pid]) return;
+      vistas.add(pid);
+      out.push(pid);
+    });
+  });
+  return out;
+}
+
+/** Modal para elegir "mi parada" dentro de un sentido concreto. */
+function abrirSelectorParadaSentido(lineaSlug, cabecera, onElegida) {
+  openModal(container => {
+    const paradas = paradasDeSentido(cabecera);
+    const actual = paradaFavoritaDeSentido(lineaSlug, cabecera.paradaId);
+    container.innerHTML = `
+      <h3 class="detail-title">Tu parada en este sentido</h3>
+      <div class="detail-meta">${escapeHtml(cabecera.etiqueta)} · ${paradas.length} paradas</div>
+      <div style="margin:10px 0;">
+        <button type="button" class="btn-chip" id="btnQuitarParadaSentido">${actual ? "✕ Usar la cabecera por defecto" : "Actualmente: cabecera por defecto"}</button>
+      </div>
+      <div id="selectorParadasList"></div>`;
+    container.querySelector("#btnQuitarParadaSentido").addEventListener("click", () => {
+      setParadaFavoritaDeSentido(lineaSlug, cabecera.paradaId, null);
+      closeModal();
+      if (onElegida) onElegida();
+    });
+    const list = container.querySelector("#selectorParadasList");
+    paradas.forEach(pid => {
+      const row = document.createElement("div");
+      row.className = "linea-row";
+      row.innerHTML = `<span class="linea-row-name">${escapeHtml(APP.data.paradas[pid].nombre)}</span>
+        <span class="btn-fav">${pid === actual ? "★" : "☆"}</span>`;
+      row.addEventListener("click", () => {
+        setParadaFavoritaDeSentido(lineaSlug, cabecera.paradaId, pid);
+        closeModal();
+        if (onElegida) onElegida();
+      });
+      list.appendChild(row);
+    });
+  });
+}
+
+/** Menú contextual de un sentido concreto: es el único sitio desde el
+ * que se elige "mi parada" en ese sentido o se activa el aviso, para no
+ * saturar las listas con botones siempre visibles. */
+function abrirMenuSentido(linea, cabecera, onCambio) {
+  openModal(container => {
+    const notif = getNotificacion(cabecera.paradaMedidaId, linea.slug);
+    const esFav = esFavoritoLinea(linea.slug);
+    const fmt = formatDeparture(cabecera.dep);
+    container.innerHTML = `
+      <h3 class="detail-title">${escapeHtml(cabecera.etiqueta)}</h3>
+      <div class="detail-meta">${escapeHtml(linea.titulo)}</div>
+      <div class="cabecera-row" style="margin-top:10px; cursor:default;">
+        <span class="cabecera-ico">🚏</span>
+        <span class="cabecera-body">
+          <span class="cabecera-nombre">${cabecera.paradaElegidaId ? "★ " : ""}${escapeHtml(cabecera.paradaMedidaNombre)}</span>
+          <span class="cabecera-meta">${cabecera.paradaElegidaId ? "tu parada en este sentido" : "cabecera de este sentido"}</span>
+        </span>
+        <span class="cabecera-time">${escapeHtml(fmt.main)}<span class="cabecera-sub">${escapeHtml(fmt.sub)}</span></span>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:14px;">
+        ${esFav ? `<button type="button" class="btn-chip" id="menuElegirParada">${cabecera.paradaElegidaId ? "✎ Cambiar mi parada" : "☆ Elegir mi parada"}</button>` : ""}
+        <button type="button" class="btn-chip" id="menuNotificar">${notif ? "🔔 Aviso activo · editar" : "🔔 Notifícame"}</button>
+        <button type="button" class="btn-chip" id="menuVerHorario">🕑 Ver horario completo</button>
+        <button type="button" class="btn-chip" id="menuVerLinea">🚌 Ver la línea</button>
+      </div>`;
+
+    const btnElegir = container.querySelector("#menuElegirParada");
+    if (btnElegir) btnElegir.addEventListener("click", () => abrirSelectorParadaSentido(linea.slug, cabecera, onCambio));
+    container.querySelector("#menuNotificar").addEventListener("click", () =>
+      abrirDialogoNotificacion(cabecera.paradaMedidaId, linea.slug, onCambio));
+    container.querySelector("#menuVerHorario").addEventListener("click", () =>
+      openModal(cont => buildStopScheduleModalContent(cont, cabecera.paradaMedidaId)));
+    container.querySelector("#menuVerLinea").addEventListener("click", () => {
+      closeModal();
+      cerrarDrawerFavoritos();
+      irAPantalla("screenLineas");
+      mostrarDetalleLinea(linea.slug);
+    });
+  });
+}
+
+/** Un renglón por sentido: etiqueta origen→destino como principal, la
+ * parada de referencia debajo (la elegida por la persona, o la cabecera),
+ * y la próxima salida medida en esa parada. Al pulsar se abre el menú
+ * contextual del sentido. */
+function renderCabecerasEn(contenedor, linea, onCambio) {
+  const cabeceras = cabecerasDeLinea(linea, 2);
+  contenedor.innerHTML = "";
+  if (!cabeceras.length) {
+    contenedor.innerHTML = '<p class="empty">Sin cabeceras con datos.</p>';
+    return;
+  }
+  cabeceras.forEach(c => {
+    const fmt = formatDeparture(c.dep);
+    const extra = c.horas.length > 1 ? `<span class="cabecera-next">luego ${escapeHtml(c.horas.slice(1).join(" · "))}</span>` : "";
+    const notif = getNotificacion(c.paradaMedidaId, linea.slug);
+    const row = document.createElement("div");
+    row.className = "cabecera-row";
+    row.innerHTML = `
+      <span class="cabecera-ico">🚏</span>
+      <span class="cabecera-body">
+        <span class="cabecera-nombre">${escapeHtml(c.etiqueta)}</span>
+        <span class="cabecera-meta">${notif ? "🔔 " : ""}${c.paradaElegidaId ? "★ " : ""}${escapeHtml(c.paradaMedidaNombre)}</span>
+      </span>
+      <span class="cabecera-time">${escapeHtml(fmt.main)}<span class="cabecera-sub">${escapeHtml(fmt.sub)}</span>${extra}</span>`;
+    row.addEventListener("click", () => abrirMenuSentido(linea, c, onCambio));
+    contenedor.appendChild(row);
+  });
+}
+
+
+function renderLineasFavoritas() {
+  const box = document.getElementById("lineasFavChips");
+  const card = document.getElementById("lineasFavCard");
+  if (!FAVORITOS.lineas.length) {
+    card.style.display = "none";
+    return;
+  }
+  card.style.display = "";
+  box.innerHTML = "";
+  FAVORITOS.lineas.forEach(fav => {
+    const linea = APP.data.lineas.find(l => l.slug === fav.slug);
+    if (!linea) return;
+    const bloque = document.createElement("div");
+    bloque.className = "fav-linea-bloque";
+    const header = document.createElement("button");
+    header.type = "button";
+    header.className = "fav-linea-header";
+    header.innerHTML = `<span class="linea-chip-code">${escapeHtml(codigoLinea(linea.titulo))}</span>
+      <span class="fav-linea-titulo">${escapeHtml(linea.titulo)}</span>`;
+    header.addEventListener("click", () => mostrarDetalleLinea(linea.slug));
+    bloque.appendChild(header);
+
+    const listaCab = document.createElement("div");
+    listaCab.className = "cabecera-list";
+    renderCabecerasEn(listaCab, linea, renderLineasFavoritas);
+    bloque.appendChild(listaCab);
+    box.appendChild(bloque);
+  });
+}
+
+function renderListadoLineas() {
+  const box = document.getElementById("lineasListado");
+  const municipio = document.getElementById("selMunicipio").value;
+  const texto = normalize(document.getElementById("lineaBuscador").value.trim());
+
+  let lineas = APP.data.lineas;
+  if (municipio) lineas = lineas.filter(l => l.municipios.includes(municipio));
+  if (texto) {
+    lineas = lineas.filter(l =>
+      normalize(l.titulo).includes(texto) ||
+      l.municipios.some(m => normalize(m).includes(texto)));
+  }
+  lineas = [...lineas].sort((a, b) => a.titulo.localeCompare(b.titulo, "es"));
+
+  if (!lineas.length) {
+    box.innerHTML = '<p class="empty">No hay líneas que coincidan con la búsqueda.</p>';
+    return;
+  }
+  box.innerHTML = "";
+  lineas.forEach(l => {
+    const row = document.createElement("div");
+    row.className = "linea-row";
+    row.innerHTML = `
+      <span class="linea-row-name">${escapeHtml(l.titulo)}
+        <span class="linea-row-muni">${escapeHtml(l.municipios.join(" · ") || "—")}</span>
+      </span>`;
+    const btnFav = document.createElement("button");
+    btnFav.type = "button";
+    btnFav.className = "btn-fav";
+    btnFav.textContent = esFavoritoLinea(l.slug) ? "★" : "☆";
+    btnFav.addEventListener("click", e => {
+      e.stopPropagation();
+      toggleFavoritoLinea(l.slug);
+      btnFav.textContent = esFavoritoLinea(l.slug) ? "★" : "☆";
+      renderLineasFavoritas();
+    });
+    row.addEventListener("click", () => mostrarDetalleLinea(l.slug));
+    row.appendChild(btnFav);
+    box.appendChild(row);
+  });
+}
+
+function mostrarDetalleLinea(slug) {
+  const linea = APP.data.lineas.find(l => l.slug === slug);
+  const detailBox = document.getElementById("lineDetail");
+  if (!linea || !linea.orden_unificado || !linea.orden_unificado.length) {
+    detailBox.innerHTML = '<div class="card"><p class="empty">Esta línea no tiene paradas con datos disponibles.</p></div>';
+    return;
+  }
+  detailBox.className = "card";
+  renderLineDetail(detailBox, linea, linea.orden_unificado[0], null);
+  detailBox.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function wireLineSearch() {
+  document.getElementById("selMunicipio").addEventListener("change", renderListadoLineas);
+  document.getElementById("lineaBuscador").addEventListener("input", renderListadoLineas);
+}
+
+/* ------------------------------------------------------------------ */
+/* Pestaña "Geolocalización"                                           */
+/* ------------------------------------------------------------------ */
+function renderNearbyStops(lat, lng) {
+  const radiusKm = parseFloat(document.getElementById("geoRadius").value) || 1;
+  const radiusM = radiusKm * 1000;
+  const items = [];
+  for (const [id, p] of Object.entries(APP.data.paradas)) {
+    if (p.lat == null) continue;
+    const d = haversine(lat, lng, p.lat, p.lng);
+    if (d <= radiusM) items.push({ id, p, d });
+  }
+  items.sort((a, b) => a.d - b.d);
+
+  const box = document.getElementById("geoResults");
+  if (!items.length) {
+    box.innerHTML = `<div class="card"><p class="empty">No hay paradas conocidas en un radio de ${radiusKm} km. Prueba a ampliarlo.</p></div>`;
+    return;
+  }
+  box.innerHTML = `<div class="card"><ul class="stoplist">` +
+    items.map(it => `
+      <li class="stopitem" data-id="${escapeHtml(it.id)}">
+        <span class="stopname">${escapeHtml(it.p.nombre)}</span>
+        <span class="stopdist">${formatDistance(it.d)}</span>
+      </li>`).join("") +
+    `</ul></div>`;
+
+  box.querySelectorAll(".stopitem").forEach(li => {
+    li.addEventListener("click", () => renderStopServices(li.dataset.id, () => renderNearbyStops(lat, lng)));
+  });
+}
+
+function renderStopServices(stopId, onBack) {
+  const p = APP.data.paradas[stopId];
+  const box = document.getElementById("geoResults");
+  const now = new Date();
+
+  // Agrupamos por línea: si varias sub-rutas de la misma línea pasan por
+  // aquí (caso M-177), se funden en una sola entrada con la salida más
+  // próxima de cualquiera de ellas, en vez de repetir la línea 5 veces.
+  const porLinea = {};
+  p.servicios.forEach(s => {
+    if (!porLinea[s.linea_slug]) {
+      porLinea[s.linea_slug] = { linea_slug: s.linea_slug, linea_titulo: s.linea_titulo, servicios: [] };
+    }
+    porLinea[s.linea_slug].servicios.push(s);
+  });
+  const grupos = Object.values(porLinea).map(g => {
+    const merged = mergeHorarios(g.servicios);
+    return { ...g, dep: nextDeparture(merged, now) };
+  });
+  grupos.sort((a, b) => {
+    const av = a.dep ? a.dep.dias * 1440 + a.dep.h * 60 + a.dep.m : Infinity;
+    const bv = b.dep ? b.dep.dias * 1440 + b.dep.h * 60 + b.dep.m : Infinity;
+    return av - bv;
+  });
+
+  box.innerHTML = `
+    <div class="card">
+      <button class="btn-back" id="btnBackStops">← Volver a paradas cercanas</button>
+      <h3 class="detail-title">${escapeHtml(p.nombre)}</h3>
+      <div class="detail-meta">${escapeHtml(p.zona || "")}</div>
+      <ul class="servicelist" id="serviceList"></ul>
+    </div>`;
+  box.querySelector("#btnBackStops").addEventListener("click", onBack);
+
+  const list = box.querySelector("#serviceList");
+  grupos.forEach(g => {
+    const fmt = formatDeparture(g.dep);
+    const li = document.createElement("li");
+    li.className = "serviceitem";
+    const subLabel = g.servicios.length > 1 ? `${g.servicios.length} recorridos por esta parada` : g.servicios[0].variante_nombre;
+    li.innerHTML = `
+      <div style="flex:1;">
+        <div class="servicename">${escapeHtml(g.linea_titulo)}</div>
+        <div class="servicevariant">${escapeHtml(subLabel)}</div>
+      </div>
+      <div class="servicetime">${fmt.main}<span class="servicesub">${escapeHtml(fmt.sub)}</span></div>
+    `;
+    li.addEventListener("click", () => {
+      const linea = APP.data.lineas.find(l => l.slug === g.linea_slug);
+      const detailContainer = document.createElement("div");
+      detailContainer.className = "card";
+      box.innerHTML = "";
+      box.appendChild(detailContainer);
+      renderLineDetail(detailContainer, linea, stopId, () => renderStopServices(stopId, onBack));
+    });
+    list.appendChild(li);
+  });
+}
+
+function wireGeo() {
+  document.getElementById("btnGeo").addEventListener("click", () => {
+    const statusEl = document.getElementById("geoStatus");
+    if (!navigator.geolocation) {
+      statusEl.textContent = "Tu navegador no soporta geolocalización.";
+      return;
+    }
+    statusEl.textContent = "Obteniendo tu posición…";
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        statusEl.textContent = `Posición obtenida (±${Math.round(accuracy)} m)`;
+        renderNearbyStops(latitude, longitude);
+      },
+      err => {
+        let extra = "";
+        if (location.protocol === "file:") {
+          extra = " La geolocalización no funciona abriendo el archivo con doble clic: sírvelo con un servidor local (p.ej. `python3 -m http.server`) y ábrelo en http://localhost:8000/";
+        }
+        statusEl.textContent = "No se pudo obtener tu posición: " + err.message + extra;
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Pestaña "Calculadora de ruta"                                       */
+/* ------------------------------------------------------------------ */
+const ROUTING_URL = "ctas_routing.json";
+const LS_ROUTING_KEY = "ctasRoutingV3"; // v3: conexiones reales (v1/v2 usaban formatos incompatibles)
+let ROUTING = null;
+let CURRENT_ROUTE_MAP = null;
+let ROUTE_MARKERS = {};
+let ROUTE_ORIGIN = null;   // {type:'stop', id} | {type:'point', lat, lng}
+let ROUTE_DESTINO = null;
+let ROUTE_ARM_MODE = null; // 'origen' | 'destino' | null
+let ROUTE_ORIGIN_MARKER = null;
+let ROUTE_DESTINO_MARKER = null;
+let ROUTE_PATH_LAYERS = [];
+let PARADA_POR_NOMBRE = null;
+let CRITERIO_ACTUAL = "trasbordos"; // RNF-1: previsibilidad > velocidad marginal
+
+function walkMinutes(distMeters) {
+  return Math.max(1, Math.round((distMeters / 1000) / 3 * 60));
+}
+
+function nearestStop(appData, lat, lng) {
+  let best = null, bestD = Infinity;
+  for (const [id, p] of Object.entries(appData.paradas)) {
+    if (p.lat == null) continue;
+    const d = haversine(lat, lng, p.lat, p.lng);
+    if (d < bestD) { bestD = d; best = id; }
+  }
+  return best ? { id: best, dist: bestD } : null;
+}
+
+function resolveEndpoint(appData, point) {
+  if (point.type === "stop") return { stopId: point.id, walk: null };
+  const near = nearestStop(appData, point.lat, point.lng);
+  if (!near) return null;
+  return { stopId: near.id, walk: { lat: point.lat, lng: point.lng, dist: near.dist } };
+}
+
+async function loadRoutingData(force) {
+  if (!force) {
+    try {
+      const cached = localStorage.getItem(LS_ROUTING_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        // Comprobación de forma: si la caché es de un formato antiguo o
+        // está corrupta, la descartamos en vez de dejar que la app pete
+        // más adelante al intentar usarla.
+        if (parsed && parsed.conexiones && parsed.vecinos) return parsed;
+        console.warn("Caché de rutas con formato inesperado, se descarta y se vuelve a pedir.");
+      }
+    } catch (e) {
+      console.warn("No se pudo leer la caché de rutas", e);
+    }
+  }
+  const resp = await fetch(ROUTING_URL, { cache: "no-store" });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} al pedir ${ROUTING_URL}`);
+  const json = await resp.json();
+  try {
+    localStorage.setItem(LS_ROUTING_KEY, JSON.stringify(json));
+  } catch (e) {
+    console.warn("No se pudo cachear el motor de rutas (¿cuota llena?)", e);
+  }
+  return json;
+}
+
+/** Puntuación compuesta usada para decidir, en cada relajación del
+ * Connection Scan, si una nueva forma de llegar a una parada es "mejor"
+ * que la que ya teníamos — el criterio de la persona decide qué pesa
+ * más, el resto actúa como desempate:
+ *  - tiempo: la hora de llegada real, sin más.
+ *  - trasbordos: nº de trasbordos domina por completo (cada uno vale
+ *    100000), la hora de llegada solo desempata entre rutas con el
+ *    mismo nº de trasbordos.
+ *  - caminar: los minutos caminados dominan igual que arriba. */
+function calcularScore(criterio, arr, trasbordos, caminando) {
+  if (criterio === "trasbordos") return trasbordos * 100000 + arr;
+  if (criterio === "caminar") return caminando * 100000 + arr;
+  return arr;
+}
+
+const MIN_TRASBORDO_MIN = 3; // margen mínimo real para bajar, andar/esperar y subir
+
+/** Ruta "mejor" entre origin y destino con un Connection Scan sobre
+ * conexiones REALES (instancia por instancia, no una duración típica):
+ * cada trasbordo se resuelve mirando de verdad a qué hora sale el
+ * siguiente autobús de la línea que toca desde la parada en la que
+ * quedas, filtrado por la hora a la que llegas ahí — nunca una espera
+ * inventada. Un trasbordo a pie es SIEMPRE un único salto entre dos
+ * paradas (nunca una cadena de paseos), porque el salto a pie solo se
+ * genera como reacción a bajarte de un autobús, no se puede encadenar.
+ * "Mejor" es configurable vía `criterio`: 'tiempo' | 'trasbordos' |
+ * 'caminar' (ver calcularScore). Si a esa hora ya no queda servicio,
+ * prueba también los 2 días siguientes. */
+function computeRoute(appData, routing, origin, destino, startDate, criterio) {
+  criterio = criterio || "tiempo";
+  const o = resolveEndpoint(appData, origin);
+  const de = resolveEndpoint(appData, destino);
+  if (!o || !de) return null;
+
+  for (let dia = 0; dia <= 2; dia++) {
+    const fecha = new Date(startDate.getTime() + dia * 86400000);
+    const freqKey = frecuenciaKeyForDate(fecha);
+    const conexiones = routing.conexiones[freqKey] || [];
+    const diaOffset = dia * 1440;
+    // startMin siempre en minutos ABSOLUTOS desde la medianoche del día
+    // de la consulta original (día 0), nunca reseteado a 0 en los días
+    // siguientes: si no, un tramo de un día posterior guardaba su hora
+    // "dentro de ese día" (p.ej. 07:00 → 420) sin sumarle el desplazamiento
+    // de día, y al compararla más tarde con la hora de salida original
+    // (p.ej. 23:00 → 1380) salía una espera negativa ("-58 minutos").
+    const startMin = diaOffset + (dia === 0 ? (startDate.getHours() * 60 + startDate.getMinutes()) : 0);
+
+    const origenSalidaMin = startMin + (o.walk ? walkMinutes(o.walk.dist) : 0);
+
+    // Cada parada de "estado" guarda, además de sus métricas, una
+    // referencia directa al ESTADO PREDECESOR concreto que se usó para
+    // llegar a ella (no solo el ID de la parada anterior). Esto es
+    // crítico: si en vez de guardar la referencia volviéramos a mirar
+    // "¿cómo se llega mejor a A?" en el momento de reconstruir el
+    // camino, podríamos encontrarnos una versión de A mejorada
+    // POSTERIORMENTE (con mejor puntuación pero llegada más tardía) que
+    // ya no es compatible con la conexión concreta que se usó para
+    // saltar de A a B — eso producía tramos con "llegada" antes que
+    // "salida". Guardando el objeto de estado exacto en vez de su ID,
+    // la reconstrucción siempre es coherente por construcción.
+    const estado = new Map(); // stopId -> {score, arr, trasbordos, caminando, linea, leg, prev}
+
+    const estadoOrigen = {
+      score: calcularScore(criterio, origenSalidaMin, 0, o.walk ? walkMinutes(o.walk.dist) : 0),
+      arr: origenSalidaMin, trasbordos: 0, caminando: o.walk ? walkMinutes(o.walk.dist) : 0, linea: "_origen_",
+      leg: o.walk ? { tipo: "walk_inicio", destino: o.stopId, distMetros: o.walk.dist, salida: startMin, llegada: origenSalidaMin } : null,
+      prev: null
+    };
+    estado.set(o.stopId, estadoOrigen);
+
+    // Además de la parada de origen en sí, se puede caminar directamente
+    // a otra parada cercana antes de subir a ningún autobús (por si la
+    // más próxima no es la mejor conectada).
+    const expandirCaminata = (desde, infoDesde) => {
+      for (const [vid, wmin] of (routing.vecinos[desde] || [])) {
+        const cand = infoDesde.arr + wmin;
+        const candCaminando = infoDesde.caminando + wmin;
+        const candScore = calcularScore(criterio, cand, infoDesde.trasbordos, candCaminando);
+        const estV = estado.get(vid);
+        if (!estV || candScore < estV.score) {
+          estado.set(vid, {
+            score: candScore, arr: cand, trasbordos: infoDesde.trasbordos, caminando: candCaminando, linea: "_walk_",
+            leg: { tipo: "walk", origen: desde, destino: vid, salida: infoDesde.arr, llegada: cand },
+            prev: infoDesde
+          });
+        }
+      }
+    };
+    expandirCaminata(o.stopId, estadoOrigen);
+
+    for (const c of conexiones) {
+      const dep = c[2] + diaOffset, arr = c[3] + diaOffset;
+      const a = c[0], b = c[1], lineaSlug = c[4];
+      if (dep < startMin) continue;
+      const estA = estado.get(a);
+      if (!estA) continue;
+      const mismaLinea = estA.linea === lineaSlug;
+      const buffer = (mismaLinea || estA.linea === "_origen_") ? 0 : MIN_TRASBORDO_MIN;
+      if (dep < estA.arr + buffer) continue;
+
+      const nuevoTrasbordos = (!mismaLinea && estA.linea !== "_origen_") ? estA.trasbordos + 1 : estA.trasbordos;
+      const nuevoScore = calcularScore(criterio, arr, nuevoTrasbordos, estA.caminando);
+      const estB = estado.get(b);
+      if (!estB || nuevoScore < estB.score) {
+        const info = {
+          score: nuevoScore, arr, trasbordos: nuevoTrasbordos, caminando: estA.caminando, linea: lineaSlug,
+          leg: { tipo: "bus", origen: a, destino: b, salida: dep, llegada: arr, lineaSlug },
+          prev: estA
+        };
+        estado.set(b, info);
+        expandirCaminata(b, info);
+      }
+    }
+
+    const estadoDestino = estado.get(de.stopId);
+    if (!estadoDestino) continue;
+
+    const crudos = [];
+    let cur = estadoDestino;
+    while (cur && cur.leg) {
+      crudos.push(cur.leg);
+      cur = cur.prev;
+    }
+    crudos.reverse();
+
+    // Fusiona tramos de bus consecutivos de la misma línea en un único
+    // tramo de viaje (guardando la secuencia de paradas intermedias para
+    // poder dibujarlas), y calcula cuánto se espera en cada trasbordo:
+    // como las horas ya son reales de principio a fin, la espera es
+    // sencillamente la diferencia entre horas reales.
+    const legs = [];
+    let totalCaminandoMin = 0;
+    crudos.forEach(leg => {
+      if (leg.tipo === "walk_inicio" || leg.tipo === "walk") {
+        legs.push({ ...leg });
+        totalCaminandoMin += leg.llegada - leg.salida;
+      } else if (leg.tipo === "bus") {
+        const anterior = legs[legs.length - 1];
+        if (anterior && anterior.tipo === "bus" && anterior.lineaSlug === leg.lineaSlug && leg.llegada >= anterior.llegada) {
+          anterior.destino = leg.destino;
+          anterior.llegada = leg.llegada;
+          anterior.paradasIntermedias = (anterior.paradasIntermedias || 0) + 1;
+          anterior.paradasRuta.push(leg.destino);
+        } else {
+          const previa = legs[legs.length - 1];
+          const esperaMin = previa ? Math.max(0, leg.salida - previa.llegada) : 0;
+          legs.push({
+            tipo: "bus", origen: leg.origen, destino: leg.destino, salida: leg.salida, llegada: leg.llegada,
+            lineaSlug: leg.lineaSlug, paradasIntermedias: 0, paradasRuta: [leg.origen, leg.destino], esperaMin
+          });
+        }
+      }
+    });
+
+    let tFinal = legs.length ? legs[legs.length - 1].llegada : origenSalidaMin;
+    if (de.walk) {
+      const wmin = walkMinutes(de.walk.dist);
+      legs.push({ tipo: "walk_fin", origen: de.stopId, salida: tFinal, llegada: tFinal + wmin, distMetros: de.walk.dist });
+      tFinal += wmin;
+      totalCaminandoMin += wmin;
+    }
+
+    const diasSalida = Math.floor(tFinal / 1440);
+    const llegadaMin = tFinal - diasSalida * 1440;
+    const numTrasbordos = Math.max(0, legs.filter(l => l.tipo === "bus").length - 1);
+    return { legs, llegadaMin, diasSalida, origenStopId: o.stopId, destinoStopId: de.stopId, totalCaminandoMin, numTrasbordos, criterio };
+  }
+  return null;
+}
+
+/** Recopila horas reales de salida (de cualquier línea) desde alguna de
+ * las paradas indicadas, dentro de una ventana de minutos a partir de
+ * startMin. Se usa para generar "candidatos de salida" para el criterio
+ * "viaje más corto". */
+function candidatosSalidaInicial(routing, freqKey, stopIdsSet, startMin, ventanaMin) {
+  const cands = new Set();
+  const conexiones = routing.conexiones[freqKey] || [];
+  for (const c of conexiones) {
+    if (c[2] < startMin) continue;
+    if (c[2] > startMin + ventanaMin) break; // conexiones ya vienen ordenadas por hora de salida
+    if (stopIdsSet.has(c[0])) cands.add(c[2]);
+  }
+  return [...cands].sort((a, b) => a - b);
+}
+
+/** "Viaje más corto": en vez de minimizar la hora de llegada (eso es
+ * "Llegar antes"), busca entre varias posibles horas de salida reales
+ * cuál da lugar al TRAYECTO más corto una vez montado — aunque eso
+ * implique esperar más al autobús adecuado. Prueba cada candidato de
+ * salida real (de esta parada o de alguna vecina a pie) dentro de una
+ * ventana de unas horas, relanzando la búsqueda normal de "llegar
+ * antes" desde ese instante, y se queda con la que menos tiempo total
+ * de viaje (llegada − salida real elegida) tenga. */
+function computeRouteViajeCorto(appData, routing, origin, destino, startDate) {
+  const VENTANA_MIN = 240;
+  const MAX_CANDIDATOS = 15;
+
+  const o = resolveEndpoint(appData, origin);
+  if (!o) return null;
+  const freqKey = frecuenciaKeyForDate(startDate);
+  const startMin = startDate.getHours() * 60 + startDate.getMinutes();
+
+  const stopIdsSet = new Set([o.stopId]);
+  (routing.vecinos[o.stopId] || []).forEach(([vid]) => stopIdsSet.add(vid));
+
+  let candidatos = candidatosSalidaInicial(routing, freqKey, stopIdsSet, startMin, VENTANA_MIN);
+  if (!candidatos.length) candidatos = [startMin];
+  candidatos = candidatos.slice(0, MAX_CANDIDATOS);
+
+  let mejor = null, mejorDuracion = Infinity;
+  for (const cand of candidatos) {
+    const fechaCand = new Date(startDate);
+    fechaCand.setHours(0, 0, 0, 0);
+    fechaCand.setMinutes(cand);
+    const res = computeRoute(appData, routing, origin, destino, fechaCand, "tiempo");
+    if (!res) continue;
+    const tFinalAbs = res.diasSalida * 1440 + res.llegadaMin;
+    const duracionViaje = tFinalAbs - cand;
+    if (duracionViaje < mejorDuracion) { mejorDuracion = duracionViaje; mejor = res; }
+  }
+  if (mejor) mejor.criterio = "viaje";
+  return mejor;
+}
+
+function fmtHoraAbs(minAbs) {
+  const dias = Math.floor(minAbs / 1440);
+  const m = ((minAbs % 1440) + 1440) % 1440;
+  const hh = String(Math.floor(m / 60)).padStart(2, "0");
+  const mm = String(m % 60).padStart(2, "0");
+  return `${hh}:${mm}` + (dias > 0 ? ` (+${dias}d)` : "");
+}
+
+function buildStopsDatalist() {
+  if (PARADA_POR_NOMBRE) return;
+  const dl = document.getElementById("listaParadas");
+  const entradas = Object.entries(APP.data.paradas).map(([id, p]) => ({ id, nombre: p.nombre }));
+  entradas.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  dl.innerHTML = entradas.map(n => `<option value="${escapeHtml(n.nombre)}">`).join("");
+  PARADA_POR_NOMBRE = {};
+  entradas.forEach(n => { if (!(n.nombre in PARADA_POR_NOMBRE)) PARADA_POR_NOMBRE[n.nombre] = n.id; });
+}
+
+function initRouteMap() {
+  if (CURRENT_ROUTE_MAP) return;
+  const map = L.map("routeMap", { preferCanvas: true, scrollWheelZoom: false });
+  CURRENT_ROUTE_MAP = map;
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap"
+  }).addTo(map);
+
+  const latlngs = [];
+  Object.entries(APP.data.paradas).forEach(([id, p]) => {
+    if (p.lat == null) return;
+    latlngs.push([p.lat, p.lng]);
+    const marker = L.circleMarker([p.lat, p.lng], {
+      radius: 5, weight: 1.5, color: "#ffffff", fillColor: "#2F6F4F", fillOpacity: 0.95
+    }).addTo(map).bindTooltip(p.nombre, { direction: "top" });
+    marker.on("click", () => onRouteMapStopClick(id));
+    ROUTE_MARKERS[id] = marker;
+  });
+  if (latlngs.length) map.fitBounds(latlngs, { padding: [16, 16] });
+  else map.setView([37.389, -5.984], 10);
+  map.on("click", e => onRouteMapClick(e.latlng));
+}
+
+function onRouteMapStopClick(id) {
+  if (ROUTE_ARM_MODE) {
+    setEndpoint(ROUTE_ARM_MODE, { type: "stop", id });
+    disarmClickMode();
+    return;
+  }
+  openStopPopup(id);
+}
+
+/** Construye el contenido del popup de una parada: nombre, próximos
+ * autobuses (agrupados por línea, cualquier recorrido) y botones para
+ * marcarla/desmarcarla como origen o destino de la ruta. */
+function buildStopPopupContent(id) {
+  const p = APP.data.paradas[id];
+  const wrap = document.createElement("div");
+  wrap.className = "stop-popup";
+
+  const titulo = document.createElement("div");
+  titulo.className = "stop-popup-title";
+  titulo.style.display = "flex";
+  titulo.style.justifyContent = "space-between";
+  titulo.style.alignItems = "baseline";
+  titulo.style.gap = "8px";
+  const tituloTexto = document.createElement("span");
+  tituloTexto.textContent = p.nombre;
+  titulo.appendChild(tituloTexto);
+  const btnFav = document.createElement("button");
+  btnFav.type = "button";
+  btnFav.className = "btn-fav";
+  btnFav.textContent = esFavoritoParada(id) ? "★" : "☆";
+  btnFav.title = "Marcar/quitar de favoritos";
+  btnFav.addEventListener("click", e => {
+    e.stopPropagation();
+    toggleFavoritoParada(id);
+    btnFav.textContent = esFavoritoParada(id) ? "★" : "☆";
+  });
+  titulo.appendChild(btnFav);
+  wrap.appendChild(titulo);
+
+  const porLinea = {};
+  (p.servicios || []).forEach(s => {
+    if (!porLinea[s.linea_slug]) porLinea[s.linea_slug] = { linea_titulo: s.linea_titulo, servicios: [] };
+    porLinea[s.linea_slug].servicios.push(s);
+  });
+  const grupos = Object.values(porLinea).map(g => ({ ...g, dep: nextDeparture(mergeHorarios(g.servicios)) }));
+  grupos.sort((a, b) => {
+    const av = a.dep ? a.dep.dias * 1440 + a.dep.h * 60 + a.dep.m : Infinity;
+    const bv = b.dep ? b.dep.dias * 1440 + b.dep.h * 60 + b.dep.m : Infinity;
+    return av - bv;
+  });
+
+  const lista = document.createElement("div");
+  lista.className = "stop-popup-proximos";
+  if (!grupos.length) {
+    lista.innerHTML = '<span class="stop-popup-sub">Sin datos de horario para esta parada.</span>';
+  } else {
+    grupos.slice(0, 4).forEach(g => {
+      const fmt = formatDeparture(g.dep);
+      const row = document.createElement("div");
+      row.className = "stop-popup-line";
+      row.style.cursor = "pointer";
+      row.innerHTML = `<b>${escapeHtml(g.linea_titulo)}</b><span class="stop-popup-time">${fmt.main}<span class="stop-popup-sub"> ${escapeHtml(fmt.sub)}</span></span>`;
+      row.addEventListener("click", () => {
+        if (CURRENT_ROUTE_MAP) CURRENT_ROUTE_MAP.closePopup();
+        openLineModal(g.linea_slug, id);
+      });
+      lista.appendChild(row);
+    });
+    if (grupos.length > 4) {
+      const more = document.createElement("div");
+      more.className = "stop-popup-sub";
+      more.textContent = `+${grupos.length - 4} línea(s) más por esta parada`;
+      lista.appendChild(more);
+    }
+  }
+  wrap.appendChild(lista);
+
+  if (grupos.length > 3) {
+    const btnTodas = document.createElement("button");
+    btnTodas.type = "button";
+    btnTodas.className = "btn-chip";
+    btnTodas.style.marginBottom = "8px";
+    btnTodas.textContent = `☰ Ver las ${grupos.length} líneas`;
+    btnTodas.addEventListener("click", () => {
+      if (CURRENT_ROUTE_MAP) CURRENT_ROUTE_MAP.closePopup();
+      openModal(container => buildStopScheduleModalContent(container, id));
+    });
+    wrap.appendChild(btnTodas);
+  }
+
+  const acciones = document.createElement("div");
+  acciones.className = "stop-popup-actions";
+  const esOrigen = ROUTE_ORIGIN && ROUTE_ORIGIN.type === "stop" && ROUTE_ORIGIN.id === id;
+  const esDestino = ROUTE_DESTINO && ROUTE_DESTINO.type === "stop" && ROUTE_DESTINO.id === id;
+
+  const btnOrigen = document.createElement("button");
+  btnOrigen.type = "button";
+  btnOrigen.className = "btn-chip" + (esOrigen ? " armed" : "");
+  btnOrigen.textContent = esOrigen ? "✕ Quitar origen" : "📍 Marcar origen";
+  btnOrigen.addEventListener("click", () => {
+    if (esOrigen) clearEndpoint("origen"); else setEndpoint("origen", { type: "stop", id });
+    CURRENT_ROUTE_MAP.closePopup();
+  });
+  acciones.appendChild(btnOrigen);
+
+  const btnDestino = document.createElement("button");
+  btnDestino.type = "button";
+  btnDestino.className = "btn-chip" + (esDestino ? " armed" : "");
+  btnDestino.textContent = esDestino ? "✕ Quitar destino" : "🏁 Marcar destino";
+  btnDestino.addEventListener("click", () => {
+    if (esDestino) clearEndpoint("destino"); else setEndpoint("destino", { type: "stop", id });
+    CURRENT_ROUTE_MAP.closePopup();
+  });
+  acciones.appendChild(btnDestino);
+
+  wrap.appendChild(acciones);
+  return wrap;
+}
+
+function openStopPopup(id) {
+  const marker = ROUTE_MARKERS[id];
+  if (!marker) return;
+  marker.bindPopup(buildStopPopupContent(id), { minWidth: 230 }).openPopup();
+}
+
+/** Quita el origen o destino actual (tanto si era una parada como un
+ * punto marcado a mano) y su marcador del mapa. */
+function clearEndpoint(which) {
+  if (which === "origen") {
+    ROUTE_ORIGIN = null;
+    document.getElementById("origenInput").value = "";
+    document.getElementById("origenStatus").textContent = "";
+    if (ROUTE_ORIGIN_MARKER) { CURRENT_ROUTE_MAP.removeLayer(ROUTE_ORIGIN_MARKER); ROUTE_ORIGIN_MARKER = null; }
+  } else {
+    ROUTE_DESTINO = null;
+    document.getElementById("destinoInput").value = "";
+    document.getElementById("destinoStatus").textContent = "";
+    if (ROUTE_DESTINO_MARKER) { CURRENT_ROUTE_MAP.removeLayer(ROUTE_DESTINO_MARKER); ROUTE_DESTINO_MARKER = null; }
+  }
+}
+
+function onRouteMapClick(latlng) {
+  if (!ROUTE_ARM_MODE) return;
+  setEndpoint(ROUTE_ARM_MODE, { type: "point", lat: latlng.lat, lng: latlng.lng });
+  disarmClickMode();
+}
+
+function armClickMode(which) {
+  ROUTE_ARM_MODE = which;
+  document.getElementById("origenPin").classList.toggle("armed", which === "origen");
+  document.getElementById("destinoPin").classList.toggle("armed", which === "destino");
+  const hint = document.getElementById("rutaClickHint");
+  hint.style.display = "block";
+  hint.textContent = `Haz clic en el mapa (o en una parada) para marcar el ${which === "origen" ? "origen" : "destino"}.`;
+}
+
+function disarmClickMode() {
+  ROUTE_ARM_MODE = null;
+  document.getElementById("origenPin").classList.remove("armed");
+  document.getElementById("destinoPin").classList.remove("armed");
+  document.getElementById("rutaClickHint").style.display = "none";
+}
+
+function describeEndpoint(point) {
+  if (point.type === "stop") return `Parada: ${APP.data.paradas[point.id].nombre}`;
+  const near = nearestStop(APP.data, point.lat, point.lng);
+  return near ? `Punto marcado · parada más cercana: ${near ? APP.data.paradas[near.id].nombre : "?"} (${formatDistance(near.dist)})` : "Punto marcado";
+}
+
+function placeEndpointMarker(which, point) {
+  if (!CURRENT_ROUTE_MAP) return;
+  const latlng = point.type === "stop"
+    ? [APP.data.paradas[point.id].lat, APP.data.paradas[point.id].lng]
+    : [point.lat, point.lng];
+  const icon = L.divIcon({
+    className: "",
+    html: `<div style="font-size:22px; line-height:1;">${which === "origen" ? "📍" : "🏁"}</div>`,
+    iconSize: [22, 22], iconAnchor: [11, 20]
+  });
+  if (which === "origen") {
+    if (ROUTE_ORIGIN_MARKER) CURRENT_ROUTE_MAP.removeLayer(ROUTE_ORIGIN_MARKER);
+    ROUTE_ORIGIN_MARKER = L.marker(latlng, { icon }).addTo(CURRENT_ROUTE_MAP);
+  } else {
+    if (ROUTE_DESTINO_MARKER) CURRENT_ROUTE_MAP.removeLayer(ROUTE_DESTINO_MARKER);
+    ROUTE_DESTINO_MARKER = L.marker(latlng, { icon }).addTo(CURRENT_ROUTE_MAP);
+  }
+}
+
+function setEndpoint(which, point) {
+  const label = describeEndpoint(point);
+  if (which === "origen") {
+    ROUTE_ORIGIN = point;
+    document.getElementById("origenInput").value = point.type === "stop" ? APP.data.paradas[point.id].nombre : "";
+    document.getElementById("origenStatus").textContent = label;
+  } else {
+    ROUTE_DESTINO = point;
+    document.getElementById("destinoInput").value = point.type === "stop" ? APP.data.paradas[point.id].nombre : "";
+    document.getElementById("destinoStatus").textContent = label;
+  }
+  placeEndpointMarker(which, point);
+}
+
+function wireEndpointInput(inputId, which) {
+  document.getElementById(inputId).addEventListener("change", e => {
+    const nombre = e.target.value.trim();
+    if (!nombre) return;
+    const id = PARADA_POR_NOMBRE && PARADA_POR_NOMBRE[nombre];
+    if (id) {
+      setEndpoint(which, { type: "stop", id });
+    } else {
+      document.getElementById(which + "Status").textContent = "No se reconoce esa parada exacta; elígela de la lista.";
+    }
+  });
+}
+
+function wireGeoButton(btnId, which) {
+  document.getElementById(btnId).addEventListener("click", () => {
+    const statusEl = document.getElementById(which + "Status");
+    if (!navigator.geolocation) {
+      statusEl.textContent = "Tu navegador no soporta geolocalización.";
+      return;
+    }
+    statusEl.textContent = "Obteniendo tu posición…";
+    navigator.geolocation.getCurrentPosition(
+      pos => setEndpoint(which, { type: "point", lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      err => { statusEl.textContent = "No se pudo obtener tu posición: " + err.message; },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  });
+}
+
+function clearRoutePathLayers() {
+  if (!CURRENT_ROUTE_MAP) return;
+  ROUTE_PATH_LAYERS.forEach(l => CURRENT_ROUTE_MAP.removeLayer(l));
+  ROUTE_PATH_LAYERS = [];
+}
+
+function drawRouteOnMap(res) {
+  if (!CURRENT_ROUTE_MAP) return;
+  clearRoutePathLayers();
+  const bounds = [];
+  res.legs.forEach(leg => {
+    if (leg.tipo === "bus") {
+      // Sigue TODAS las paradas intermedias del tramo (no solo el punto
+      // de subida y el de bajada), para que se vea el recorrido real del
+      // autobús y no un atajo en línea recta que se salta paradas.
+      const paradas = leg.paradasRuta && leg.paradasRuta.length >= 2 ? leg.paradasRuta : [leg.origen, leg.destino];
+      const puntos = paradas
+        .map(id => APP.data.paradas[id])
+        .filter(p => p && p.lat != null)
+        .map(p => [p.lat, p.lng]);
+      if (puntos.length < 2) return;
+      const line = L.polyline(puntos, { color: "#2F6F4F", weight: 5, opacity: 0.85 }).addTo(CURRENT_ROUTE_MAP);
+      ROUTE_PATH_LAYERS.push(line);
+      puntos.forEach(pt => bounds.push(pt));
+      return;
+    }
+
+    let latlngA = null, latlngB = null;
+    if (leg.tipo === "walk") {
+      const a = APP.data.paradas[leg.origen], b = APP.data.paradas[leg.destino];
+      if (a && a.lat != null) latlngA = [a.lat, a.lng];
+      if (b && b.lat != null) latlngB = [b.lat, b.lng];
+    } else if (leg.tipo === "walk_inicio") {
+      latlngA = ROUTE_ORIGIN.type === "point" ? [ROUTE_ORIGIN.lat, ROUTE_ORIGIN.lng] : null;
+      const b = APP.data.paradas[leg.destino];
+      if (b && b.lat != null) latlngB = [b.lat, b.lng];
+    } else if (leg.tipo === "walk_fin") {
+      const a = APP.data.paradas[leg.origen];
+      if (a && a.lat != null) latlngA = [a.lat, a.lng];
+      latlngB = ROUTE_DESTINO.type === "point" ? [ROUTE_DESTINO.lat, ROUTE_DESTINO.lng] : null;
+    }
+    if (!latlngA || !latlngB) return;
+    const line = L.polyline([latlngA, latlngB], {
+      color: "#C1443B", weight: 3, opacity: 0.85, dashArray: "2 8"
+    }).addTo(CURRENT_ROUTE_MAP);
+    ROUTE_PATH_LAYERS.push(line);
+    bounds.push(latlngA, latlngB);
+  });
+  if (bounds.length) CURRENT_ROUTE_MAP.fitBounds(bounds, { padding: [30, 30] });
+}
+
+function renderRutaResultado(res, salidaDate, directo) {
+  const box = document.getElementById("rutaResultado");
+  const salidaMin = salidaDate.getHours() * 60 + salidaDate.getMinutes();
+
+  if (!res) {
+    clearRoutePathLayers();
+    const avisoDirecto = directo
+      ? `<p class="empty">Caminando en línea recta serían ${Math.round(directo.distMetros)} m (~${directo.minutos} min).</p>`
+      : "";
+    box.innerHTML = `<div class="card"><p class="empty">No se ha encontrado ninguna ruta en transporte público.</p>${avisoDirecto}</div>`;
+    return;
+  }
+  const tFinalAbs = res.diasSalida * 1440 + res.llegadaMin;
+  const fmtDur = m => { const h = Math.floor(m / 60), mm = Math.round(m % 60); return (h > 0 ? h + "h " : "") + mm + "min"; };
+
+  const primerBus = res.legs.find(l => l.tipo === "bus");
+  const totalTransporteMin = tFinalAbs - salidaMin;
+  let resumenHtml;
+  if (primerBus) {
+    const esperaMin = primerBus.salida - salidaMin;
+    const trayectoMin = tFinalAbs - primerBus.salida;
+    resumenHtml = `
+      <div class="itin-summary">Llegada estimada <span class="accent">${fmtHoraAbs(tFinalAbs)}</span></div>
+      <div class="itin-summary-detail">Próximo autobús en ${fmtDur(esperaMin)} · viaje de ${fmtDur(trayectoMin)} · total ${fmtDur(esperaMin + trayectoMin)}</div>`;
+  } else {
+    resumenHtml = `
+      <div class="itin-summary">Llegada estimada <span class="accent">${fmtHoraAbs(tFinalAbs)}</span></div>
+      <div class="itin-summary-detail">Todo el trayecto es a pie · ${fmtDur(totalTransporteMin)}</div>`;
+  }
+
+  let avisoCaminar = "";
+  if (directo && directo.minutos < totalTransporteMin) {
+    const esperaTxt = fmtDur((primerBus ? primerBus.salida : tFinalAbs) - salidaMin);
+    avisoCaminar = `<div class="itin-leg-warn" style="padding:10px 0 0 0;">🚶 Ir caminando en línea recta (${Math.round(directo.distMetros)} m) tardaría solo ${fmtDur(directo.minutos)} — menos que la ruta en autobús encontrada, que incluye ${esperaTxt} de espera/trasbordos.</div>`;
+  }
+
+  const criterioLabel = { tiempo: "llegar antes", viaje: "viaje más corto", trasbordos: "menos trasbordos", caminar: "menos caminar" }[res.criterio] || "";
+  const statsHtml = `<div class="itin-summary-detail">Optimizada por <b>${criterioLabel}</b> · ${res.numTrasbordos} trasbordo${res.numTrasbordos === 1 ? "" : "s"} · ${Math.round(res.totalCaminandoMin)} min andando en total</div>`;
+
+  const puedeGuardar = ROUTE_ORIGIN && ROUTE_DESTINO && ROUTE_ORIGIN.type === "stop" && ROUTE_DESTINO.type === "stop";
+  const favBtnHtml = puedeGuardar
+    ? `<button type="button" class="btn-chip" id="btnFavRuta" style="margin-top:8px;">${esFavoritoRuta(ROUTE_ORIGIN.id, ROUTE_DESTINO.id) ? "★ Quitar de favoritos" : "☆ Guardar ruta como favorita"}</button>`
+    : "";
+
+  let html = `<div class="card">${resumenHtml}${statsHtml}${avisoCaminar}${favBtnHtml}</div><div class="card" id="itinTimeline">`;
+
+  res.legs.forEach((leg, idx) => {
+    if (leg.tipo === "bus") {
+      // Si el itinerario empieza directamente en autobús (sin caminar
+      // antes), la espera hasta su horario real se muestra aquí.
+      if (idx === 0 && leg.esperaMin > 0) {
+        const lineaEsp = APP.data.lineas.find(l => l.slug === leg.lineaSlug);
+        html += `<div class="timeline-transfer"><span class="timeline-transfer-icon">⏱</span><span class="timeline-transfer-text">Espera <b>${leg.esperaMin} min</b> al autobús de la línea ${escapeHtml(lineaEsp ? lineaEsp.titulo : leg.lineaSlug)}</span></div>`;
+      }
+      const linea = APP.data.lineas.find(l => l.slug === leg.lineaSlug);
+      const nombreLinea = linea ? linea.titulo : leg.lineaSlug;
+      const paradas = leg.paradasRuta || [leg.origen, leg.destino];
+      const nParadas = paradas.length - 1;
+      const dotsHtml = paradas.map((id, i) => {
+        const p = APP.data.paradas[id];
+        const esExtremo = i === 0 || i === paradas.length - 1;
+        return (i > 0 ? '<div class="timeline-connector"></div>' : "") +
+          `<div class="timeline-stop" data-stop-id="${escapeHtml(id)}">
+             <div class="timeline-dot${esExtremo ? " endpoint" : ""}"></div>
+             <div class="timeline-stop-label" title="${escapeHtml(p ? p.nombre : id)}">${escapeHtml(p ? p.nombre : id)}</div>
+           </div>`;
+      }).join("");
+      html += `
+        <div class="timeline-leg">
+          <button type="button" class="timeline-line-header" data-linea="${escapeHtml(leg.lineaSlug)}" data-stop="${escapeHtml(leg.origen)}">
+            <span class="timeline-line-name">🚌 ${escapeHtml(nombreLinea)}</span>
+            <span class="timeline-line-meta">${fmtHoraAbs(leg.salida)} → ${fmtHoraAbs(leg.llegada)}</span>
+          </button>
+          <div class="timeline-stops-row">${dotsHtml}</div>
+          <div class="itin-leg-sub">Sube en "${escapeHtml(APP.data.paradas[leg.origen].nombre)}", baja en "${escapeHtml(APP.data.paradas[leg.destino].nombre)}" (${nParadas} parada${nParadas === 1 ? "" : "s"}, ${leg.llegada - leg.salida} min)</div>
+        </div>`;
+    } else if (leg.tipo === "walk") {
+      // Trasbordo entre paradas distintas: paseo + espera real al
+      // siguiente autobús (la espera ya viene calculada en el propio
+      // tramo de bus siguiente, anclada a su horario real).
+      const distM = APP.data.paradas[leg.origen] && APP.data.paradas[leg.destino]
+        ? Math.round(haversine(APP.data.paradas[leg.origen].lat, APP.data.paradas[leg.origen].lng, APP.data.paradas[leg.destino].lat, APP.data.paradas[leg.destino].lng))
+        : null;
+      const siguienteBus = res.legs[idx + 1] && res.legs[idx + 1].tipo === "bus" ? res.legs[idx + 1] : null;
+      let texto = `Camina desde "${escapeHtml(APP.data.paradas[leg.origen].nombre)}" a "${escapeHtml(APP.data.paradas[leg.destino].nombre)}"${distM != null ? ` (${distM} m` : " ("}${distM != null ? ", " : ""}${leg.llegada - leg.salida} min)`;
+      html += `<div class="timeline-transfer"><span class="timeline-transfer-icon">🚶</span><span class="timeline-transfer-text">${texto}</span></div>`;
+      if (siguienteBus && siguienteBus.esperaMin > 0) {
+        const lineaSig = APP.data.lineas.find(l => l.slug === siguienteBus.lineaSlug);
+        html += `<div class="timeline-transfer"><span class="timeline-transfer-icon">⏱</span><span class="timeline-transfer-text">Espera <b>${siguienteBus.esperaMin} min</b> al autobús de la línea ${escapeHtml(lineaSig ? lineaSig.titulo : siguienteBus.lineaSlug)}</span></div>`;
+      }
+    } else if (leg.tipo === "walk_inicio" || leg.tipo === "walk_fin") {
+      const siguienteBus = leg.tipo === "walk_inicio" && res.legs[idx + 1] && res.legs[idx + 1].tipo === "bus" ? res.legs[idx + 1] : null;
+      const destinoNombre = leg.tipo === "walk_inicio" ? APP.data.paradas[leg.destino].nombre : "el destino";
+      let texto = `Camina hasta "${escapeHtml(destinoNombre)}" (${Math.round(leg.distMetros)} m, ${leg.llegada - leg.salida} min)`;
+      html += `<div class="timeline-transfer"><span class="timeline-transfer-icon">🚶</span><span class="timeline-transfer-text">${texto}</span></div>`;
+      if (siguienteBus && siguienteBus.esperaMin > 0) {
+        const lineaSig = APP.data.lineas.find(l => l.slug === siguienteBus.lineaSlug);
+        html += `<div class="timeline-transfer"><span class="timeline-transfer-icon">⏱</span><span class="timeline-transfer-text">Espera <b>${siguienteBus.esperaMin} min</b> al autobús de la línea ${escapeHtml(lineaSig ? lineaSig.titulo : siguienteBus.lineaSlug)}</span></div>`;
+      }
+    }
+  });
+
+  html += `<ul class="itin-steps">${buildPasosTexto(APP.data, res).map(p => `<li>${p}</li>`).join("")}</ul>`;
+  html += "</div>";
+  box.innerHTML = html;
+
+  box.querySelectorAll(".timeline-line-header").forEach(btn => {
+    btn.addEventListener("click", () => openLineModal(btn.dataset.linea, btn.dataset.stop));
+  });
+  box.querySelectorAll(".timeline-stop").forEach(el => {
+    el.addEventListener("click", () => openModal(container => buildStopScheduleModalContent(container, el.dataset.stopId)));
+  });
+  if (puedeGuardar) {
+    box.querySelector("#btnFavRuta").addEventListener("click", e => {
+      toggleFavoritoRuta(ROUTE_ORIGIN.id, ROUTE_DESTINO.id, res.criterio);
+      e.target.textContent = esFavoritoRuta(ROUTE_ORIGIN.id, ROUTE_DESTINO.id) ? "★ Quitar de favoritos" : "☆ Guardar ruta como favorita";
+    });
+  }
+
+  drawRouteOnMap(res);
+}
+
+/** Traduce el itinerario a la lista de pasos en texto plano ("Sube en
+ * X", "Bájate en Y", "Camina hasta Z", "Espera N min"...). */
+function buildPasosTexto(appData, res) {
+  const pasos = [];
+  res.legs.forEach((leg, idx) => {
+    if (leg.tipo === "walk_inicio") {
+      pasos.push(`Camina desde el origen hasta "<b>${escapeHtml(appData.paradas[leg.destino].nombre)}</b>" (${Math.round(leg.distMetros)} m, ${leg.llegada - leg.salida} min)`);
+    } else if (leg.tipo === "bus") {
+      if (idx === 0 && leg.esperaMin > 0) {
+        const lineaEsp = appData.lineas.find(l => l.slug === leg.lineaSlug);
+        pasos.push(`Espera <b>${leg.esperaMin} min</b> al autobús de la línea ${escapeHtml(lineaEsp ? lineaEsp.titulo : leg.lineaSlug)}`);
+      }
+      const linea = appData.lineas.find(l => l.slug === leg.lineaSlug);
+      const nombreLinea = linea ? linea.titulo : leg.lineaSlug;
+      const nParadas = (leg.paradasRuta || []).length - 1;
+      pasos.push(`Sube en "<b>${escapeHtml(appData.paradas[leg.origen].nombre)}</b>" (${escapeHtml(nombreLinea)}, ${fmtHoraAbs(leg.salida)}), baja en "<b>${escapeHtml(appData.paradas[leg.destino].nombre)}</b>" (${nParadas} parada${nParadas === 1 ? "" : "s"}, ${leg.llegada - leg.salida} min)`);
+    } else if (leg.tipo === "walk") {
+      const distM = appData.paradas[leg.origen] && appData.paradas[leg.destino]
+        ? Math.round(haversine(appData.paradas[leg.origen].lat, appData.paradas[leg.origen].lng, appData.paradas[leg.destino].lat, appData.paradas[leg.destino].lng))
+        : null;
+      pasos.push(`Camina desde "<b>${escapeHtml(appData.paradas[leg.origen].nombre)}</b>" a "<b>${escapeHtml(appData.paradas[leg.destino].nombre)}</b>"${distM != null ? ` (${distM} m, ` : " ("}${leg.llegada - leg.salida} min)`);
+      const siguienteBus = res.legs[idx + 1] && res.legs[idx + 1].tipo === "bus" ? res.legs[idx + 1] : null;
+      if (siguienteBus && siguienteBus.esperaMin > 0) {
+        const lineaSig = appData.lineas.find(l => l.slug === siguienteBus.lineaSlug);
+        pasos.push(`Espera <b>${siguienteBus.esperaMin} min</b> al autobús de la línea ${escapeHtml(lineaSig ? lineaSig.titulo : siguienteBus.lineaSlug)}`);
+      }
+    } else if (leg.tipo === "walk_fin") {
+      pasos.push(`Camina hasta el destino (${Math.round(leg.distMetros)} m, ${leg.llegada - leg.salida} min)`);
+    }
+  });
+  return pasos;
+}
+
+/** Distancia/tiempo a pie en línea recta directamente entre origen y
+ * destino, sin pasar por transporte público. Sirve para avisar cuando
+ * la ruta en autobús calculada (con esperas incluidas) sale más lenta
+ * que ir andando directamente. */
+function distanciaDirecta(appData, origin, destino) {
+  const latlngA = origin.type === "stop" ? [appData.paradas[origin.id].lat, appData.paradas[origin.id].lng] : [origin.lat, origin.lng];
+  const latlngB = destino.type === "stop" ? [appData.paradas[destino.id].lat, appData.paradas[destino.id].lng] : [destino.lat, destino.lng];
+  if (latlngA[0] == null || latlngB[0] == null) return null;
+  const distMetros = haversine(latlngA[0], latlngA[1], latlngB[0], latlngB[1]);
+  return { distMetros, minutos: walkMinutes(distMetros) };
+}
+
+async function onCalcularRuta() {
+  const resultBox = document.getElementById("rutaResultado");
+  if (!ROUTE_ORIGIN || !ROUTE_DESTINO) {
+    resultBox.innerHTML = '<div class="card"><p class="empty">Elige un origen y un destino primero.</p></div>';
+    return;
+  }
+  resultBox.innerHTML = '<div class="card"><p class="empty">Calculando ruta…</p></div>';
+  if (!ROUTING) {
+    try {
+      ROUTING = await loadRoutingData(false);
+    } catch (e) {
+      resultBox.innerHTML = `<div class="card"><p class="empty">No se pudo cargar el motor de rutas: ${escapeHtml(e.message)}</p></div>`;
+      return;
+    }
+  }
+  const horaInput = document.getElementById("horaSalida").value;
+  const salida = horaInput ? new Date(horaInput) : new Date();
+  const res = CRITERIO_ACTUAL === "viaje"
+    ? computeRouteViajeCorto(APP.data, ROUTING, ROUTE_ORIGIN, ROUTE_DESTINO, salida)
+    : computeRoute(APP.data, ROUTING, ROUTE_ORIGIN, ROUTE_DESTINO, salida, CRITERIO_ACTUAL);
+  const directo = distanciaDirecta(APP.data, ROUTE_ORIGIN, ROUTE_DESTINO);
+  renderRutaResultado(res, salida, directo);
+}
+
+function nowForDatetimeLocal() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
+
+function wireRuta() {
+  wireEndpointInput("origenInput", "origen");
+  wireEndpointInput("destinoInput", "destino");
+  wireGeoButton("origenGeo", "origen");
+  wireGeoButton("destinoGeo", "destino");
+  document.getElementById("origenPin").addEventListener("click", () => armClickMode("origen"));
+  document.getElementById("destinoPin").addEventListener("click", () => armClickMode("destino"));
+  document.getElementById("btnCalcularRuta").addEventListener("click", onCalcularRuta);
+  document.getElementById("horaSalida").value = nowForDatetimeLocal();
+  document.querySelectorAll("#criterioRow .criterio-pill").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("#criterioRow .criterio-pill").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      CRITERIO_ACTUAL = btn.dataset.criterio;
+      if (ROUTE_ORIGIN && ROUTE_DESTINO) onCalcularRuta();
+    });
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Pestañas                                                             */
+/* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ */
+/* Pestaña "Mis favoritos"                                             */
+/* ------------------------------------------------------------------ */
+/** Dirección (origen→destino) del servicio concreto de una línea que
+ * pasa por una parada: se usa para que en favoritos se lea "Guillena →
+ * Sevilla" en vez de solo el nombre de la línea. */
+function direccionDeServicio(servicio) {
+  const od = origenDestinoVariante(servicio.variante_nombre);
+  return od ? od.origen + " → " + od.destino : servicio.variante_nombre;
+}
+
+/** Hasta `limite` líneas que pasan por una parada, poniendo SIEMPRE
+ * primero las que son favoritas y, dentro de cada grupo, las de salida
+ * más próxima. Cada entrada trae ya su dirección y su próxima salida. */
+function lineasEnParadaPriorizadas(paradaId, limite) {
+  limite = limite || 3;
+  const p = APP.data.paradas[paradaId];
+  if (!p) return [];
+  const porLinea = {};
+  (p.servicios || []).forEach(s => {
+    if (!porLinea[s.linea_slug]) porLinea[s.linea_slug] = { linea_slug: s.linea_slug, linea_titulo: s.linea_titulo, servicios: [] };
+    porLinea[s.linea_slug].servicios.push(s);
+  });
+  const now = new Date();
+  const grupos = Object.values(porLinea).map(g => {
+    const dep = nextDepartureConOrigen(g.servicios, now);
+    // La dirección sale del servicio que produce esa salida concreta
+    // (dentro ya de esta misma línea), no de uno cualquiera del grupo.
+    let direccion = null;
+    const nombreVariante = dep && dep.variantes && dep.variantes.length ? dep.variantes[0] : null;
+    if (nombreVariante) {
+      const od = origenDestinoVariante(nombreVariante);
+      direccion = od ? od.origen + " → " + od.destino : nombreVariante;
+    } else if (g.servicios.length) {
+      direccion = direccionDeServicio(g.servicios[0]);
+    }
+    return { ...g, dep, direccion, favorita: esFavoritoLinea(g.linea_slug) };
+  });
+  grupos.sort((a, b) => {
+    if (a.favorita !== b.favorita) return a.favorita ? -1 : 1;
+    const av = a.dep ? a.dep.dias * 1440 + a.dep.h * 60 + a.dep.m : Infinity;
+    const bv = b.dep ? b.dep.dias * 1440 + b.dep.h * 60 + b.dep.m : Infinity;
+    return av - bv;
+  });
+  return { mostradas: grupos.slice(0, limite), total: grupos.length };
+}
+
+function renderFavParadas() {
+  const box = document.getElementById("favParadasList");
+  if (!FAVORITOS.paradas.length) {
+    box.innerHTML = '<p class="empty">Aún no tienes paradas favoritas. Márcalas con la ☆ desde el mapa o desde la ficha de cualquier parada.</p>';
+    return;
+  }
+  box.innerHTML = "";
+  FAVORITOS.paradas.forEach(fav => {
+    const p = APP.data.paradas[fav.id];
+    const nombre = p ? p.nombre : fav.nombre;
+    const { mostradas, total } = lineasEnParadaPriorizadas(fav.id, 3);
+
+    const card = document.createElement("div");
+    card.className = "fav-parada-card";
+
+    const head = document.createElement("div");
+    head.className = "fav-parada-head";
+    head.innerHTML = `<span class="fav-parada-nombre">${escapeHtml(nombre)}</span>`;
+    const btnFav = document.createElement("button");
+    btnFav.type = "button";
+    btnFav.className = "btn-fav";
+    btnFav.textContent = "★";
+    btnFav.addEventListener("click", e => { e.stopPropagation(); toggleFavoritoParada(fav.id); renderFavParadas(); });
+    head.appendChild(btnFav);
+    card.appendChild(head);
+
+    const cuerpo = document.createElement("div");
+    cuerpo.addEventListener("click", () => openModal(container => buildStopScheduleModalContent(container, fav.id)));
+    if (!mostradas.length) {
+      cuerpo.innerHTML = '<p class="empty">Sin líneas con datos en esta parada.</p>';
+    } else {
+      mostradas.forEach(g => {
+        const fmt = formatDeparture(g.dep);
+        const fila = document.createElement("div");
+        fila.className = "fav-parada-linea";
+        fila.innerHTML = `
+          <span class="fav-parada-linea-code${g.favorita ? " es-fav" : ""}">${escapeHtml(codigoLinea(g.linea_titulo))}</span>
+          <span class="fav-parada-linea-body">
+            <span class="fav-parada-dir">${escapeHtml(g.direccion || g.linea_titulo)}</span>
+          </span>
+          <span class="cabecera-time">${escapeHtml(fmt.main)}<span class="cabecera-sub">${escapeHtml(fmt.sub)}</span></span>`;
+        cuerpo.appendChild(fila);
+      });
+      if (total > mostradas.length) {
+        const mas = document.createElement("div");
+        mas.className = "fav-parada-mas";
+        mas.textContent = `+${total - mostradas.length} línea${total - mostradas.length === 1 ? "" : "s"} más · pulsa para ver todo`;
+        cuerpo.appendChild(mas);
+      }
+    }
+    card.appendChild(cuerpo);
+    box.appendChild(card);
+  });
+}
+
+function renderFavLineas() {
+  const box = document.getElementById("favLineasList");
+  if (!FAVORITOS.lineas.length) {
+    box.innerHTML = '<p class="empty">Aún no tienes líneas favoritas. Márcalas con la ☆ desde la ficha de cualquier línea.</p>';
+    return;
+  }
+  box.innerHTML = "";
+  const ul = document.createElement("ul");
+  ul.className = "servicelist";
+  FAVORITOS.lineas.forEach(fav => {
+    const linea = APP.data.lineas.find(l => l.slug === fav.slug);
+    const titulo = linea ? linea.titulo : fav.titulo;
+    const li = document.createElement("li");
+    li.className = "serviceitem";
+    const left = document.createElement("div");
+    left.style.flex = "1";
+    left.innerHTML = `<div class="servicename">${escapeHtml(titulo)}</div>`;
+    if (linea) {
+      const cabBox = document.createElement("div");
+      cabBox.className = "cabecera-list";
+      renderCabecerasEn(cabBox, linea, renderFavLineas);
+      left.appendChild(cabBox);
+    }
+    const abrirLinea = document.createElement("button");
+    abrirLinea.type = "button";
+    abrirLinea.className = "btn-chip";
+    abrirLinea.style.marginTop = "6px";
+    abrirLinea.textContent = "Ver ficha de la línea";
+    abrirLinea.addEventListener("click", () => { cerrarDrawerFavoritos(); openLineModal(fav.slug); });
+    left.appendChild(abrirLinea);
+    li.appendChild(left);
+    const btnFav = document.createElement("button");
+    btnFav.type = "button";
+    btnFav.className = "btn-fav";
+    btnFav.textContent = "★";
+    btnFav.addEventListener("click", e => { e.stopPropagation(); toggleFavoritoLinea(fav.slug); renderFavLineas(); });
+    li.appendChild(btnFav);
+    ul.appendChild(li);
+  });
+  box.appendChild(ul);
+}
+
+/** Devuelve el resultado calculado para una ruta favorita, reutilizando
+ * el que ya había en caché si el próximo autobús que ofrecía sigue sin
+ * haber salido todavía (con 1 minuto de margen). Solo se relanza el
+ * cálculo cuando ese autobús concreto ya ha debido salir — así, entrar y
+ * salir de la pestaña de favoritos varias veces seguidas no recalcula
+ * nada de más. */
+function getOrRecalcularFavoritoRuta(fav) {
+  const ahora = new Date();
+  if (fav.cache && typeof fav.cache.proximaSalidaTs === "number" && ahora.getTime() < fav.cache.proximaSalidaTs + 60000) {
+    return fav.cache.resultado;
+  }
+  if (!ROUTING) return fav.cache ? fav.cache.resultado : null;
+  const res = computeRoute(APP.data, ROUTING, { type: "stop", id: fav.origenId }, { type: "stop", id: fav.destinoId }, ahora, fav.criterio || "tiempo");
+  if (res) {
+    const primerBus = res.legs.find(l => l.tipo === "bus");
+    const midnightBase = new Date(ahora);
+    midnightBase.setHours(0, 0, 0, 0);
+    const proximaSalidaTs = primerBus ? midnightBase.getTime() + primerBus.salida * 60000 : ahora.getTime() + 60000;
+    fav.cache = { resultado: res, proximaSalidaTs };
+  } else {
+    fav.cache = null;
+  }
+  guardarFavoritos();
+  return res;
+}
+
+async function renderFavRutas() {
+  const box = document.getElementById("favRutasList");
+  if (!FAVORITOS.rutas.length) {
+    box.innerHTML = '<div class="card"><h3 class="section-title" style="margin-top:0;">🗺️ Rutas favoritas</h3><p class="empty">Aún no tienes rutas favoritas. Calcula una ruta en la pestaña anterior y pulsa "Guardar ruta como favorita".</p></div>';
+    return;
+  }
+  box.innerHTML = '<div class="card"><h3 class="section-title" style="margin-top:0;">🗺️ Rutas favoritas</h3><p class="empty">Calculando…</p></div>';
+  if (!ROUTING) {
+    try {
+      ROUTING = await loadRoutingData(false);
+    } catch (e) {
+      box.innerHTML = `<div class="card"><h3 class="section-title" style="margin-top:0;">🗺️ Rutas favoritas</h3><p class="empty">No se pudo cargar el motor de rutas: ${escapeHtml(e.message)}</p></div>`;
+      return;
+    }
+  }
+
+  box.innerHTML = "";
+  const titulo = document.createElement("h3");
+  titulo.className = "section-title";
+  titulo.style.margin = "0 4px 8px 4px";
+  titulo.textContent = "🗺️ Rutas favoritas";
+  box.appendChild(titulo);
+
+  FAVORITOS.rutas.forEach(fav => {
+    const card = document.createElement("div");
+    card.className = "card";
+    const res = getOrRecalcularFavoritoRuta(fav);
+
+    const header = document.createElement("div");
+    header.style.display = "flex";
+    header.style.justifyContent = "space-between";
+    header.style.alignItems = "baseline";
+    header.style.gap = "8px";
+    header.innerHTML = `<h3 class="detail-title" style="margin:0;">${escapeHtml(fav.origenNombre)} → ${escapeHtml(fav.destinoNombre)}</h3>`;
+    const btnFav = document.createElement("button");
+    btnFav.type = "button";
+    btnFav.className = "btn-fav";
+    btnFav.textContent = "★";
+    btnFav.addEventListener("click", () => { toggleFavoritoRuta(fav.origenId, fav.destinoId); renderFavRutas(); });
+    header.appendChild(btnFav);
+    card.appendChild(header);
+
+    if (!res) {
+      const p = document.createElement("p");
+      p.className = "empty";
+      p.textContent = "No se ha encontrado ruta en transporte público ahora mismo.";
+      card.appendChild(p);
+    } else {
+      const tFinalAbs = res.diasSalida * 1440 + res.llegadaMin;
+      const primerBus = res.legs.find(l => l.tipo === "bus");
+      const resumen = document.createElement("div");
+      resumen.className = "itin-summary-detail";
+      resumen.innerHTML = primerBus
+        ? `Próximo autobús a las <b>${fmtHoraAbs(primerBus.salida)}</b> · llegada <b>${fmtHoraAbs(tFinalAbs)}</b>`
+        : `Llegada <b>${fmtHoraAbs(tFinalAbs)}</b> (todo a pie)`;
+      card.appendChild(resumen);
+
+      const ul = document.createElement("ul");
+      ul.className = "itin-steps";
+      buildPasosTexto(APP.data, res).forEach(p => {
+        const li = document.createElement("li");
+        li.innerHTML = p;
+        ul.appendChild(li);
+      });
+      card.appendChild(ul);
+
+      const btnVerMapa = document.createElement("button");
+      btnVerMapa.type = "button";
+      btnVerMapa.className = "btn-chip";
+      btnVerMapa.style.marginTop = "8px";
+      btnVerMapa.textContent = "🗺 Ver con mapa en Calculadora de ruta";
+      btnVerMapa.addEventListener("click", () => {
+        ROUTE_ORIGIN = { type: "stop", id: fav.origenId };
+        ROUTE_DESTINO = { type: "stop", id: fav.destinoId };
+        cerrarDrawerFavoritos();
+        irAPantalla("screenRuta");
+        setTimeout(() => {
+          buildStopsDatalist();
+          document.getElementById("origenInput").value = fav.origenNombre;
+          document.getElementById("origenStatus").textContent = `Parada: ${fav.origenNombre}`;
+          document.getElementById("destinoInput").value = fav.destinoNombre;
+          document.getElementById("destinoStatus").textContent = `Parada: ${fav.destinoNombre}`;
+          onCalcularRuta();
+        }, 80);
+      });
+      card.appendChild(btnVerMapa);
+    }
+    box.appendChild(card);
+  });
+}
+
+async function renderFavoritosTab() {
+  renderFavParadas();
+  renderFavLineas();
+  await renderFavRutas();
+}
+
+/* ------------------------------------------------------------------ */
+/* Pantalla "Inicio": mapa + "¿A dónde quieres ir?"                    */
+/* ------------------------------------------------------------------ */
+let HOME_MAP = null;
+let HOME_ORIGEN_MARKER = null;
+
+function initHomeMap() {
+  if (HOME_MAP) { setTimeout(() => HOME_MAP.invalidateSize(), 60); return; }
+  HOME_MAP = L.map("homeMap", { scrollWheelZoom: false, zoomControl: true });
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19, attribution: "&copy; OpenStreetMap"
+  }).addTo(HOME_MAP);
+
+  const latlngs = [];
+  Object.entries(APP.data.paradas).forEach(([id, p]) => {
+    if (p.lat == null) return;
+    latlngs.push([p.lat, p.lng]);
+    L.circleMarker([p.lat, p.lng], {
+      radius: 5, weight: 1.5, color: "#ffffff", fillColor: "#2F6F4F", fillOpacity: 0.95
+    }).addTo(HOME_MAP)
+      .bindTooltip(p.nombre, { direction: "top" })
+      .on("click", () => openModal(container => buildStopScheduleModalContent(container, id)));
+  });
+  if (latlngs.length) HOME_MAP.fitBounds(latlngs, { padding: [16, 16] });
+  else HOME_MAP.setView([37.389, -5.984], 10);
+}
+
+function setHomeOrigen(point, textoDescriptivo) {
+  ROUTE_ORIGIN = point;
+  document.getElementById("homeOrigenTexto").textContent = textoDescriptivo;
+  if (!HOME_MAP) return;
+  const latlng = point.type === "stop"
+    ? [APP.data.paradas[point.id].lat, APP.data.paradas[point.id].lng]
+    : [point.lat, point.lng];
+  if (HOME_ORIGEN_MARKER) HOME_MAP.removeLayer(HOME_ORIGEN_MARKER);
+  HOME_ORIGEN_MARKER = L.marker(latlng, {
+    icon: L.divIcon({ className: "", html: '<div style="font-size:24px; line-height:1;">📍</div>', iconSize: [24, 24], iconAnchor: [12, 22] })
+  }).addTo(HOME_MAP);
+  HOME_MAP.setView(latlng, 14);
+}
+
+function pedirUbicacionInicio() {
+  const texto = document.getElementById("homeOrigenTexto");
+  if (!navigator.geolocation) {
+    texto.textContent = "Tu navegador no permite geolocalización — elige un origen en la pantalla Ruta.";
+    return;
+  }
+  texto.textContent = "Localizando…";
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const near = nearestStop(APP.data, pos.coords.latitude, pos.coords.longitude);
+      setHomeOrigen({ type: "point", lat: pos.coords.latitude, lng: pos.coords.longitude },
+        near ? `Saliendo desde cerca de ${APP.data.paradas[near.id].nombre} (${formatDistance(near.dist)})` : "Saliendo desde tu ubicación");
+    },
+    () => {
+      // Requisito del boceto: si no se puede geolocalizar, pedir punto de
+      // partida explícito en vez de dejar la pantalla en un estado muerto.
+      texto.textContent = "No se pudo localizar. Elige un punto de partida:";
+      const btn = document.getElementById("homeBtnUbicacion");
+      btn.textContent = "🖊 Marcar origen en el mapa";
+      btn.onclick = () => {
+        texto.textContent = "Toca el mapa para fijar tu punto de partida.";
+        if (HOME_MAP) HOME_MAP.once("click", e => {
+          setHomeOrigen({ type: "point", lat: e.latlng.lat, lng: e.latlng.lng }, "Punto de partida marcado en el mapa");
+        });
+      };
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
+/** Bloque destacado en Inicio: las salidas de las paradas favoritas,
+ * en grande y lo primero de todo. Si no hay favoritos, no ocupa sitio. */
+function renderHomeFavSalidas() {
+  const box = document.getElementById("homeFavSalidas");
+  if (!box) return;
+  if (!FAVORITOS.paradas.length) { box.innerHTML = ""; return; }
+
+  let html = '<div class="card home-fav-card"><h2 class="home-fav-title">Tus próximas salidas</h2>';
+  let hayAlgo = false;
+  FAVORITOS.paradas.forEach(fav => {
+    const p = APP.data.paradas[fav.id];
+    if (!p) return;
+    const { mostradas, total } = lineasEnParadaPriorizadas(fav.id, 3);
+    if (!mostradas.length) return;
+    hayAlgo = true;
+    html += `<div class="home-fav-parada" data-stop-id="${escapeHtml(fav.id)}">
+      <div class="home-fav-parada-nombre">📍 ${escapeHtml(p.nombre)}</div>`;
+    mostradas.forEach(g => {
+      const fmt = formatDeparture(g.dep);
+      const notif = getNotificacion(fav.id, g.linea_slug) || getNotificacion(fav.id, null);
+      html += `<div class="home-fav-fila">
+        <span class="home-fav-code${g.favorita ? " es-fav" : ""}">${escapeHtml(codigoLinea(g.linea_titulo))}</span>
+        <span class="home-fav-dir">${notif ? "🔔 " : ""}${escapeHtml(g.direccion || g.linea_titulo)}</span>
+        <span class="home-fav-hora">${escapeHtml(fmt.main)}<span class="home-fav-sub">${escapeHtml(fmt.sub)}</span></span>
+      </div>`;
+    });
+    if (total > mostradas.length) {
+      html += `<div class="fav-parada-mas">+${total - mostradas.length} línea${total - mostradas.length === 1 ? "" : "s"} más · pulsa para ver todo</div>`;
+    }
+    html += `</div>`;
+  });
+  html += "</div>";
+  box.innerHTML = hayAlgo ? html : "";
+
+  box.querySelectorAll(".home-fav-parada").forEach(el => {
+    el.addEventListener("click", () => openModal(cont => buildStopScheduleModalContent(cont, el.dataset.stopId)));
+  });
+}
+
+function renderQuickFavs() {
+  const box = document.getElementById("homeQuickFavs");
+  box.innerHTML = "";
+  const rutas = FAVORITOS.rutas.slice(0, 3);
+  rutas.forEach(fav => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "quickfav";
+    b.textContent = `→ ${fav.destinoNombre}`;
+    b.title = `${fav.origenNombre} → ${fav.destinoNombre}`;
+    b.addEventListener("click", () => {
+      ROUTE_ORIGIN = { type: "stop", id: fav.origenId };
+      ROUTE_DESTINO = { type: "stop", id: fav.destinoId };
+      irAPantalla("screenRuta");
+      setTimeout(() => {
+        buildStopsDatalist();
+        document.getElementById("origenInput").value = fav.origenNombre;
+        document.getElementById("origenStatus").textContent = `Parada: ${fav.origenNombre}`;
+        document.getElementById("destinoInput").value = fav.destinoNombre;
+        document.getElementById("destinoStatus").textContent = `Parada: ${fav.destinoNombre}`;
+        onCalcularRuta();
+      }, 90);
+    });
+    box.appendChild(b);
+  });
+  FAVORITOS.paradas.slice(0, 3).forEach(fav => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "quickfav";
+    b.textContent = `📍 ${fav.nombre}`;
+    b.addEventListener("click", () => openModal(container => buildStopScheduleModalContent(container, fav.id)));
+    box.appendChild(b);
+  });
+}
+
+function wireInicio() {
+  document.getElementById("homeBtnUbicacion").addEventListener("click", pedirUbicacionInicio);
+  document.getElementById("homeDestinoInput").addEventListener("change", e => {
+    const nombre = e.target.value.trim();
+    if (!nombre) return;
+    buildStopsDatalist();
+    const id = PARADA_POR_NOMBRE && PARADA_POR_NOMBRE[nombre];
+    if (!id) {
+      document.getElementById("homeOrigenTexto").textContent = "No se reconoce esa parada; elígela de la lista.";
+      return;
+    }
+    ROUTE_DESTINO = { type: "stop", id };
+    irAPantalla("screenRuta");
+    setTimeout(() => {
+      document.getElementById("destinoInput").value = nombre;
+      document.getElementById("destinoStatus").textContent = `Parada: ${nombre}`;
+      if (ROUTE_ORIGIN) {
+        const desc = ROUTE_ORIGIN.type === "stop" ? APP.data.paradas[ROUTE_ORIGIN.id].nombre : "Punto marcado";
+        document.getElementById("origenInput").value = ROUTE_ORIGIN.type === "stop" ? desc : "";
+        document.getElementById("origenStatus").textContent = ROUTE_ORIGIN.type === "stop" ? `Parada: ${desc}` : "Punto de partida marcado";
+        onCalcularRuta();
+      }
+    }, 90);
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Navegación y drawer de favoritos                                    */
+/* ------------------------------------------------------------------ */
+function irAPantalla(idPantalla) {
+  document.querySelectorAll(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.screen === idPantalla));
+  document.querySelectorAll(".screen").forEach(p => p.classList.toggle("active", p.id === idPantalla));
+  if (idPantalla === "screenInicio") { initHomeMap(); renderHomeFavSalidas(); renderQuickFavs(); }
+  if (idPantalla === "screenRuta") { buildStopsDatalist(); initRouteMap(); }
+  if (idPantalla === "screenLineas") { renderLineasFavoritas(); renderListadoLineas(); }
+  if (CURRENT_MAP_REF.map) setTimeout(() => CURRENT_MAP_REF.map.invalidateSize(), 60);
+  if (CURRENT_ROUTE_MAP) setTimeout(() => CURRENT_ROUTE_MAP.invalidateSize(), 60);
+  if (HOME_MAP) setTimeout(() => HOME_MAP.invalidateSize(), 60);
+}
+
+function abrirDrawerFavoritos() {
+  document.getElementById("favDrawer").classList.add("open");
+  document.getElementById("drawerOverlay").classList.add("open");
+  renderFavoritosTab();
+}
+
+function cerrarDrawerFavoritos() {
+  document.getElementById("favDrawer").classList.remove("open");
+  document.getElementById("drawerOverlay").classList.remove("open");
+}
+
+function wireTabs() {
+  document.querySelectorAll(".nav-btn").forEach(btn => {
+    btn.addEventListener("click", () => irAPantalla(btn.dataset.screen));
+  });
+  document.getElementById("btnAbrirFavoritos").addEventListener("click", abrirDrawerFavoritos);
+  document.getElementById("btnCerrarFavoritos").addEventListener("click", cerrarDrawerFavoritos);
+  document.getElementById("drawerOverlay").addEventListener("click", cerrarDrawerFavoritos);
+}
+
+/* ------------------------------------------------------------------ */
+/* Arranque                                                             */
+/* ------------------------------------------------------------------ */
+/** Registra el Service Worker (solo funciona sobre https:// o
+ * localhost). Nos da caché offline y, sobre todo, notificaciones
+ * reales en móvil, donde `new Notification()` está prohibido. */
+function registrarServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  if (location.protocol !== "https:" && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") return;
+  navigator.serviceWorker.register("sw.js", { scope: "./" })
+    .then(reg => console.info("Service Worker registrado", reg.scope))
+    .catch(err => console.warn("No se pudo registrar el Service Worker", err));
+}
+
+async function init() {
+  cargarFavoritos();
+  registrarServiceWorker();
+  setStatus("Cargando datos…");
+  try {
+    APP.data = await loadData(false);
+    const fecha = APP.data.generado ? new Date(APP.data.generado).toLocaleString("es-ES") : "?";
+    setStatus(`${APP.data.lineas.length} líneas · datos generados ${fecha}`);
+  } catch (err) {
+    setStatus("Error cargando datos: " + err.message);
+    document.getElementById("lineasListado").innerHTML =
+      `<p class="empty">No se pudo cargar <code>${DATA_URL}</code>. Si has abierto este archivo con doble clic,
+      muchos navegadores bloquean esa carga por CORS: sirve la carpeta con un servidor local, por ejemplo
+      <code>python3 -m http.server</code> desde la carpeta donde estén los dos ficheros, y abre
+      <code>http://localhost:8000/proxima_salida.html</code>.</p>`;
+    return;
+  }
+  buildMunicipioOptions();
+  wireTabs();
+  wireLineSearch();
+  wireGeo();
+  wireRuta();
+  wireInicio();
+  renderQuickFavs();
+  renderHomeFavSalidas();
+  initHomeMap();
+  arrancarVigilanteNotificaciones();
+  pedirUbicacionInicio();
+
+  document.getElementById("btnRefresh").addEventListener("click", async () => {
+    setStatus("Actualizando datos…");
+    try {
+      APP.data = await loadData(true);
+      const fecha = APP.data.generado ? new Date(APP.data.generado).toLocaleString("es-ES") : "?";
+      setStatus(`${APP.data.lineas.length} líneas · datos generados ${fecha}`);
+      buildMunicipioOptions();
+      renderListadoLineas();
+    } catch (err) {
+      setStatus("Error actualizando: " + err.message);
+    }
+  });
+}
+
+document.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>

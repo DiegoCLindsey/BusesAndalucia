@@ -532,6 +532,8 @@
     font-size:12px; font-weight:700; color:var(--ink-soft);
     text-transform:uppercase; letter-spacing:0.04em; margin-bottom:6px;
   }
+  .home-fav-muni{color:var(--ink-faint); font-weight:600;}
+  .home-fav-muni::before{content:"· ";}
   .home-fav-fila{
     display:flex; align-items:center; gap:10px; padding:5px 0;
   }
@@ -738,6 +740,30 @@
     background:var(--paper); color:var(--ink-soft); cursor:pointer;
   }
   .criterio-pill.active{background:var(--green); border-color:var(--green); color:#fff;}
+
+  /* Selectores de municipio: en la ruta, en los favoritos y al elegir
+     "mi parada" de una línea es siempre la misma fila de pastillas. */
+  .chip-row{display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 10px;}
+  .muni-chip{
+    font-family:var(--font-body); font-size:12.5px; font-weight:600;
+    padding:6px 11px; border-radius:999px; border:1px solid var(--border);
+    background:var(--paper); color:var(--ink-soft); cursor:pointer;
+  }
+  .muni-chip.active{background:var(--green); border-color:var(--green); color:#fff;}
+  .opciones-row{display:flex; gap:8px; flex-wrap:wrap;}
+  .opcion-pill{
+    display:flex; flex-direction:column; gap:2px; align-items:flex-start;
+    padding:8px 12px; border-radius:10px; border:1px solid var(--border);
+    background:var(--paper); cursor:pointer; text-align:left;
+  }
+  .opcion-pill.active{border-color:var(--green); background:var(--paper-2);}
+  .opcion-lineas{font-family:var(--font-display); font-weight:700; font-size:13px; color:var(--ink);}
+  .opcion-meta{font-size:11.5px; color:var(--ink-faint);}
+  .selector-bloque{margin-top:14px;}
+  .selector-titulo{
+    font-size:12px; font-weight:700; text-transform:uppercase;
+    letter-spacing:.04em; color:var(--ink-faint); margin-bottom:6px;
+  }
   .itin-leg-time{
     font-family:var(--font-mono);
     font-size:13px;
@@ -816,7 +842,8 @@
       <div class="field">
         <label class="field-label">Origen</label>
         <div class="endpoint-row">
-          <input type="text" class="input" id="origenInput" list="listaParadas" placeholder="Escribe el nombre de una parada…">
+          <input type="text" class="input" id="origenInput" list="listaParadas" placeholder="Parada o municipio…">
+          <button class="btn-chip" id="origenMuni" type="button" title="Elegir un municipio entero">🏙</button>
           <button class="btn-chip" id="origenGeo" type="button" title="Usar mi ubicación">📍</button>
           <button class="btn-chip" id="origenPin" type="button" title="Marcar en el mapa">🖊</button>
         </div>
@@ -825,7 +852,8 @@
       <div class="field">
         <label class="field-label">Destino</label>
         <div class="endpoint-row">
-          <input type="text" class="input" id="destinoInput" list="listaParadas" placeholder="Escribe el nombre de una parada…">
+          <input type="text" class="input" id="destinoInput" list="listaParadas" placeholder="Parada o municipio…">
+          <button class="btn-chip" id="destinoMuni" type="button" title="Elegir un municipio entero">🏙</button>
           <button class="btn-chip" id="destinoGeo" type="button" title="Usar mi ubicación">📍</button>
           <button class="btn-chip" id="destinoPin" type="button" title="Marcar en el mapa">🏁</button>
         </div>
@@ -850,6 +878,7 @@
       </div>
       <div class="board-note" id="rutaClickHint" style="display:none;"></div>
     </div>
+    <div id="rutaOpciones"></div>
     <div id="rutaResultado"></div>
   </section>
 
@@ -903,7 +932,7 @@
 /* Config y estado                                                     */
 /* ------------------------------------------------------------------ */
 const DATA_URL = "ctas_data_app.json";
-const LS_KEY = "ctasAppDataV1";
+const LS_KEY = "ctasAppDataV2"; // v2: cada parada trae su municipio
 const APP = { data: null };
 
 /* ------------------------------------------------------------------ */
@@ -911,6 +940,18 @@ const APP = { data: null };
 /* ------------------------------------------------------------------ */
 const LS_FAVORITOS_KEY = "ctasFavoritosV1";
 let FAVORITOS = { paradas: [], lineas: [], rutas: [], notificaciones: [] };
+
+/** Municipio desde el que se están mirando las salidas ("" = todos). Se
+ * recuerda entre visitas porque casi siempre miras desde el mismo sitio:
+ * por la mañana desde tu pueblo, por la tarde desde Sevilla. */
+const LS_FILTRO_MUNI_KEY = "ctasFiltroMunicipioV1";
+let FILTRO_MUNICIPIO = "";
+try { FILTRO_MUNICIPIO = localStorage.getItem(LS_FILTRO_MUNI_KEY) || ""; } catch (e) { FILTRO_MUNICIPIO = ""; }
+
+function setFiltroMunicipio(municipio) {
+  FILTRO_MUNICIPIO = municipio || "";
+  try { localStorage.setItem(LS_FILTRO_MUNI_KEY, FILTRO_MUNICIPIO); } catch (e) { /* modo privado */ }
+}
 
 function cargarFavoritos() {
   try {
@@ -923,6 +964,17 @@ function cargarFavoritos() {
         rutas: Array.isArray(parsed.rutas) ? parsed.rutas : [],
         notificaciones: Array.isArray(parsed.notificaciones) ? parsed.notificaciones : []
       };
+      // Las líneas favoritas guardadas con el modelo antiguo tenían
+      // `paradasPorSentido` (cabecera -> parada). Se traen tal cual como
+      // puntos de referencia: la parada es la misma, y el sentido se
+      // resuelve solo la primera vez que se pinta.
+      FAVORITOS.lineas.forEach(l => {
+        if (Array.isArray(l.referencias)) return;
+        l.referencias = Object.values(l.paradasPorSentido || {})
+          .filter(Boolean)
+          .map(paradaId => ({ paradaId, sentidoClave: null }));
+        delete l.paradasPorSentido;
+      });
     }
   } catch (e) {
     console.warn("No se pudieron cargar los favoritos", e);
@@ -975,28 +1027,10 @@ function toggleFavoritoLinea(slug) {
     FAVORITOS.lineas.splice(idx, 1);
   } else {
     const linea = APP.data.lineas.find(l => l.slug === slug);
-    // paradasPorSentido: cabeceraId -> paradaId elegida por la persona
-    // para ese sentido concreto (p.ej. en Guillena→Sevilla su parada es
-    // una, y en el sentido contrario otra distinta).
-    FAVORITOS.lineas.push({ slug, titulo: linea ? linea.titulo : slug, paradasPorSentido: {} });
+    // referencias: desde qué paradas (y hacia qué sentido) quiere la
+    // persona ver las salidas de esta línea. Vacío = las cabeceras.
+    FAVORITOS.lineas.push({ slug, titulo: linea ? linea.titulo : slug, referencias: [] });
   }
-  guardarFavoritos();
-}
-
-/** Parada elegida por la persona para un sentido concreto de una línea
- * favorita, o null si aún no ha elegido ninguna. */
-function paradaFavoritaDeSentido(lineaSlug, cabeceraId) {
-  const fav = FAVORITOS.lineas.find(l => l.slug === lineaSlug);
-  if (!fav || !fav.paradasPorSentido) return null;
-  return fav.paradasPorSentido[cabeceraId] || null;
-}
-
-function setParadaFavoritaDeSentido(lineaSlug, cabeceraId, paradaId) {
-  const fav = FAVORITOS.lineas.find(l => l.slug === lineaSlug);
-  if (!fav) return;
-  if (!fav.paradasPorSentido) fav.paradasPorSentido = {};
-  if (paradaId) fav.paradasPorSentido[cabeceraId] = paradaId;
-  else delete fav.paradasPorSentido[cabeceraId];
   guardarFavoritos();
 }
 
@@ -1266,6 +1300,239 @@ function normFrecuencia(frecuenciaStr) {
   if (/domingo|festivo/.test(n)) return "domingo";
   if (/sabado/.test(n)) return "sabado";
   return "laborable";
+}
+
+/* ------------------------------------------------------------------ */
+/* Grafo tripartito: municipio — parada — línea                        */
+/* ------------------------------------------------------------------ */
+/** El índice que sostiene todo lo que va "por municipio": qué paradas
+ * tiene cada municipio, qué líneas lo pisan, y en qué municipios para
+ * cada línea. Se construye una sola vez al cargar los datos y es lo que
+ * permite tanto pedir una ruta de pueblo a pueblo sin saberse ninguna
+ * parada, como filtrar tus próximas salidas por el municipio desde el
+ * que quieres mirar.
+ *
+ * Es tripartito de verdad, no una lista de municipios con un mapa al
+ * lado: municipio ↔ parada ↔ línea, con las tres relaciones navegables
+ * en ambos sentidos, porque la búsqueda de itinerarios recorre el nivel
+ * de líneas (para contar trasbordos) y aterriza en el de paradas (para
+ * poner horas reales). */
+const GRAFO = {
+  municipios: new Map(), // nombre -> {nombre, paradas:[id], lineas:Set, lat, lng}
+  paradas: new Map(),    // paradaId -> {municipio, lineas:Set}
+  lineas: new Map(),     // slug -> {slug, titulo, municipios:Set, paradas:Set, recorridos:[]}
+  lista: []              // municipios con paradas, alfabético
+};
+
+function construirGrafo() {
+  GRAFO.municipios.clear();
+  GRAFO.paradas.clear();
+  GRAFO.lineas.clear();
+
+  const nodoMunicipio = nombre => {
+    if (!GRAFO.municipios.has(nombre)) {
+      GRAFO.municipios.set(nombre, { nombre, paradas: [], lineas: new Set(), lat: null, lng: null });
+    }
+    return GRAFO.municipios.get(nombre);
+  };
+
+  Object.entries(APP.data.paradas).forEach(([id, p]) => {
+    const municipio = p.municipio || null;
+    GRAFO.paradas.set(id, { municipio, lineas: new Set() });
+    if (municipio) nodoMunicipio(municipio).paradas.push(id);
+  });
+
+  (APP.data.lineas || []).forEach(linea => {
+    // De cada variante guardamos el recorrido tal cual (la secuencia de
+    // paradas) porque el orden es lo único que dice si dos paradas están
+    // conectadas EN ESE SENTIDO: que una línea pase por A y por B no
+    // significa que puedas ir de A a B con ella.
+    const recorridos = (linea.variantes || []).map(v => {
+      const paradas = (v.paradas || []).filter(id => APP.data.paradas[id]);
+      const posiciones = new Map();
+      paradas.forEach((id, i) => {
+        if (!posiciones.has(id)) posiciones.set(id, []);
+        posiciones.get(id).push(i);
+      });
+      return { nodoId: v.nodo_id, nombre: v.nombre, paradas, posiciones };
+    }).filter(r => r.paradas.length > 1);
+
+    const nodo = { slug: linea.slug, titulo: linea.titulo, municipios: new Set(), paradas: new Set(), recorridos };
+    recorridos.forEach(r => r.paradas.forEach(id => nodo.paradas.add(id)));
+    nodo.paradas.forEach(id => {
+      const np = GRAFO.paradas.get(id);
+      if (!np) return;
+      np.lineas.add(linea.slug);
+      if (np.municipio) {
+        nodo.municipios.add(np.municipio);
+        nodoMunicipio(np.municipio).lineas.add(linea.slug);
+      }
+    });
+    GRAFO.lineas.set(linea.slug, nodo);
+  });
+
+  // Centro de cada municipio: la media de sus paradas. Sirve para
+  // centrar el mapa y para medir distancias cuando el extremo de una
+  // ruta es un municipio entero y no un punto concreto.
+  GRAFO.municipios.forEach(m => {
+    const pts = m.paradas.map(id => APP.data.paradas[id]).filter(p => p && p.lat != null);
+    if (!pts.length) return;
+    m.lat = pts.reduce((a, p) => a + p.lat, 0) / pts.length;
+    m.lng = pts.reduce((a, p) => a + p.lng, 0) / pts.length;
+  });
+
+  GRAFO.lista = [...GRAFO.municipios.keys()]
+    .filter(m => GRAFO.municipios.get(m).paradas.length)
+    .sort((a, b) => a.localeCompare(b, "es"));
+}
+
+function municipioDeParada(paradaId) {
+  const n = GRAFO.paradas.get(paradaId);
+  return n ? n.municipio : null;
+}
+
+function paradasDeMunicipio(nombre) {
+  const m = GRAFO.municipios.get(nombre);
+  return m ? m.paradas : [];
+}
+
+/** Paradas de un municipio ordenadas por nombre, opcionalmente solo las
+ * de una línea concreta. Es lo que se ofrece al elegir "mi parada". */
+function paradasDeMunicipioEnLinea(nombre, lineaSlug) {
+  const nodo = lineaSlug ? GRAFO.lineas.get(lineaSlug) : null;
+  return paradasDeMunicipio(nombre)
+    .filter(id => !nodo || nodo.paradas.has(id))
+    .sort((a, b) => APP.data.paradas[a].nombre.localeCompare(APP.data.paradas[b].nombre, "es"));
+}
+
+/** Municipios que toca una línea, en el orden en que los pisa su
+ * recorrido más largo (más útil que el alfabético para orientarse). */
+function municipiosDeLinea(lineaSlug) {
+  const nodo = GRAFO.lineas.get(lineaSlug);
+  if (!nodo) return [];
+  const largo = nodo.recorridos.slice().sort((a, b) => b.paradas.length - a.paradas.length)[0];
+  const orden = [];
+  const vistos = new Set();
+  if (largo) {
+    largo.paradas.forEach(id => {
+      const m = municipioDeParada(id);
+      if (m && !vistos.has(m)) { vistos.add(m); orden.push(m); }
+    });
+  }
+  [...nodo.municipios].sort((a, b) => a.localeCompare(b, "es")).forEach(m => {
+    if (!vistos.has(m)) { vistos.add(m); orden.push(m); }
+  });
+  return orden;
+}
+
+/* ------------------------------------------------------------------ */
+/* Sentido de circulación en una parada                                 */
+/* ------------------------------------------------------------------ */
+/** Hacia dónde va un autobús concreto cuando pasa por una parada.
+ *
+ * Antes esto se deducía de la CABECERA de la variante (dónde arranca), y
+ * de ahí venía el fallo de las próximas salidas: la M-177 sale unas veces
+ * de Torre de la Reina y otras de Guillena, pero ambas pasan por la misma
+ * parada camino de Sevilla. Al agrupar por cabecera, mirando el sentido
+ * "Torre de la Reina" solo se contaban los autobuses que arrancan allí y
+ * se anunciaba como próxima salida la de una hora más tarde, ignorando el
+ * que salía de Guillena y pasaba por delante mucho antes.
+ *
+ * El sentido se saca ahora de lo único que importa cuando estás esperando
+ * en una parada: qué queda por delante en el recorrido. Se toma la parada
+ * pendiente más lejana y su municipio da el nombre del sentido, así que
+ * todos los autobuses que pasan por ahí camino de Sevilla caen en el
+ * mismo grupo, salgan de donde salgan. En la parada de vuelta, ese mismo
+ * recorrido ya solo tiene por delante paradas de Guillena, y se agrupa
+ * como el sentido contrario. */
+const EXTREMOS_SENTIDO = 3; // paradas del final del recorrido que votan el sentido
+
+function sentidoDeServicio(paradaId, servicio) {
+  const nodo = GRAFO.lineas.get(servicio.linea_slug);
+  const parada = APP.data.paradas[paradaId];
+  const vacio = { clave: "_fin_", etiqueta: "fin de trayecto", destinoId: null };
+  if (!nodo || !parada) return vacio;
+  const recorrido = nodo.recorridos.find(r => r.nodoId === servicio.variante_nodo_id);
+  if (!recorrido) return vacio;
+
+  // `orden` es 1-based sobre la lista de paradas de la variante; si por
+  // lo que sea no cuadra, se busca la parada en el recorrido.
+  let idx = (servicio.orden || 0) - 1;
+  if (recorrido.paradas[idx] !== paradaId) {
+    const pos = recorrido.posiciones.get(paradaId);
+    if (!pos || !pos.length) return vacio;
+    idx = pos[0];
+  }
+  const pendientes = recorrido.paradas.slice(idx + 1);
+  if (!pendientes.length) return vacio;
+
+  // No basta con la parada pendiente más lejana: en un recorrido largo,
+  // la más lejana y la segunda están a metros una de otra y pueden caer
+  // en municipios distintos (los límites del Aljarafe pasan por medio de
+  // las calles). Se votan las EXTREMOS_SENTIDO más lejanas, que van
+  // todas al mismo sitio, y gana el municipio mayoritario.
+  const lejanas = pendientes
+    .map(id => APP.data.paradas[id])
+    .filter(p => p && p.lat != null && parada.lat != null)
+    .map(p => ({ p, d: haversine(parada.lat, parada.lng, p.lat, p.lng) }))
+    .sort((a, b) => b.d - a.d)
+    .slice(0, EXTREMOS_SENTIDO);
+  if (!lejanas.length) return vacio;
+
+  const votos = new Map();
+  lejanas.forEach(({ p }) => {
+    const m = p.municipio || null;
+    if (m) votos.set(m, (votos.get(m) || 0) + 1);
+  });
+  const municipioDestino = votos.size
+    ? [...votos.entries()].sort((a, b) => b[1] - a[1])[0][0]
+    : null;
+  const extremo = lejanas.find(({ p }) => !municipioDestino || p.municipio === municipioDestino) || lejanas[0];
+  const destinoId = pendientes.find(id => APP.data.paradas[id] === extremo.p) || pendientes[pendientes.length - 1];
+
+  // El sentido se nombra por el municipio hacia el que se va, incluso
+  // cuando es el mismo del que sales (una línea que da la vuelta y
+  // vuelve a entrar en el pueblo): así todos los recorridos que van
+  // "hacia allí" quedan en el mismo grupo, que es de lo que se trata.
+  return {
+    clave: municipioDestino ? "m:" + municipioDestino : "p:" + destinoId,
+    etiqueta: municipioDestino || extremo.p.nombre,
+    destinoId
+  };
+}
+
+/** Las salidas de una parada agrupadas por línea Y sentido: cada grupo
+ * responde a "¿cuándo pasa por aquí el próximo autobús de la línea X
+ * hacia Y?", juntando todos los recorridos que hacen ese mismo trayecto.
+ * Si se pasa `lineaSlug`, solo se mira esa línea. */
+function sentidosEnParada(paradaId, lineaSlug, ahora) {
+  const p = APP.data.paradas[paradaId];
+  if (!p) return [];
+  const grupos = new Map();
+  (p.servicios || []).forEach(s => {
+    if (lineaSlug && s.linea_slug !== lineaSlug) return;
+    const sentido = sentidoDeServicio(paradaId, s);
+    // Un recorrido que TERMINA aquí no es una salida: la hora que publica
+    // ctas.es para él es la de llegada. Enseñarla como "próximo autobús"
+    // sería mandar a alguien a esperar un bus que se queda parado.
+    if (!sentido.destinoId) return;
+    const clave = s.linea_slug + "|" + sentido.clave;
+    if (!grupos.has(clave)) {
+      grupos.set(clave, {
+        clave, sentidoClave: sentido.clave, lineaSlug: s.linea_slug, lineaTitulo: s.linea_titulo,
+        etiqueta: sentido.etiqueta, destinoId: sentido.destinoId, servicios: []
+      });
+    }
+    grupos.get(clave).servicios.push(s);
+  });
+  const now = ahora || new Date();
+  const salida = [...grupos.values()].map(g => ({ ...g, dep: nextDepartureConOrigen(g.servicios, now) }));
+  salida.sort((a, b) => {
+    const av = a.dep ? a.dep.dias * 1440 + a.dep.h * 60 + a.dep.m : Infinity;
+    const bv = b.dep ? b.dep.dias * 1440 + b.dep.h * 60 + b.dep.m : Infinity;
+    return av - bv;
+  });
+  return salida;
 }
 
 /** Todos los "servicios" (línea+variante) de una MISMA línea que pasan
@@ -1569,7 +1836,7 @@ function renderLineDetail(container, linea, defaultStopId, onBack, mapRef) {
   `;
   if (onBack) container.querySelector("#btnBack").addEventListener("click", onBack);
   const cabecerasBox = container.querySelector("#cabecerasBox");
-  const repintarCabeceras = () => renderCabecerasEn(cabecerasBox, linea, repintarCabeceras);
+  const repintarCabeceras = () => renderSalidasDeLineaEn(cabecerasBox, linea, repintarCabeceras);
   repintarCabeceras();
   container.querySelector("#btnFavLinea").addEventListener("click", e => {
     toggleFavoritoLinea(linea.slug);
@@ -1711,21 +1978,14 @@ function openLineModal(lineaSlug, defaultStopId) {
  * muchas líneas donde el popup del mapa se queda corto. */
 function buildStopScheduleModalContent(container, stopId) {
   const p = APP.data.paradas[stopId];
-  const porLinea = {};
-  (p.servicios || []).forEach(s => {
-    if (!porLinea[s.linea_slug]) porLinea[s.linea_slug] = { linea_titulo: s.linea_titulo, servicios: [] };
-    porLinea[s.linea_slug].servicios.push(s);
-  });
-  const grupos = Object.values(porLinea).map(g => ({ ...g, dep: nextDeparture(mergeHorarios(g.servicios)) }));
-  grupos.sort((a, b) => {
-    const av = a.dep ? a.dep.dias * 1440 + a.dep.h * 60 + a.dep.m : Infinity;
-    const bv = b.dep ? b.dep.dias * 1440 + b.dep.h * 60 + b.dep.m : Infinity;
-    return av - bv;
-  });
+  // Una fila por línea y sentido: en una parada de doble sentido, "el
+  // próximo M-177" sin decir hacia dónde no sirve de nada.
+  const grupos = sentidosEnParada(stopId, null);
+  const municipio = municipioDeParada(stopId);
 
   container.innerHTML = `
     <h3 class="detail-title">${escapeHtml(p.nombre)} <button type="button" class="btn-fav" id="btnFavParadaModal">${esFavoritoParada(stopId) ? "★" : "☆"}</button></h3>
-    <div class="detail-meta">${escapeHtml(p.zona || "")} · ${grupos.length} línea${grupos.length === 1 ? "" : "s"} por esta parada</div>
+    <div class="detail-meta">${municipio ? escapeHtml(municipio) + " · " : ""}${escapeHtml(p.zona || "")} · ${grupos.length} salida${grupos.length === 1 ? "" : "s"} por esta parada</div>
     <ul class="servicelist" id="stopScheduleList" style="margin-top:10px;"></ul>
   `;
   container.querySelector("#btnFavParadaModal").addEventListener("click", e => {
@@ -1745,18 +2005,28 @@ function buildStopScheduleModalContent(container, stopId) {
   }));
   container.insertBefore(btnNotif, container.querySelector("#stopScheduleList"));
   const list = container.querySelector("#stopScheduleList");
+  if (!grupos.length) {
+    // Hay paradas donde todos los recorridos TERMINAN: la hora que
+    // publica ctas.es ahí es la de llegada, no la de una salida.
+    const aviso = document.createElement("p");
+    aviso.className = "empty";
+    aviso.textContent = (p.servicios || []).length
+      ? "Aquí terminan los recorridos que pasan: no salen autobuses de esta parada."
+      : "Sin datos de horario para esta parada.";
+    list.parentNode.insertBefore(aviso, list);
+  }
   grupos.forEach(g => {
     const fmt = formatDeparture(g.dep);
     const li = document.createElement("li");
     li.className = "serviceitem";
     li.innerHTML = `
       <div style="flex:1;">
-        <div class="servicename">${escapeHtml(g.linea_titulo)}</div>
-        <div class="servicevariant">${g.servicios.length > 1 ? g.servicios.length + " recorridos por aquí" : escapeHtml(g.servicios[0].variante_nombre)}</div>
+        <div class="servicename">${escapeHtml(g.lineaTitulo)}</div>
+        <div class="servicevariant">hacia ${escapeHtml(g.etiqueta)}${g.servicios.length > 1 ? ` · ${g.servicios.length} recorridos por aquí` : ""}</div>
       </div>
       <div class="servicetime">${fmt.main}<span class="servicesub">${escapeHtml(fmt.sub)}</span></div>
     `;
-    li.addEventListener("click", () => openLineModal(g.linea_slug, stopId));
+    li.addEventListener("click", () => openLineModal(g.lineaSlug, stopId));
     list.appendChild(li);
   });
 }
@@ -1771,9 +2041,7 @@ function cssEscape(s) {
 /* Pantalla "Líneas": favoritas arriba, listado completo debajo        */
 /* ------------------------------------------------------------------ */
 function municipiosConLineas() {
-  const set = new Set();
-  APP.data.lineas.forEach(l => l.municipios.forEach(m => set.add(m)));
-  return APP.data.municipios.filter(m => set.has(m));
+  return GRAFO.lista.filter(m => GRAFO.municipios.get(m).lineas.size);
 }
 
 function buildMunicipioOptions() {
@@ -1801,168 +2069,234 @@ function origenDestinoVariante(nombreVariante) {
   return { origen: partes[0], destino: partes[partes.length - 1] };
 }
 
-/** Etiqueta de sentido para un grupo de variantes que comparten cabecera.
- * Se queda con el par origen→destino más frecuente entre ellas. */
-function etiquetaSentido(variantes) {
-  const cuenta = new Map();
-  variantes.forEach(v => {
-    const od = origenDestinoVariante(v.nombre);
-    if (!od) return;
-    const clave = od.origen + " → " + od.destino;
-    cuenta.set(clave, (cuenta.get(clave) || 0) + 1);
+/* ------------------------------------------------------------------ */
+/* Puntos de referencia de una línea                                    */
+/* ------------------------------------------------------------------ */
+/** Un "punto de referencia" responde a "¿desde qué parada y hacia dónde
+ * quiero mirar esta línea?". Sustituye a las antiguas cabeceras, que
+ * ataban las salidas al sitio donde arranca cada recorrido y por eso
+ * dejaban fuera los autobuses que pasan por tu parada habiendo salido de
+ * otro sitio.
+ *
+ * Mientras no elijas nada se usan las cabeceras de la línea, que siguen
+ * siendo la vista razonable si la línea no es "tuya". En cuanto eliges
+ * parada — primero municipio, luego parada — manda la tuya. */
+function referenciasPorDefecto(linea) {
+  const refs = [];
+  const vistas = new Set();
+  (linea.variantes || []).forEach(v => {
+    const primera = (v.paradas || []).find(id => APP.data.paradas[id]);
+    if (!primera || vistas.has(primera)) return;
+    vistas.add(primera);
+    sentidosEnParada(primera, linea.slug).forEach(s => {
+      refs.push({ paradaId: primera, sentidoClave: s.sentidoClave, propia: false });
+    });
   });
-  if (!cuenta.size) return null;
-  return [...cuenta.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  return refs;
 }
 
-/** Cabeceras de salida de una línea = paradas donde arranca alguna de
- * sus variantes. Cada cabecera representa un sentido de circulación
- * (la mayoría de variantes de ctas.es son circulares y acaban donde
- * empiezan, así que el sentido lo marca dónde arrancan, no el par
- * origen-destino). Para cada cabecera se fusionan los horarios de todas
- * las variantes que salen de ahí y se devuelven las próximas salidas.
- *
- * Si la persona ha elegido una parada propia para ese sentido (línea
- * favorita), las horas se calculan en ESA parada, no en la cabecera. */
-function cabecerasDeLinea(linea, cuantas) {
+function referenciasDeLinea(linea) {
+  const fav = FAVORITOS.lineas.find(l => l.slug === linea.slug);
+  const propias = (fav && Array.isArray(fav.referencias) ? fav.referencias : [])
+    .filter(r => r && APP.data.paradas[r.paradaId])
+    .map(r => ({ paradaId: r.paradaId, sentidoClave: r.sentidoClave || null, propia: true }));
+  return propias.length ? propias : referenciasPorDefecto(linea);
+}
+
+function mismaReferencia(a, b) {
+  return a.paradaId === b.paradaId && (a.sentidoClave || null) === (b.sentidoClave || null);
+}
+
+function anadirReferencia(lineaSlug, paradaId, sentidoClave) {
+  const fav = FAVORITOS.lineas.find(l => l.slug === lineaSlug);
+  if (!fav) return;
+  if (!Array.isArray(fav.referencias)) fav.referencias = [];
+  const nueva = { paradaId, sentidoClave: sentidoClave || null };
+  if (!fav.referencias.some(r => mismaReferencia(r, nueva))) fav.referencias.push(nueva);
+  guardarFavoritos();
+}
+
+function quitarReferencia(lineaSlug, referencia) {
+  const fav = FAVORITOS.lineas.find(l => l.slug === lineaSlug);
+  if (!fav || !Array.isArray(fav.referencias)) return;
+  fav.referencias = fav.referencias.filter(r => !mismaReferencia(r, referencia));
+  guardarFavoritos();
+}
+
+/** Próximas salidas de una línea en un punto de referencia: se fusionan
+ * TODOS los recorridos que pasan por esa parada en ese sentido, vengan de
+ * la cabecera que vengan. Devuelve además las siguientes horas, para
+ * poder enseñar "y luego a las…". */
+function salidasDeReferencia(linea, ref, cuantas) {
   cuantas = cuantas || 2;
-  const grupos = new Map(); // paradaId -> {nombre, variantes:[]}
-  (linea.variantes || []).forEach(v => {
-    const ps = v.paradas || [];
-    if (!ps.length) return;
-    const first = ps[0];
-    if (!APP.data.paradas[first]) return;
-    if (!grupos.has(first)) grupos.set(first, { paradaId: first, nombre: APP.data.paradas[first].nombre, variantes: [] });
-    grupos.get(first).variantes.push(v);
-  });
+  const parada = APP.data.paradas[ref.paradaId];
+  if (!parada) return null;
+  const sentidos = sentidosEnParada(ref.paradaId, linea.slug);
+  const grupo = ref.sentidoClave ? sentidos.find(s => s.sentidoClave === ref.sentidoClave) : null;
+  const servicios = grupo ? grupo.servicios : sentidos.reduce((acc, s) => acc.concat(s.servicios), []);
+  if (!servicios.length) return null;
 
   const now = new Date();
   const nowMin = now.getHours() * 60 + now.getMinutes();
-  const out = [];
-  grupos.forEach(g => {
-    const paradaElegida = paradaFavoritaDeSentido(linea.slug, g.paradaId);
-    const paradaMedida = (paradaElegida && APP.data.paradas[paradaElegida]) ? paradaElegida : g.paradaId;
-    const nodoIds = new Set(g.variantes.map(v => v.nodo_id));
-    const servicios = [];
-    const p = APP.data.paradas[paradaMedida];
-    (p.servicios || []).forEach(s => {
-      if (s.linea_slug === linea.slug && nodoIds.has(s.variante_nodo_id)) servicios.push(s);
-    });
+  const merged = mergeDeparturesConOrigen(servicios);
+  const bucket = merged[frecuenciaKeyForDate(now)];
+  let horas = [];
+  let dep = null;
+  if (bucket && bucket.slots.length) {
+    const futuras = bucket.slots.filter(s => s.h * 60 + s.m >= nowMin).slice(0, cuantas);
+    horas = futuras.map(s => `${String(s.h).padStart(2, "0")}:${String(s.m).padStart(2, "0")}`);
+    if (futuras.length) dep = { h: futuras[0].h, m: futuras[0].m, dias: 0 };
+  }
+  // Sin salidas ya hoy: se barren los días siguientes para no dejar la
+  // fila muda.
+  if (!dep) dep = nextDeparture(mergeHorarios(servicios), now);
 
-    const merged = mergeDeparturesConOrigen(servicios);
-    const bucket = merged[frecuenciaKeyForDate(now)];
-    let horas = [];
-    let dep = null;
-    if (bucket && bucket.slots.length) {
-      const futuras = bucket.slots.filter(s => s.h * 60 + s.m >= nowMin).slice(0, cuantas);
-      horas = futuras.map(s => `${String(s.h).padStart(2, "0")}:${String(s.m).padStart(2, "0")}`);
-      if (futuras.length) dep = { h: futuras[0].h, m: futuras[0].m, dias: 0 };
-    }
-    if (!dep) {
-      // Sin salidas hoy: caemos al buscador general, que barre los
-      // próximos días para no dejar la cabecera "muda".
-      dep = nextDeparture(mergeHorarios(servicios), now);
-    }
-    out.push({
-      paradaId: g.paradaId,
-      nombre: g.nombre,
-      etiqueta: etiquetaSentido(g.variantes) || g.nombre,
-      paradaElegidaId: paradaElegida && APP.data.paradas[paradaElegida] ? paradaElegida : null,
-      paradaMedidaId: paradaMedida,
-      paradaMedidaNombre: APP.data.paradas[paradaMedida] ? APP.data.paradas[paradaMedida].nombre : paradaMedida,
-      horas, dep, numVariantes: g.variantes.length,
-      variantes: g.variantes
-    });
-  });
-  out.sort((a, b) => {
-    const av = a.dep ? a.dep.dias * 1440 + a.dep.h * 60 + a.dep.m : Infinity;
-    const bv = b.dep ? b.dep.dias * 1440 + b.dep.h * 60 + b.dep.m : Infinity;
-    return av - bv;
-  });
-  return out;
+  return {
+    ...ref,
+    paradaNombre: parada.nombre,
+    municipio: municipioDeParada(ref.paradaId),
+    etiqueta: grupo ? grupo.etiqueta : (sentidos[0] ? sentidos[0].etiqueta : linea.titulo),
+    numSentidos: sentidos.length,
+    horas, dep, servicios
+  };
 }
 
-/** Todas las paradas que recorre un sentido concreto (unión ordenada de
- * las paradas de sus variantes), para poder elegir cuál es "mi parada"
- * en ese sentido. */
-function paradasDeSentido(cabecera) {
-  const vistas = new Set();
-  const out = [];
-  (cabecera.variantes || []).forEach(v => {
-    (v.paradas || []).forEach(pid => {
-      if (vistas.has(pid) || !APP.data.paradas[pid]) return;
-      vistas.add(pid);
-      out.push(pid);
+/** Todas las referencias de una línea, resueltas y ordenadas por
+ * cercanía de la próxima salida. */
+function salidasDeLinea(linea, cuantas) {
+  return referenciasDeLinea(linea)
+    .map(ref => salidasDeReferencia(linea, ref, cuantas))
+    .filter(Boolean)
+    .sort((a, b) => {
+      const av = a.dep ? a.dep.dias * 1440 + a.dep.h * 60 + a.dep.m : Infinity;
+      const bv = b.dep ? b.dep.dias * 1440 + b.dep.h * 60 + b.dep.m : Infinity;
+      return av - bv;
     });
-  });
-  return out;
 }
 
-/** Modal para elegir "mi parada" dentro de un sentido concreto. */
-function abrirSelectorParadaSentido(lineaSlug, cabecera, onElegida) {
+/** Elegir "mis paradas" en una línea, en dos pasos: municipio → parada.
+ * Empezar por el municipio es lo que pide el caso real: quiero ver la
+ * M-177 desde Guillena y también desde Sevilla, y en cada sitio desde una
+ * parada distinta. */
+function abrirSelectorReferencias(linea, onCambio) {
+  let municipioElegido = null;
   openModal(container => {
-    const paradas = paradasDeSentido(cabecera);
-    const actual = paradaFavoritaDeSentido(lineaSlug, cabecera.paradaId);
-    container.innerHTML = `
-      <h3 class="detail-title">Tu parada en este sentido</h3>
-      <div class="detail-meta">${escapeHtml(cabecera.etiqueta)} · ${paradas.length} paradas</div>
-      <div style="margin:10px 0;">
-        <button type="button" class="btn-chip" id="btnQuitarParadaSentido">${actual ? "✕ Usar la cabecera por defecto" : "Actualmente: cabecera por defecto"}</button>
-      </div>
-      <div id="selectorParadasList"></div>`;
-    container.querySelector("#btnQuitarParadaSentido").addEventListener("click", () => {
-      setParadaFavoritaDeSentido(lineaSlug, cabecera.paradaId, null);
-      closeModal();
-      if (onElegida) onElegida();
-    });
-    const list = container.querySelector("#selectorParadasList");
-    paradas.forEach(pid => {
-      const row = document.createElement("div");
-      row.className = "linea-row";
-      row.innerHTML = `<span class="linea-row-name">${escapeHtml(APP.data.paradas[pid].nombre)}</span>
-        <span class="btn-fav">${pid === actual ? "★" : "☆"}</span>`;
-      row.addEventListener("click", () => {
-        setParadaFavoritaDeSentido(lineaSlug, cabecera.paradaId, pid);
-        closeModal();
-        if (onElegida) onElegida();
+    const pintar = () => {
+      const actuales = referenciasDeLinea(linea);
+      const fav = FAVORITOS.lineas.find(l => l.slug === linea.slug);
+      const tienePropias = !!(fav && Array.isArray(fav.referencias) && fav.referencias.length);
+      const municipios = municipiosDeLinea(linea.slug);
+      container.innerHTML = `
+        <h3 class="detail-title">Tus paradas en esta línea</h3>
+        <div class="detail-meta">${escapeHtml(linea.titulo)}</div>
+        <div class="selector-bloque">
+          <div class="selector-titulo">${tienePropias ? "Mirando desde" : "Por defecto: las cabeceras de la línea"}</div>
+          <div id="refsActuales"></div>
+        </div>
+        <div class="selector-bloque">
+          <div class="selector-titulo">Añadir una parada · elige municipio</div>
+          <div class="chip-row" id="refMunicipios">
+            ${municipios.map(m => `<button type="button" class="muni-chip${m === municipioElegido ? " active" : ""}" data-muni="${escapeHtml(m)}">${escapeHtml(m)}</button>`).join("")}
+          </div>
+          <div id="refParadas"></div>
+        </div>`;
+
+      const lista = container.querySelector("#refsActuales");
+      actuales.forEach(ref => {
+        const info = salidasDeReferencia(linea, ref, 1);
+        const row = document.createElement("div");
+        row.className = "linea-row";
+        row.innerHTML = `<span class="linea-row-name">${escapeHtml(APP.data.paradas[ref.paradaId].nombre)}
+            <span class="linea-row-muni">${escapeHtml((info && info.municipio) || "")}${info && info.etiqueta ? " · hacia " + escapeHtml(info.etiqueta) : ""}</span>
+          </span>`;
+        if (tienePropias) {
+          const quitar = document.createElement("button");
+          quitar.type = "button";
+          quitar.className = "btn-fav";
+          quitar.textContent = "✕";
+          quitar.title = "Quitar esta parada";
+          quitar.addEventListener("click", e => {
+            e.stopPropagation();
+            quitarReferencia(linea.slug, ref);
+            pintar();
+            if (onCambio) onCambio();
+          });
+          row.appendChild(quitar);
+        }
+        lista.appendChild(row);
       });
-      list.appendChild(row);
-    });
+
+      container.querySelectorAll("#refMunicipios .muni-chip").forEach(btn => {
+        btn.addEventListener("click", () => { municipioElegido = btn.dataset.muni; pintar(); });
+      });
+
+      const caja = container.querySelector("#refParadas");
+      if (!municipioElegido) {
+        caja.innerHTML = '<p class="empty">Elige primero un municipio.</p>';
+        return;
+      }
+      const paradas = paradasDeMunicipioEnLinea(municipioElegido, linea.slug);
+      if (!paradas.length) {
+        caja.innerHTML = '<p class="empty">Esta línea no tiene paradas ahí.</p>';
+        return;
+      }
+      caja.innerHTML = "";
+      paradas.forEach(pid => {
+        sentidosEnParada(pid, linea.slug).forEach(s => {
+          const ya = actuales.some(r => mismaReferencia(r, { paradaId: pid, sentidoClave: s.sentidoClave }));
+          const fmt = formatDeparture(s.dep);
+          const row = document.createElement("div");
+          row.className = "linea-row";
+          row.innerHTML = `<span class="linea-row-name">${escapeHtml(APP.data.paradas[pid].nombre)}
+              <span class="linea-row-muni">hacia ${escapeHtml(s.etiqueta)}</span>
+            </span>
+            <span class="cabecera-time">${escapeHtml(fmt.main)}<span class="cabecera-sub">${escapeHtml(fmt.sub)}</span></span>
+            <span class="btn-fav">${ya ? "★" : "☆"}</span>`;
+          row.addEventListener("click", () => {
+            if (ya) quitarReferencia(linea.slug, { paradaId: pid, sentidoClave: s.sentidoClave });
+            else anadirReferencia(linea.slug, pid, s.sentidoClave);
+            pintar();
+            if (onCambio) onCambio();
+          });
+          caja.appendChild(row);
+        });
+      });
+    };
+    pintar();
   });
 }
 
-/** Menú contextual de un sentido concreto: es el único sitio desde el
- * que se elige "mi parada" en ese sentido o se activa el aviso, para no
- * saturar las listas con botones siempre visibles. */
-function abrirMenuSentido(linea, cabecera, onCambio) {
+/** Menú contextual de un punto de referencia: elegir paradas, avisos,
+ * horario completo y ficha de la línea. */
+function abrirMenuReferencia(linea, ref, onCambio) {
   openModal(container => {
-    const notif = getNotificacion(cabecera.paradaMedidaId, linea.slug);
+    const notif = getNotificacion(ref.paradaId, linea.slug);
     const esFav = esFavoritoLinea(linea.slug);
-    const fmt = formatDeparture(cabecera.dep);
+    const fmt = formatDeparture(ref.dep);
     container.innerHTML = `
-      <h3 class="detail-title">${escapeHtml(cabecera.etiqueta)}</h3>
+      <h3 class="detail-title">Hacia ${escapeHtml(ref.etiqueta)}</h3>
       <div class="detail-meta">${escapeHtml(linea.titulo)}</div>
       <div class="cabecera-row" style="margin-top:10px; cursor:default;">
         <span class="cabecera-ico">🚏</span>
         <span class="cabecera-body">
-          <span class="cabecera-nombre">${cabecera.paradaElegidaId ? "★ " : ""}${escapeHtml(cabecera.paradaMedidaNombre)}</span>
-          <span class="cabecera-meta">${cabecera.paradaElegidaId ? "tu parada en este sentido" : "cabecera de este sentido"}</span>
+          <span class="cabecera-nombre">${ref.propia ? "★ " : ""}${escapeHtml(ref.paradaNombre)}</span>
+          <span class="cabecera-meta">${escapeHtml(ref.municipio || "")}${ref.propia ? " · tu parada" : " · cabecera de la línea"}</span>
         </span>
         <span class="cabecera-time">${escapeHtml(fmt.main)}<span class="cabecera-sub">${escapeHtml(fmt.sub)}</span></span>
       </div>
       <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:14px;">
-        ${esFav ? `<button type="button" class="btn-chip" id="menuElegirParada">${cabecera.paradaElegidaId ? "✎ Cambiar mi parada" : "☆ Elegir mi parada"}</button>` : ""}
+        ${esFav ? '<button type="button" class="btn-chip" id="menuElegirParada">🏙 Elegir mis paradas</button>' : ""}
         <button type="button" class="btn-chip" id="menuNotificar">${notif ? "🔔 Aviso activo · editar" : "🔔 Notifícame"}</button>
         <button type="button" class="btn-chip" id="menuVerHorario">🕑 Ver horario completo</button>
         <button type="button" class="btn-chip" id="menuVerLinea">🚌 Ver la línea</button>
       </div>`;
 
     const btnElegir = container.querySelector("#menuElegirParada");
-    if (btnElegir) btnElegir.addEventListener("click", () => abrirSelectorParadaSentido(linea.slug, cabecera, onCambio));
+    if (btnElegir) btnElegir.addEventListener("click", () => abrirSelectorReferencias(linea, onCambio));
     container.querySelector("#menuNotificar").addEventListener("click", () =>
-      abrirDialogoNotificacion(cabecera.paradaMedidaId, linea.slug, onCambio));
+      abrirDialogoNotificacion(ref.paradaId, linea.slug, onCambio));
     container.querySelector("#menuVerHorario").addEventListener("click", () =>
-      openModal(cont => buildStopScheduleModalContent(cont, cabecera.paradaMedidaId)));
+      openModal(cont => buildStopScheduleModalContent(cont, ref.paradaId)));
     container.querySelector("#menuVerLinea").addEventListener("click", () => {
       closeModal();
       cerrarDrawerFavoritos();
@@ -1972,34 +2306,33 @@ function abrirMenuSentido(linea, cabecera, onCambio) {
   });
 }
 
-/** Un renglón por sentido: etiqueta origen→destino como principal, la
- * parada de referencia debajo (la elegida por la persona, o la cabecera),
- * y la próxima salida medida en esa parada. Al pulsar se abre el menú
- * contextual del sentido. */
-function renderCabecerasEn(contenedor, linea, onCambio) {
-  const cabeceras = cabecerasDeLinea(linea, 2);
+/** Un renglón por punto de referencia: hacia dónde va como título, la
+ * parada y su municipio debajo, y la próxima salida medida ahí. */
+function renderSalidasDeLineaEn(contenedor, linea, onCambio) {
+  const refs = salidasDeLinea(linea, 2);
   contenedor.innerHTML = "";
-  if (!cabeceras.length) {
-    contenedor.innerHTML = '<p class="empty">Sin cabeceras con datos.</p>';
+  if (!refs.length) {
+    contenedor.innerHTML = '<p class="empty">Sin salidas con datos en esta línea.</p>';
     return;
   }
-  cabeceras.forEach(c => {
-    const fmt = formatDeparture(c.dep);
-    const extra = c.horas.length > 1 ? `<span class="cabecera-next">luego ${escapeHtml(c.horas.slice(1).join(" · "))}</span>` : "";
-    const notif = getNotificacion(c.paradaMedidaId, linea.slug);
+  refs.forEach(ref => {
+    const fmt = formatDeparture(ref.dep);
+    const extra = ref.horas.length > 1 ? `<span class="cabecera-next">luego ${escapeHtml(ref.horas.slice(1).join(" · "))}</span>` : "";
+    const notif = getNotificacion(ref.paradaId, linea.slug);
     const row = document.createElement("div");
     row.className = "cabecera-row";
     row.innerHTML = `
       <span class="cabecera-ico">🚏</span>
       <span class="cabecera-body">
-        <span class="cabecera-nombre">${escapeHtml(c.etiqueta)}</span>
-        <span class="cabecera-meta">${notif ? "🔔 " : ""}${c.paradaElegidaId ? "★ " : ""}${escapeHtml(c.paradaMedidaNombre)}</span>
+        <span class="cabecera-nombre">hacia ${escapeHtml(ref.etiqueta)}</span>
+        <span class="cabecera-meta">${notif ? "🔔 " : ""}${ref.propia ? "★ " : ""}${escapeHtml(ref.paradaNombre)}${ref.municipio ? " · " + escapeHtml(ref.municipio) : ""}</span>
       </span>
       <span class="cabecera-time">${escapeHtml(fmt.main)}<span class="cabecera-sub">${escapeHtml(fmt.sub)}</span>${extra}</span>`;
-    row.addEventListener("click", () => abrirMenuSentido(linea, c, onCambio));
+    row.addEventListener("click", () => abrirMenuReferencia(linea, ref, onCambio));
     contenedor.appendChild(row);
   });
 }
+
 
 
 function renderLineasFavoritas() {
@@ -2026,7 +2359,7 @@ function renderLineasFavoritas() {
 
     const listaCab = document.createElement("div");
     listaCab.className = "cabecera-list";
-    renderCabecerasEn(listaCab, linea, renderLineasFavoritas);
+    renderSalidasDeLineaEn(listaCab, linea, renderLineasFavoritas);
     bloque.appendChild(listaCab);
     box.appendChild(bloque);
   });
@@ -2037,12 +2370,15 @@ function renderListadoLineas() {
   const municipio = document.getElementById("selMunicipio").value;
   const texto = normalize(document.getElementById("lineaBuscador").value.trim());
 
+  // Los municipios de cada línea salen del grafo (los que de verdad
+  // tienen alguna parada suya), no del campo que publica ctas.es, que
+  // viene incompleto: la M-101 declara solo dos de los seis que recorre.
   let lineas = APP.data.lineas;
-  if (municipio) lineas = lineas.filter(l => l.municipios.includes(municipio));
+  if (municipio) lineas = lineas.filter(l => GRAFO.municipios.get(municipio).lineas.has(l.slug));
   if (texto) {
     lineas = lineas.filter(l =>
       normalize(l.titulo).includes(texto) ||
-      l.municipios.some(m => normalize(m).includes(texto)));
+      municipiosDeLinea(l.slug).some(m => normalize(m).includes(texto)));
   }
   lineas = [...lineas].sort((a, b) => a.titulo.localeCompare(b.titulo, "es"));
 
@@ -2056,7 +2392,7 @@ function renderListadoLineas() {
     row.className = "linea-row";
     row.innerHTML = `
       <span class="linea-row-name">${escapeHtml(l.titulo)}
-        <span class="linea-row-muni">${escapeHtml(l.municipios.join(" · ") || "—")}</span>
+        <span class="linea-row-muni">${escapeHtml(municipiosDeLinea(l.slug).join(" · ") || "—")}</span>
       </span>`;
     const btnFav = document.createElement("button");
     btnFav.type = "button";
@@ -2113,7 +2449,7 @@ function renderNearbyStops(lat, lng) {
   box.innerHTML = `<div class="card"><ul class="stoplist">` +
     items.map(it => `
       <li class="stopitem" data-id="${escapeHtml(it.id)}">
-        <span class="stopname">${escapeHtml(it.p.nombre)}</span>
+        <span class="stopname">${escapeHtml(it.p.nombre)}${it.p.municipio ? ` <span class="home-fav-muni">${escapeHtml(it.p.municipio)}</span>` : ""}</span>
         <span class="stopdist">${formatDistance(it.d)}</span>
       </li>`).join("") +
     `</ul></div>`;
@@ -2224,6 +2560,8 @@ let ROUTE_DESTINO_MARKER = null;
 let ROUTE_PATH_LAYERS = [];
 let PARADA_POR_NOMBRE = null;
 let CRITERIO_ACTUAL = "trasbordos"; // RNF-1: previsibilidad > velocidad marginal
+let RUTA_OPCIONES = [];      // combinaciones de líneas calculadas para la última consulta
+let RUTA_OPCION_ACTIVA = 0;  // cuál se está enseñando (0 = la de menos trasbordos)
 
 function walkMinutes(distMeters) {
   return Math.max(1, Math.round((distMeters / 1000) / 3 * 60));
@@ -2239,11 +2577,55 @@ function nearestStop(appData, lat, lng) {
   return best ? { id: best, dist: bestD } : null;
 }
 
-function resolveEndpoint(appData, point) {
-  if (point.type === "stop") return { stopId: point.id, walk: null };
-  const near = nearestStop(appData, point.lat, point.lng);
+/** Traduce un extremo de la ruta (parada, punto marcado en el mapa,
+ * ubicación del GPS o municipio entero) a lo que necesita el buscador:
+ * desde qué paradas puede empezar y en cuáles se da por llegado.
+ *
+ * El caso "municipio" es el que abre el grafo tripartito a la interfaz:
+ * la persona no elige parada ninguna, dice "de Guillena a Sevilla", y
+ * valen todas las paradas del municipio. */
+function resolverExtremo(appData, punto) {
+  if (!punto) return null;
+  if (punto.type === "stop") {
+    if (!appData.paradas[punto.id]) return null;
+    return {
+      tipo: "stop", stopIds: new Set([punto.id]),
+      seeds: [{ stopId: punto.id, walk: null }],
+      etiqueta: appData.paradas[punto.id].nombre
+    };
+  }
+  if (punto.type === "municipio") {
+    const ids = paradasDeMunicipio(punto.nombre);
+    if (!ids.length) return null;
+    return {
+      tipo: "municipio", stopIds: new Set(ids),
+      seeds: ids.map(id => ({ stopId: id, walk: null })),
+      etiqueta: punto.nombre
+    };
+  }
+  const near = nearestStop(appData, punto.lat, punto.lng);
   if (!near) return null;
-  return { stopId: near.id, walk: { lat: point.lat, lng: point.lng, dist: near.dist } };
+  return {
+    tipo: "punto", stopIds: new Set([near.id]),
+    seeds: [{ stopId: near.id, walk: { lat: punto.lat, lng: punto.lng, dist: near.dist } }],
+    etiqueta: appData.paradas[near.id].nombre
+  };
+}
+
+/** Coordenadas representativas de un extremo, para medir distancias y
+ * centrar el mapa. Un municipio se representa por el centro de sus
+ * paradas. */
+function coordenadasDeExtremo(appData, punto) {
+  if (!punto) return null;
+  if (punto.type === "stop") {
+    const p = appData.paradas[punto.id];
+    return p && p.lat != null ? [p.lat, p.lng] : null;
+  }
+  if (punto.type === "municipio") {
+    const m = GRAFO.municipios.get(punto.nombre);
+    return m && m.lat != null ? [m.lat, m.lng] : null;
+  }
+  return [punto.lat, punto.lng];
 }
 
 async function loadRoutingData(force) {
@@ -2290,7 +2672,7 @@ function calcularScore(criterio, arr, trasbordos, caminando) {
 
 const MIN_TRASBORDO_MIN = 3; // margen mínimo real para bajar, andar/esperar y subir
 
-/** Ruta "mejor" entre origin y destino con un Connection Scan sobre
+/** Ruta "mejor" entre origen y destino con un Connection Scan sobre
  * conexiones REALES (instancia por instancia, no una duración típica):
  * cada trasbordo se resuelve mirando de verdad a qué hora sale el
  * siguiente autobús de la línea que toca desde la parada en la que
@@ -2300,11 +2682,23 @@ const MIN_TRASBORDO_MIN = 3; // margen mínimo real para bajar, andar/esperar y 
  * genera como reacción a bajarte de un autobús, no se puede encadenar.
  * "Mejor" es configurable vía `criterio`: 'tiempo' | 'trasbordos' |
  * 'caminar' (ver calcularScore). Si a esa hora ya no queda servicio,
- * prueba también los 2 días siguientes. */
-function computeRoute(appData, routing, origin, destino, startDate, criterio) {
+ * prueba también los 2 días siguientes.
+ *
+ * Origen y destino pueden ser conjuntos de paradas y no una sola (es lo
+ * que pasa cuando el extremo es un municipio entero): la búsqueda
+ * arranca desde todas a la vez y se da por llegada en la primera que
+ * alcance, que es exactamente la semántica de "ir de Guillena a
+ * Sevilla".
+ *
+ * `opciones.lineasPermitidas` restringe la búsqueda a un conjunto de
+ * líneas concreto; es lo que permite poner hora real a cada una de las
+ * combinaciones que se ofrecen. */
+function computeRoute(appData, routing, origin, destino, startDate, criterio, opciones) {
   criterio = criterio || "tiempo";
-  const o = resolveEndpoint(appData, origin);
-  const de = resolveEndpoint(appData, destino);
+  opciones = opciones || {};
+  const permitidas = opciones.lineasPermitidas || null;
+  const o = resolverExtremo(appData, origin);
+  const de = resolverExtremo(appData, destino);
   if (!o || !de) return null;
 
   for (let dia = 0; dia <= 2; dia++) {
@@ -2320,8 +2714,6 @@ function computeRoute(appData, routing, origin, destino, startDate, criterio) {
     // (p.ej. 23:00 → 1380) salía una espera negativa ("-58 minutos").
     const startMin = diaOffset + (dia === 0 ? (startDate.getHours() * 60 + startDate.getMinutes()) : 0);
 
-    const origenSalidaMin = startMin + (o.walk ? walkMinutes(o.walk.dist) : 0);
-
     // Cada parada de "estado" guarda, además de sus métricas, una
     // referencia directa al ESTADO PREDECESOR concreto que se usó para
     // llegar a ella (no solo el ID de la parada anterior). Esto es
@@ -2334,14 +2726,6 @@ function computeRoute(appData, routing, origin, destino, startDate, criterio) {
     // "salida". Guardando el objeto de estado exacto en vez de su ID,
     // la reconstrucción siempre es coherente por construcción.
     const estado = new Map(); // stopId -> {score, arr, trasbordos, caminando, linea, leg, prev}
-
-    const estadoOrigen = {
-      score: calcularScore(criterio, origenSalidaMin, 0, o.walk ? walkMinutes(o.walk.dist) : 0),
-      arr: origenSalidaMin, trasbordos: 0, caminando: o.walk ? walkMinutes(o.walk.dist) : 0, linea: "_origen_",
-      leg: o.walk ? { tipo: "walk_inicio", destino: o.stopId, distMetros: o.walk.dist, salida: startMin, llegada: origenSalidaMin } : null,
-      prev: null
-    };
-    estado.set(o.stopId, estadoOrigen);
 
     // Además de la parada de origen en sí, se puede caminar directamente
     // a otra parada cercana antes de subir a ningún autobús (por si la
@@ -2361,12 +2745,29 @@ function computeRoute(appData, routing, origin, destino, startDate, criterio) {
         }
       }
     };
-    expandirCaminata(o.stopId, estadoOrigen);
+
+    o.seeds.forEach(seed => {
+      const andando = seed.walk ? walkMinutes(seed.walk.dist) : 0;
+      const salidaMin = startMin + andando;
+      const inicial = {
+        score: calcularScore(criterio, salidaMin, 0, andando),
+        arr: salidaMin, trasbordos: 0, caminando: andando, linea: "_origen_",
+        leg: seed.walk ? { tipo: "walk_inicio", destino: seed.stopId, distMetros: seed.walk.dist, salida: startMin, llegada: salidaMin } : null,
+        prev: null
+      };
+      const previo = estado.get(seed.stopId);
+      if (previo && previo.score <= inicial.score) return;
+      estado.set(seed.stopId, inicial);
+      // Con un municipio entero como origen no se camina de una parada a
+      // otra: ya estás, por definición, en cualquiera de ellas.
+      if (o.tipo !== "municipio") expandirCaminata(seed.stopId, inicial);
+    });
 
     for (const c of conexiones) {
       const dep = c[2] + diaOffset, arr = c[3] + diaOffset;
       const a = c[0], b = c[1], lineaSlug = c[4];
       if (dep < startMin) continue;
+      if (permitidas && !permitidas.has(lineaSlug)) continue;
       const estA = estado.get(a);
       if (!estA) continue;
       const mismaLinea = estA.linea === lineaSlug;
@@ -2387,8 +2788,22 @@ function computeRoute(appData, routing, origin, destino, startDate, criterio) {
       }
     }
 
-    const estadoDestino = estado.get(de.stopId);
+    // Con destino "municipio" vale cualquiera de sus paradas: gana la que
+    // mejor puntúe según el criterio elegido.
+    let estadoDestino = null, destinoStopId = null;
+    de.stopIds.forEach(id => {
+      const est = estado.get(id);
+      if (!est) return;
+      if (!estadoDestino || est.score < estadoDestino.score) { estadoDestino = est; destinoStopId = id; }
+    });
     if (!estadoDestino) continue;
+    // Llegar al destino sin haberse subido a nada solo tiene sentido si
+    // el destino ES el origen; si no, es que el buscador no ha encontrado
+    // ninguna combinación de autobuses.
+    if (!estadoDestino.leg && !o.stopIds.has(destinoStopId)) continue;
+
+    const seedDestino = de.seeds.find(s => s.stopId === destinoStopId);
+    const walkFinal = seedDestino ? seedDestino.walk : null;
 
     const crudos = [];
     let cur = estadoDestino;
@@ -2427,10 +2842,12 @@ function computeRoute(appData, routing, origin, destino, startDate, criterio) {
       }
     });
 
-    let tFinal = legs.length ? legs[legs.length - 1].llegada : origenSalidaMin;
-    if (de.walk) {
-      const wmin = walkMinutes(de.walk.dist);
-      legs.push({ tipo: "walk_fin", origen: de.stopId, salida: tFinal, llegada: tFinal + wmin, distMetros: de.walk.dist });
+    const primerBus = legs.find(l => l.tipo === "bus");
+    const origenStopId = primerBus ? primerBus.origen : destinoStopId;
+    let tFinal = legs.length ? legs[legs.length - 1].llegada : estadoDestino.arr;
+    if (walkFinal) {
+      const wmin = walkMinutes(walkFinal.dist);
+      legs.push({ tipo: "walk_fin", origen: destinoStopId, salida: tFinal, llegada: tFinal + wmin, distMetros: walkFinal.dist });
       tFinal += wmin;
       totalCaminandoMin += wmin;
     }
@@ -2438,9 +2855,158 @@ function computeRoute(appData, routing, origin, destino, startDate, criterio) {
     const diasSalida = Math.floor(tFinal / 1440);
     const llegadaMin = tFinal - diasSalida * 1440;
     const numTrasbordos = Math.max(0, legs.filter(l => l.tipo === "bus").length - 1);
-    return { legs, llegadaMin, diasSalida, origenStopId: o.stopId, destinoStopId: de.stopId, totalCaminandoMin, numTrasbordos, criterio };
+    const lineas = legs.filter(l => l.tipo === "bus").map(l => l.lineaSlug);
+    return {
+      legs, llegadaMin, diasSalida, origenStopId, destinoStopId,
+      totalCaminandoMin, numTrasbordos, criterio, lineas,
+      salidaMin: primerBus ? primerBus.salida : startMin
+    };
   }
   return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Opciones disponibles (nivel "línea" del grafo tripartito)            */
+/* ------------------------------------------------------------------ */
+/** Paradas a las que puedes llegar con una línea subiéndote en alguna de
+ * `desde`. Respeta el orden del recorrido: que una línea pase por A y
+ * por B no significa que te lleve de A a B (en el sentido contrario, no
+ * te sirve). */
+function alcanceDeLinea(slug, desde) {
+  const nodo = GRAFO.lineas.get(slug);
+  const alcanzables = new Set();
+  if (!nodo) return alcanzables;
+  nodo.recorridos.forEach(r => {
+    let subido = false;
+    r.paradas.forEach(id => {
+      if (!subido) { if (desde.has(id)) subido = true; return; }
+      alcanzables.add(id);
+    });
+  });
+  return alcanzables;
+}
+
+/** El mismo conjunto de paradas más las que están a un paseo. Los
+ * trasbordos reales rara vez son en la misma parada: llegas a Plaza de
+ * Armas y sales del Prado. Sin esto, la búsqueda de combinaciones daba
+ * por imposibles trayectos que se hacen todos los días. */
+function expandirAPie(stopIds, routing) {
+  const out = new Set(stopIds);
+  stopIds.forEach(id => (routing.vecinos[id] || []).forEach(([vid]) => out.add(vid)));
+  return out;
+}
+
+function lineasQuePasanPor(stopIds) {
+  const out = new Set();
+  stopIds.forEach(id => {
+    const nodo = GRAFO.paradas.get(id);
+    if (nodo) nodo.lineas.forEach(slug => out.add(slug));
+  });
+  return out;
+}
+
+const MAX_OPCIONES = 8;
+
+/** Combinaciones de líneas que llevan del origen al destino, recorriendo
+ * el grafo por su nivel de líneas: primero las directas (cero
+ * trasbordos) y, si hacen falta más, las de un trasbordo. Esto es lo que
+ * se ofrece como "opciones disponibles"; poner horas reales a cada una
+ * es después trabajo del Connection Scan.
+ *
+ * No se enumeran combinaciones de dos trasbordos o más: son cientos y
+ * ninguna es "la opción que uno elegiría a mano". Cuando no hay nada con
+ * uno o cero, se deja que el buscador general encuentre lo que haya. */
+function combinacionesDeLineas(origenIds, destinoIds, routing) {
+  const salida = expandirAPie(origenIds, routing);
+  const salen = lineasQuePasanPor(salida);
+  const directas = [];
+  const alcances = new Map();
+  salen.forEach(slug => {
+    const alcance = alcanceDeLinea(slug, salida);
+    alcances.set(slug, alcance);
+    for (const id of destinoIds) {
+      if (alcance.has(id)) { directas.push([slug]); return; }
+    }
+  });
+  if (directas.length >= 4) return directas.slice(0, MAX_OPCIONES);
+
+  const conTrasbordo = [];
+  salen.forEach(slug1 => {
+    const bruto = alcances.get(slug1);
+    if (!bruto || !bruto.size) return;
+    const alcance1 = expandirAPie(bruto, routing);
+    lineasQuePasanPor(alcance1).forEach(slug2 => {
+      if (slug2 === slug1) return;
+      const nodo2 = GRAFO.lineas.get(slug2);
+      if (!nodo2) return;
+      let enlaces = 0;
+      alcance1.forEach(id => { if (nodo2.paradas.has(id)) enlaces++; });
+      if (!enlaces) return;
+      const alcance2 = alcanceDeLinea(slug2, alcance1);
+      for (const id of destinoIds) {
+        if (alcance2.has(id)) { conTrasbordo.push({ lineas: [slug1, slug2], enlaces }); return; }
+      }
+    });
+  });
+  // Entre las de un trasbordo se prefieren las que comparten más paradas
+  // de enlace: cuantos más sitios donde cambiar, más probable es que
+  // haya un enlace con espera razonable.
+  conTrasbordo.sort((a, b) => b.enlaces - a.enlaces);
+  return directas.concat(conTrasbordo.map(c => c.lineas)).slice(0, MAX_OPCIONES);
+}
+
+/** Las opciones que se enseñan: cada combinación de líneas con su
+ * itinerario real (horas, paradas y esperas), ordenadas SIEMPRE por
+ * número de trasbordos primero — que es el criterio por defecto de la
+ * app — y por hora de llegada dentro de cada grupo.
+ *
+ * Se añade además la mejor ruta sin restringir líneas, por si el grafo
+ * no daba ninguna combinación corta (dos trasbordos o más). */
+function calcularOpcionesRuta(appData, routing, origin, destino, salida, criterio) {
+  const o = resolverExtremo(appData, origin);
+  const de = resolverExtremo(appData, destino);
+  if (!o || !de) return [];
+
+  const opciones = [];
+  const vistas = new Set();
+  const agregar = res => {
+    if (!res) return;
+    const clave = res.lineas.join(">") + "@" + res.salidaMin;
+    if (vistas.has(clave)) return;
+    vistas.add(clave);
+    opciones.push(res);
+  };
+
+  combinacionesDeLineas(o.stopIds, de.stopIds, routing).forEach(lineas => {
+    agregar(computeRoute(appData, routing, origin, destino, salida, criterio, { lineasPermitidas: new Set(lineas) }));
+  });
+  agregar(computeRoute(appData, routing, origin, destino, salida, criterio));
+  if (criterio !== "tiempo") agregar(computeRoute(appData, routing, origin, destino, salida, "tiempo"));
+
+  opciones.sort((a, b) => {
+    if (a.numTrasbordos !== b.numTrasbordos) return a.numTrasbordos - b.numTrasbordos;
+    const av = a.diasSalida * 1440 + a.llegadaMin;
+    const bv = b.diasSalida * 1440 + b.llegadaMin;
+    return av - bv;
+  });
+  // Una alternativa solo merece enseñarse si aporta algo. Entre las que
+  // tienen el mismo número de trasbordos se enseñan todas (son sitios y
+  // horas distintos, y eso lo decide la persona), pero una con MÁS
+  // trasbordos solo entra si además llega antes que todo lo anterior: si
+  // no, es peor por los dos lados y solo estorba.
+  const buenas = [];
+  let mejorLlegada = Infinity;
+  let trasbordosGrupo = -1;
+  opciones.forEach(o => {
+    const llegada = o.diasSalida * 1440 + o.llegadaMin;
+    if (o.numTrasbordos !== trasbordosGrupo) {
+      if (trasbordosGrupo >= 0 && llegada >= mejorLlegada) return;
+      trasbordosGrupo = o.numTrasbordos;
+    }
+    buenas.push(o);
+    mejorLlegada = Math.min(mejorLlegada, llegada);
+  });
+  return buenas.slice(0, MAX_OPCIONES);
 }
 
 /** Recopila horas reales de salida (de cualquier línea) desde alguna de
@@ -2466,17 +3032,19 @@ function candidatosSalidaInicial(routing, freqKey, stopIdsSet, startMin, ventana
  * ventana de unas horas, relanzando la búsqueda normal de "llegar
  * antes" desde ese instante, y se queda con la que menos tiempo total
  * de viaje (llegada − salida real elegida) tenga. */
-function computeRouteViajeCorto(appData, routing, origin, destino, startDate) {
+function computeRouteViajeCorto(appData, routing, origin, destino, startDate, opciones) {
   const VENTANA_MIN = 240;
   const MAX_CANDIDATOS = 15;
 
-  const o = resolveEndpoint(appData, origin);
+  const o = resolverExtremo(appData, origin);
   if (!o) return null;
   const freqKey = frecuenciaKeyForDate(startDate);
   const startMin = startDate.getHours() * 60 + startDate.getMinutes();
 
-  const stopIdsSet = new Set([o.stopId]);
-  (routing.vecinos[o.stopId] || []).forEach(([vid]) => stopIdsSet.add(vid));
+  const stopIdsSet = new Set(o.stopIds);
+  if (o.tipo !== "municipio") {
+    o.seeds.forEach(seed => (routing.vecinos[seed.stopId] || []).forEach(([vid]) => stopIdsSet.add(vid)));
+  }
 
   let candidatos = candidatosSalidaInicial(routing, freqKey, stopIdsSet, startMin, VENTANA_MIN);
   if (!candidatos.length) candidatos = [startMin];
@@ -2487,7 +3055,7 @@ function computeRouteViajeCorto(appData, routing, origin, destino, startDate) {
     const fechaCand = new Date(startDate);
     fechaCand.setHours(0, 0, 0, 0);
     fechaCand.setMinutes(cand);
-    const res = computeRoute(appData, routing, origin, destino, fechaCand, "tiempo");
+    const res = computeRoute(appData, routing, origin, destino, fechaCand, "tiempo", opciones);
     if (!res) continue;
     const tFinalAbs = res.diasSalida * 1440 + res.llegadaMin;
     const duracionViaje = tFinalAbs - cand;
@@ -2505,14 +3073,88 @@ function fmtHoraAbs(minAbs) {
   return `${hh}:${mm}` + (dias > 0 ? ` (+${dias}d)` : "");
 }
 
+/** El buscador de origen/destino admite las dos cosas: una parada
+ * concreta o un municipio entero. Los municipios van marcados para que
+ * se distingan de un vistazo y para poder reconocerlos al escribirlos. */
+const PREFIJO_MUNICIPIO = "Municipio: ";
+
 function buildStopsDatalist() {
   if (PARADA_POR_NOMBRE) return;
   const dl = document.getElementById("listaParadas");
   const entradas = Object.entries(APP.data.paradas).map(([id, p]) => ({ id, nombre: p.nombre }));
   entradas.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-  dl.innerHTML = entradas.map(n => `<option value="${escapeHtml(n.nombre)}">`).join("");
+  const municipios = GRAFO.lista.map(m => PREFIJO_MUNICIPIO + m);
+  dl.innerHTML = municipios.concat(entradas.map(n => n.nombre))
+    .map(n => `<option value="${escapeHtml(n)}">`).join("");
   PARADA_POR_NOMBRE = {};
   entradas.forEach(n => { if (!(n.nombre in PARADA_POR_NOMBRE)) PARADA_POR_NOMBRE[n.nombre] = n.id; });
+}
+
+/** Interpreta lo que se ha escrito en el buscador: municipio, parada
+ * exacta, o nada reconocible. */
+function interpretarBusquedaExtremo(texto) {
+  const limpio = String(texto || "").trim();
+  if (!limpio) return null;
+  if (limpio.startsWith(PREFIJO_MUNICIPIO)) {
+    const nombre = limpio.slice(PREFIJO_MUNICIPIO.length).trim();
+    return GRAFO.municipios.has(nombre) ? { type: "municipio", nombre } : null;
+  }
+  const id = PARADA_POR_NOMBRE && PARADA_POR_NOMBRE[limpio];
+  if (id) return { type: "stop", id };
+  const municipio = GRAFO.lista.find(m => normalize(m) === normalize(limpio));
+  return municipio ? { type: "municipio", nombre: municipio } : null;
+}
+
+/** Texto que se pone en el input para un extremo ya elegido. */
+function textoDeExtremo(punto) {
+  if (!punto) return "";
+  if (punto.type === "stop") return APP.data.paradas[punto.id].nombre;
+  if (punto.type === "municipio") return PREFIJO_MUNICIPIO + punto.nombre;
+  return "";
+}
+
+/** Selector de municipio a pantalla completa, para quien prefiera
+ * elegir de una lista antes que escribir. */
+function abrirSelectorMunicipio(which) {
+  openModal(container => {
+    container.innerHTML = `
+      <h3 class="detail-title">${which === "origen" ? "Salgo de" : "Voy a"}</h3>
+      <div class="detail-meta">Elige un municipio: valdrá cualquiera de sus paradas.</div>
+      <div class="field" style="margin-top:10px;">
+        <input type="text" class="input" id="filtroMunicipioModal" placeholder="Buscar municipio…">
+      </div>
+      <div id="listaMunicipioModal"></div>`;
+    const lista = container.querySelector("#listaMunicipioModal");
+    const pintar = () => {
+      const texto = normalize(container.querySelector("#filtroMunicipioModal").value.trim());
+      lista.innerHTML = "";
+      // Quien escribe "Sevilla" quiere Sevilla, no "Nueva Sevilla
+      // (Castilleja de la Cuesta)": primero lo que empieza por lo escrito.
+      GRAFO.lista
+        .filter(m => !texto || normalize(m).includes(texto))
+        .sort((a, b) => {
+          if (!texto) return 0;
+          const pa = normalize(a).startsWith(texto) ? 0 : 1;
+          const pb = normalize(b).startsWith(texto) ? 0 : 1;
+          return pa - pb || a.localeCompare(b, "es");
+        })
+        .forEach(m => {
+        const nodo = GRAFO.municipios.get(m);
+        const row = document.createElement("div");
+        row.className = "linea-row";
+        row.innerHTML = `<span class="linea-row-name">${escapeHtml(m)}
+          <span class="linea-row-muni">${nodo.paradas.length} paradas · ${nodo.lineas.size} línea${nodo.lineas.size === 1 ? "" : "s"}</span>
+        </span>`;
+        row.addEventListener("click", () => {
+          setEndpoint(which, { type: "municipio", nombre: m });
+          closeModal();
+        });
+        lista.appendChild(row);
+      });
+    };
+    container.querySelector("#filtroMunicipioModal").addEventListener("input", pintar);
+    pintar();
+  });
 }
 
 function initRouteMap() {
@@ -2578,39 +3220,38 @@ function buildStopPopupContent(id) {
   titulo.appendChild(btnFav);
   wrap.appendChild(titulo);
 
-  const porLinea = {};
-  (p.servicios || []).forEach(s => {
-    if (!porLinea[s.linea_slug]) porLinea[s.linea_slug] = { linea_titulo: s.linea_titulo, servicios: [] };
-    porLinea[s.linea_slug].servicios.push(s);
-  });
-  const grupos = Object.values(porLinea).map(g => ({ ...g, dep: nextDeparture(mergeHorarios(g.servicios)) }));
-  grupos.sort((a, b) => {
-    const av = a.dep ? a.dep.dias * 1440 + a.dep.h * 60 + a.dep.m : Infinity;
-    const bv = b.dep ? b.dep.dias * 1440 + b.dep.h * 60 + b.dep.m : Infinity;
-    return av - bv;
-  });
+  const municipio = municipioDeParada(id);
+  if (municipio) {
+    const meta = document.createElement("div");
+    meta.className = "stop-popup-sub";
+    meta.textContent = municipio;
+    wrap.appendChild(meta);
+  }
 
+  const grupos = sentidosEnParada(id, null);
   const lista = document.createElement("div");
   lista.className = "stop-popup-proximos";
   if (!grupos.length) {
-    lista.innerHTML = '<span class="stop-popup-sub">Sin datos de horario para esta parada.</span>';
+    lista.innerHTML = `<span class="stop-popup-sub">${(p.servicios || []).length
+      ? "Aquí terminan los recorridos que pasan: no salen autobuses."
+      : "Sin datos de horario para esta parada."}</span>`;
   } else {
     grupos.slice(0, 4).forEach(g => {
       const fmt = formatDeparture(g.dep);
       const row = document.createElement("div");
       row.className = "stop-popup-line";
       row.style.cursor = "pointer";
-      row.innerHTML = `<b>${escapeHtml(g.linea_titulo)}</b><span class="stop-popup-time">${fmt.main}<span class="stop-popup-sub"> ${escapeHtml(fmt.sub)}</span></span>`;
+      row.innerHTML = `<b>${escapeHtml(codigoLinea(g.lineaTitulo))} hacia ${escapeHtml(g.etiqueta)}</b><span class="stop-popup-time">${fmt.main}<span class="stop-popup-sub"> ${escapeHtml(fmt.sub)}</span></span>`;
       row.addEventListener("click", () => {
         if (CURRENT_ROUTE_MAP) CURRENT_ROUTE_MAP.closePopup();
-        openLineModal(g.linea_slug, id);
+        openLineModal(g.lineaSlug, id);
       });
       lista.appendChild(row);
     });
     if (grupos.length > 4) {
       const more = document.createElement("div");
       more.className = "stop-popup-sub";
-      more.textContent = `+${grupos.length - 4} línea(s) más por esta parada`;
+      more.textContent = `+${grupos.length - 4} salida(s) más por esta parada`;
       lista.appendChild(more);
     }
   }
@@ -2621,7 +3262,7 @@ function buildStopPopupContent(id) {
     btnTodas.type = "button";
     btnTodas.className = "btn-chip";
     btnTodas.style.marginBottom = "8px";
-    btnTodas.textContent = `☰ Ver las ${grupos.length} líneas`;
+    btnTodas.textContent = `☰ Ver las ${grupos.length} salidas`;
     btnTodas.addEventListener("click", () => {
       if (CURRENT_ROUTE_MAP) CURRENT_ROUTE_MAP.closePopup();
       openModal(container => buildStopScheduleModalContent(container, id));
@@ -2704,18 +3345,22 @@ function disarmClickMode() {
 
 function describeEndpoint(point) {
   if (point.type === "stop") return `Parada: ${APP.data.paradas[point.id].nombre}`;
+  if (point.type === "municipio") {
+    const nodo = GRAFO.municipios.get(point.nombre);
+    return `Municipio: ${point.nombre} · cualquiera de sus ${nodo ? nodo.paradas.length : 0} paradas`;
+  }
   const near = nearestStop(APP.data, point.lat, point.lng);
-  return near ? `Punto marcado · parada más cercana: ${near ? APP.data.paradas[near.id].nombre : "?"} (${formatDistance(near.dist)})` : "Punto marcado";
+  return near ? `Punto marcado · parada más cercana: ${APP.data.paradas[near.id].nombre} (${formatDistance(near.dist)})` : "Punto marcado";
 }
 
 function placeEndpointMarker(which, point) {
   if (!CURRENT_ROUTE_MAP) return;
-  const latlng = point.type === "stop"
-    ? [APP.data.paradas[point.id].lat, APP.data.paradas[point.id].lng]
-    : [point.lat, point.lng];
+  const latlng = coordenadasDeExtremo(APP.data, point);
+  if (!latlng) return;
+  const esMunicipio = point.type === "municipio";
   const icon = L.divIcon({
     className: "",
-    html: `<div style="font-size:22px; line-height:1;">${which === "origen" ? "📍" : "🏁"}</div>`,
+    html: `<div style="font-size:22px; line-height:1;">${esMunicipio ? "🏙" : (which === "origen" ? "📍" : "🏁")}</div>`,
     iconSize: [22, 22], iconAnchor: [11, 20]
   });
   if (which === "origen") {
@@ -2731,11 +3376,11 @@ function setEndpoint(which, point) {
   const label = describeEndpoint(point);
   if (which === "origen") {
     ROUTE_ORIGIN = point;
-    document.getElementById("origenInput").value = point.type === "stop" ? APP.data.paradas[point.id].nombre : "";
+    document.getElementById("origenInput").value = textoDeExtremo(point);
     document.getElementById("origenStatus").textContent = label;
   } else {
     ROUTE_DESTINO = point;
-    document.getElementById("destinoInput").value = point.type === "stop" ? APP.data.paradas[point.id].nombre : "";
+    document.getElementById("destinoInput").value = textoDeExtremo(point);
     document.getElementById("destinoStatus").textContent = label;
   }
   placeEndpointMarker(which, point);
@@ -2743,13 +3388,14 @@ function setEndpoint(which, point) {
 
 function wireEndpointInput(inputId, which) {
   document.getElementById(inputId).addEventListener("change", e => {
-    const nombre = e.target.value.trim();
-    if (!nombre) return;
-    const id = PARADA_POR_NOMBRE && PARADA_POR_NOMBRE[nombre];
-    if (id) {
-      setEndpoint(which, { type: "stop", id });
+    const texto = e.target.value.trim();
+    if (!texto) return;
+    const punto = interpretarBusquedaExtremo(texto);
+    if (punto) {
+      setEndpoint(which, punto);
     } else {
-      document.getElementById(which + "Status").textContent = "No se reconoce esa parada exacta; elígela de la lista.";
+      document.getElementById(which + "Status").textContent =
+        "No se reconoce; elige una parada o un municipio de la lista.";
     }
   });
 }
@@ -2821,9 +3467,53 @@ function drawRouteOnMap(res) {
   if (bounds.length) CURRENT_ROUTE_MAP.fitBounds(bounds, { padding: [30, 30] });
 }
 
-function renderRutaResultado(res, salidaDate, directo) {
+/** Etiqueta corta de una opción: las líneas que se cogen y cuántos
+ * trasbordos salen. Es lo que decide de un vistazo, más que la hora. */
+function etiquetaOpcion(res) {
+  const codigos = res.lineas.map(slug => {
+    const linea = APP.data.lineas.find(l => l.slug === slug);
+    return codigoLinea(linea ? linea.titulo : slug);
+  }).filter((c, i, todos) => i === 0 || c !== todos[i - 1]); // dos buses seguidos
+                                                            // de la misma línea se
+                                                            // nombran una vez
+  const cuenta = res.numTrasbordos === 0
+    ? "Directo"
+    : `${res.numTrasbordos} trasbordo${res.numTrasbordos === 1 ? "" : "s"}`;
+  return { cuenta, lineas: codigos.length ? codigos.join(" + ") : "a pie" };
+}
+
+/** Las opciones disponibles, en fila y ordenadas por trasbordos: la
+ * primera (la de menos trasbordos) es la que se muestra por defecto. */
+function renderOpcionesRuta(contenedor, opciones, salidaDate, directo) {
+  contenedor.innerHTML = "";
+  if (opciones.length < 2) return;
+  const caja = document.createElement("div");
+  caja.className = "card";
+  caja.innerHTML = '<div class="selector-titulo">Opciones disponibles</div>';
+  const fila = document.createElement("div");
+  fila.className = "opciones-row";
+  opciones.forEach((op, i) => {
+    const { cuenta, lineas } = etiquetaOpcion(op);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "opcion-pill" + (i === RUTA_OPCION_ACTIVA ? " active" : "");
+    btn.innerHTML = `<span class="opcion-lineas">${escapeHtml(lineas)}</span>
+      <span class="opcion-meta">${escapeHtml(cuenta)} · llega ${escapeHtml(fmtHoraAbs(op.diasSalida * 1440 + op.llegadaMin))}</span>`;
+    btn.addEventListener("click", () => {
+      RUTA_OPCION_ACTIVA = i;
+      renderRutaResultado(opciones[i], salidaDate, directo, opciones);
+    });
+    fila.appendChild(btn);
+  });
+  caja.appendChild(fila);
+  contenedor.appendChild(caja);
+}
+
+function renderRutaResultado(res, salidaDate, directo, opciones) {
   const box = document.getElementById("rutaResultado");
+  const cajaOpciones = document.getElementById("rutaOpciones");
   const salidaMin = salidaDate.getHours() * 60 + salidaDate.getMinutes();
+  if (cajaOpciones) renderOpcionesRuta(cajaOpciones, opciones || [], salidaDate, directo);
 
   if (!res) {
     clearRoutePathLayers();
@@ -2860,12 +3550,20 @@ function renderRutaResultado(res, salidaDate, directo) {
   const criterioLabel = { tiempo: "llegar antes", viaje: "viaje más corto", trasbordos: "menos trasbordos", caminar: "menos caminar" }[res.criterio] || "";
   const statsHtml = `<div class="itin-summary-detail">Optimizada por <b>${criterioLabel}</b> · ${res.numTrasbordos} trasbordo${res.numTrasbordos === 1 ? "" : "s"} · ${Math.round(res.totalCaminandoMin)} min andando en total</div>`;
 
+  // Con un municipio como extremo, la parada concreta la elige el
+  // buscador: hay que decir cuál, o el itinerario no se puede seguir.
+  let extremosHtml = "";
+  const pO = APP.data.paradas[res.origenStopId], pD = APP.data.paradas[res.destinoStopId];
+  if (ROUTE_ORIGIN.type === "municipio" || ROUTE_DESTINO.type === "municipio") {
+    extremosHtml = `<div class="itin-summary-detail">Sale de <b>${escapeHtml(pO ? pO.nombre : "?")}</b>${municipioDeParada(res.origenStopId) ? " (" + escapeHtml(municipioDeParada(res.origenStopId)) + ")" : ""} y llega a <b>${escapeHtml(pD ? pD.nombre : "?")}</b>${municipioDeParada(res.destinoStopId) ? " (" + escapeHtml(municipioDeParada(res.destinoStopId)) + ")" : ""}</div>`;
+  }
+
   const puedeGuardar = ROUTE_ORIGIN && ROUTE_DESTINO && ROUTE_ORIGIN.type === "stop" && ROUTE_DESTINO.type === "stop";
   const favBtnHtml = puedeGuardar
     ? `<button type="button" class="btn-chip" id="btnFavRuta" style="margin-top:8px;">${esFavoritoRuta(ROUTE_ORIGIN.id, ROUTE_DESTINO.id) ? "★ Quitar de favoritos" : "☆ Guardar ruta como favorita"}</button>`
     : "";
 
-  let html = `<div class="card">${resumenHtml}${statsHtml}${avisoCaminar}${favBtnHtml}</div><div class="card" id="itinTimeline">`;
+  let html = `<div class="card">${resumenHtml}${statsHtml}${extremosHtml}${avisoCaminar}${favBtnHtml}</div><div class="card" id="itinTimeline">`;
 
   res.legs.forEach((leg, idx) => {
     if (leg.tipo === "bus") {
@@ -2981,17 +3679,22 @@ function buildPasosTexto(appData, res) {
  * la ruta en autobús calculada (con esperas incluidas) sale más lenta
  * que ir andando directamente. */
 function distanciaDirecta(appData, origin, destino) {
-  const latlngA = origin.type === "stop" ? [appData.paradas[origin.id].lat, appData.paradas[origin.id].lng] : [origin.lat, origin.lng];
-  const latlngB = destino.type === "stop" ? [appData.paradas[destino.id].lat, appData.paradas[destino.id].lng] : [destino.lat, destino.lng];
-  if (latlngA[0] == null || latlngB[0] == null) return null;
+  // Con un municipio entero por medio no tiene sentido comparar con "ir
+  // andando": no hay un punto concreto del que salir.
+  if (origin.type === "municipio" || destino.type === "municipio") return null;
+  const latlngA = coordenadasDeExtremo(appData, origin);
+  const latlngB = coordenadasDeExtremo(appData, destino);
+  if (!latlngA || !latlngB) return null;
   const distMetros = haversine(latlngA[0], latlngA[1], latlngB[0], latlngB[1]);
   return { distMetros, minutos: walkMinutes(distMetros) };
 }
 
 async function onCalcularRuta() {
   const resultBox = document.getElementById("rutaResultado");
+  const cajaOpciones = document.getElementById("rutaOpciones");
   if (!ROUTE_ORIGIN || !ROUTE_DESTINO) {
     resultBox.innerHTML = '<div class="card"><p class="empty">Elige un origen y un destino primero.</p></div>';
+    if (cajaOpciones) cajaOpciones.innerHTML = "";
     return;
   }
   resultBox.innerHTML = '<div class="card"><p class="empty">Calculando ruta…</p></div>';
@@ -3005,11 +3708,20 @@ async function onCalcularRuta() {
   }
   const horaInput = document.getElementById("horaSalida").value;
   const salida = horaInput ? new Date(horaInput) : new Date();
-  const res = CRITERIO_ACTUAL === "viaje"
-    ? computeRouteViajeCorto(APP.data, ROUTING, ROUTE_ORIGIN, ROUTE_DESTINO, salida)
-    : computeRoute(APP.data, ROUTING, ROUTE_ORIGIN, ROUTE_DESTINO, salida, CRITERIO_ACTUAL);
   const directo = distanciaDirecta(APP.data, ROUTE_ORIGIN, ROUTE_DESTINO);
-  renderRutaResultado(res, salida, directo);
+
+  // "Viaje más corto" es una búsqueda sobre horas de salida, no una
+  // combinación de líneas, así que ahí no hay opciones que ofrecer.
+  if (CRITERIO_ACTUAL === "viaje") {
+    RUTA_OPCIONES = [];
+    RUTA_OPCION_ACTIVA = 0;
+    renderRutaResultado(computeRouteViajeCorto(APP.data, ROUTING, ROUTE_ORIGIN, ROUTE_DESTINO, salida), salida, directo, []);
+    return;
+  }
+
+  RUTA_OPCIONES = calcularOpcionesRuta(APP.data, ROUTING, ROUTE_ORIGIN, ROUTE_DESTINO, salida, CRITERIO_ACTUAL);
+  RUTA_OPCION_ACTIVA = 0;
+  renderRutaResultado(RUTA_OPCIONES[0] || null, salida, directo, RUTA_OPCIONES);
 }
 
 function nowForDatetimeLocal() {
@@ -3021,6 +3733,8 @@ function nowForDatetimeLocal() {
 function wireRuta() {
   wireEndpointInput("origenInput", "origen");
   wireEndpointInput("destinoInput", "destino");
+  document.getElementById("origenMuni").addEventListener("click", () => abrirSelectorMunicipio("origen"));
+  document.getElementById("destinoMuni").addEventListener("click", () => abrirSelectorMunicipio("destino"));
   wireGeoButton("origenGeo", "origen");
   wireGeoButton("destinoGeo", "destino");
   document.getElementById("origenPin").addEventListener("click", () => armClickMode("origen"));
@@ -3043,41 +3757,25 @@ function wireRuta() {
 /* ------------------------------------------------------------------ */
 /* Pestaña "Mis favoritos"                                             */
 /* ------------------------------------------------------------------ */
-/** Dirección (origen→destino) del servicio concreto de una línea que
- * pasa por una parada: se usa para que en favoritos se lea "Guillena →
- * Sevilla" en vez de solo el nombre de la línea. */
-function direccionDeServicio(servicio) {
-  const od = origenDestinoVariante(servicio.variante_nombre);
-  return od ? od.origen + " → " + od.destino : servicio.variante_nombre;
-}
-
-/** Hasta `limite` líneas que pasan por una parada, poniendo SIEMPRE
- * primero las que son favoritas y, dentro de cada grupo, las de salida
- * más próxima. Cada entrada trae ya su dirección y su próxima salida. */
+/** Hasta `limite` salidas de una parada, una por línea Y sentido,
+ * poniendo SIEMPRE primero las líneas favoritas y, dentro de cada grupo,
+ * las de salida más próxima.
+ *
+ * Se separa por sentido porque una misma línea suele pasar por la misma
+ * parada en las dos direcciones, y "el próximo autobús de la M-177" no
+ * significa nada si no dices hacia dónde. Dentro de cada sentido, en
+ * cambio, se fusionan todos los recorridos: da igual que ese autobús
+ * concreto haya salido de Torre de la Reina o de Guillena. */
 function lineasEnParadaPriorizadas(paradaId, limite) {
   limite = limite || 3;
-  const p = APP.data.paradas[paradaId];
-  if (!p) return [];
-  const porLinea = {};
-  (p.servicios || []).forEach(s => {
-    if (!porLinea[s.linea_slug]) porLinea[s.linea_slug] = { linea_slug: s.linea_slug, linea_titulo: s.linea_titulo, servicios: [] };
-    porLinea[s.linea_slug].servicios.push(s);
-  });
-  const now = new Date();
-  const grupos = Object.values(porLinea).map(g => {
-    const dep = nextDepartureConOrigen(g.servicios, now);
-    // La dirección sale del servicio que produce esa salida concreta
-    // (dentro ya de esta misma línea), no de uno cualquiera del grupo.
-    let direccion = null;
-    const nombreVariante = dep && dep.variantes && dep.variantes.length ? dep.variantes[0] : null;
-    if (nombreVariante) {
-      const od = origenDestinoVariante(nombreVariante);
-      direccion = od ? od.origen + " → " + od.destino : nombreVariante;
-    } else if (g.servicios.length) {
-      direccion = direccionDeServicio(g.servicios[0]);
-    }
-    return { ...g, dep, direccion, favorita: esFavoritoLinea(g.linea_slug) };
-  });
+  const grupos = sentidosEnParada(paradaId, null).map(g => ({
+    linea_slug: g.lineaSlug,
+    linea_titulo: g.lineaTitulo,
+    servicios: g.servicios,
+    dep: g.dep,
+    direccion: "hacia " + g.etiqueta,
+    favorita: esFavoritoLinea(g.lineaSlug)
+  }));
   grupos.sort((a, b) => {
     if (a.favorita !== b.favorita) return a.favorita ? -1 : 1;
     const av = a.dep ? a.dep.dias * 1440 + a.dep.h * 60 + a.dep.m : Infinity;
@@ -3094,9 +3792,23 @@ function renderFavParadas() {
     return;
   }
   box.innerHTML = "";
-  FAVORITOS.paradas.forEach(fav => {
+  const filtro = document.createElement("div");
+  box.appendChild(filtro);
+  pintarFiltroMunicipio(filtro, renderFavParadas);
+
+  const visibles = FAVORITOS.paradas
+    .filter(fav => !FILTRO_MUNICIPIO || municipioDeParada(fav.id) === FILTRO_MUNICIPIO);
+  if (!visibles.length) {
+    const aviso = document.createElement("p");
+    aviso.className = "empty";
+    aviso.textContent = `No tienes paradas favoritas en ${FILTRO_MUNICIPIO}.`;
+    box.appendChild(aviso);
+    return;
+  }
+  visibles.forEach(fav => {
     const p = APP.data.paradas[fav.id];
     const nombre = p ? p.nombre : fav.nombre;
+    const municipio = municipioDeParada(fav.id);
     const { mostradas, total } = lineasEnParadaPriorizadas(fav.id, 3);
 
     const card = document.createElement("div");
@@ -3104,7 +3816,7 @@ function renderFavParadas() {
 
     const head = document.createElement("div");
     head.className = "fav-parada-head";
-    head.innerHTML = `<span class="fav-parada-nombre">${escapeHtml(nombre)}</span>`;
+    head.innerHTML = `<span class="fav-parada-nombre">${escapeHtml(nombre)}${municipio ? ` <span class="home-fav-muni">${escapeHtml(municipio)}</span>` : ""}</span>`;
     const btnFav = document.createElement("button");
     btnFav.type = "button";
     btnFav.className = "btn-fav";
@@ -3133,7 +3845,7 @@ function renderFavParadas() {
       if (total > mostradas.length) {
         const mas = document.createElement("div");
         mas.className = "fav-parada-mas";
-        mas.textContent = `+${total - mostradas.length} línea${total - mostradas.length === 1 ? "" : "s"} más · pulsa para ver todo`;
+        mas.textContent = `+${total - mostradas.length} salida${total - mostradas.length === 1 ? "" : "s"} más · pulsa para ver todo`;
         cuerpo.appendChild(mas);
       }
     }
@@ -3162,7 +3874,7 @@ function renderFavLineas() {
     if (linea) {
       const cabBox = document.createElement("div");
       cabBox.className = "cabecera-list";
-      renderCabecerasEn(cabBox, linea, renderFavLineas);
+      renderSalidasDeLineaEn(cabBox, linea, renderFavLineas);
       left.appendChild(cabBox);
     }
     const abrirLinea = document.createElement("button");
@@ -3378,26 +4090,109 @@ function pedirUbicacionInicio() {
   );
 }
 
-/** Bloque destacado en Inicio: las salidas de las paradas favoritas,
- * en grande y lo primero de todo. Si no hay favoritos, no ocupa sitio. */
+/* ------------------------------------------------------------------ */
+/* Seguimiento: desde qué paradas miras tus salidas                     */
+/* ------------------------------------------------------------------ */
+/** Las paradas que la persona vigila: sus paradas favoritas más los
+ * puntos de referencia de sus líneas favoritas. Una parada que venga
+ * solo de una línea favorita enseña únicamente esa línea; una parada
+ * favorita enseña todas las que pasan por ella. */
+function paradasDeSeguimiento() {
+  const mapa = new Map();
+  FAVORITOS.paradas.forEach(f => {
+    if (!APP.data.paradas[f.id]) return;
+    mapa.set(f.id, { paradaId: f.id, municipio: municipioDeParada(f.id), filtros: null });
+  });
+  FAVORITOS.lineas.forEach(fl => {
+    const linea = APP.data.lineas.find(l => l.slug === fl.slug);
+    if (!linea) return;
+    referenciasDeLinea(linea).forEach(ref => {
+      const ya = mapa.get(ref.paradaId);
+      // Una parada favorita enseña todo lo que pasa por ella; una que
+      // viene solo de una línea favorita enseña esa línea y en el sentido
+      // que se eligió, que para eso se eligió.
+      if (ya) {
+        if (ya.filtros) ya.filtros.push({ lineaSlug: fl.slug, sentidoClave: ref.sentidoClave });
+        return;
+      }
+      mapa.set(ref.paradaId, {
+        paradaId: ref.paradaId,
+        municipio: municipioDeParada(ref.paradaId),
+        filtros: [{ lineaSlug: fl.slug, sentidoClave: ref.sentidoClave }]
+      });
+    });
+  });
+  return [...mapa.values()];
+}
+
+/** Municipios desde los que la persona mira algo, para la fila de
+ * filtros. Es justo el nivel "municipio" del grafo tripartito aplicado a
+ * tus favoritos: la M-177 para en Guillena y en Sevilla, y quieres poder
+ * mirar cada extremo por separado. */
+function municipiosDeSeguimiento() {
+  return [...new Set(paradasDeSeguimiento().map(e => e.municipio).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "es"));
+}
+
+/** Salidas de una parada vigilada, ya filtradas a las líneas que
+ * correspondan y ordenadas por proximidad. */
+function salidasDeSeguimiento(entrada, limite) {
+  limite = limite || 3;
+  if (!entrada.filtros) return lineasEnParadaPriorizadas(entrada.paradaId, limite);
+  const grupos = sentidosEnParada(entrada.paradaId, null)
+    .filter(g => entrada.filtros.some(f =>
+      f.lineaSlug === g.lineaSlug && (!f.sentidoClave || f.sentidoClave === g.sentidoClave)))
+    .map(g => ({
+      linea_slug: g.lineaSlug, linea_titulo: g.lineaTitulo, servicios: g.servicios,
+      dep: g.dep, direccion: "hacia " + g.etiqueta, favorita: true
+    }));
+  return { mostradas: grupos.slice(0, limite), total: grupos.length };
+}
+
+/** Fila de pastillas para elegir desde qué municipio mirar. Si solo hay
+ * uno no se pinta: no aporta nada y roba sitio. */
+function pintarFiltroMunicipio(contenedor, onCambio) {
+  const municipios = municipiosDeSeguimiento();
+  contenedor.innerHTML = "";
+  if (municipios.length < 2) return;
+  const fila = document.createElement("div");
+  fila.className = "chip-row";
+  const pinta = (etiqueta, valor) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "muni-chip" + (FILTRO_MUNICIPIO === valor ? " active" : "");
+    b.textContent = etiqueta;
+    b.addEventListener("click", () => { setFiltroMunicipio(valor); onCambio(); });
+    fila.appendChild(b);
+  };
+  pinta("Todos", "");
+  municipios.forEach(m => pinta(m, m));
+  contenedor.appendChild(fila);
+}
+
+/** Bloque destacado en Inicio: las salidas que vigilas, en grande y lo
+ * primero de todo, filtrables por el municipio desde el que quieres
+ * mirar. Si no hay favoritos, no ocupa sitio. */
 function renderHomeFavSalidas() {
   const box = document.getElementById("homeFavSalidas");
   if (!box) return;
-  if (!FAVORITOS.paradas.length) { box.innerHTML = ""; return; }
+  const entradas = paradasDeSeguimiento();
+  if (!entradas.length) { box.innerHTML = ""; return; }
 
-  let html = '<div class="card home-fav-card"><h2 class="home-fav-title">Tus próximas salidas</h2>';
+  const visibles = entradas.filter(e => !FILTRO_MUNICIPIO || e.municipio === FILTRO_MUNICIPIO);
+  let html = '<div class="card home-fav-card"><h2 class="home-fav-title">Tus próximas salidas</h2><div id="homeFiltroMuni"></div>';
   let hayAlgo = false;
-  FAVORITOS.paradas.forEach(fav => {
-    const p = APP.data.paradas[fav.id];
+  visibles.forEach(entrada => {
+    const p = APP.data.paradas[entrada.paradaId];
     if (!p) return;
-    const { mostradas, total } = lineasEnParadaPriorizadas(fav.id, 3);
+    const { mostradas, total } = salidasDeSeguimiento(entrada, 3);
     if (!mostradas.length) return;
     hayAlgo = true;
-    html += `<div class="home-fav-parada" data-stop-id="${escapeHtml(fav.id)}">
-      <div class="home-fav-parada-nombre">📍 ${escapeHtml(p.nombre)}</div>`;
+    html += `<div class="home-fav-parada" data-stop-id="${escapeHtml(entrada.paradaId)}">
+      <div class="home-fav-parada-nombre">📍 ${escapeHtml(p.nombre)}${entrada.municipio ? ` <span class="home-fav-muni">${escapeHtml(entrada.municipio)}</span>` : ""}</div>`;
     mostradas.forEach(g => {
       const fmt = formatDeparture(g.dep);
-      const notif = getNotificacion(fav.id, g.linea_slug) || getNotificacion(fav.id, null);
+      const notif = getNotificacion(entrada.paradaId, g.linea_slug) || getNotificacion(entrada.paradaId, null);
       html += `<div class="home-fav-fila">
         <span class="home-fav-code${g.favorita ? " es-fav" : ""}">${escapeHtml(codigoLinea(g.linea_titulo))}</span>
         <span class="home-fav-dir">${notif ? "🔔 " : ""}${escapeHtml(g.direccion || g.linea_titulo)}</span>
@@ -3405,12 +4200,19 @@ function renderHomeFavSalidas() {
       </div>`;
     });
     if (total > mostradas.length) {
-      html += `<div class="fav-parada-mas">+${total - mostradas.length} línea${total - mostradas.length === 1 ? "" : "s"} más · pulsa para ver todo</div>`;
+      html += `<div class="fav-parada-mas">+${total - mostradas.length} salida${total - mostradas.length === 1 ? "" : "s"} más · pulsa para ver todo</div>`;
     }
     html += `</div>`;
   });
+  if (!hayAlgo && FILTRO_MUNICIPIO) {
+    html += `<p class="empty">No sigues ninguna parada en ${escapeHtml(FILTRO_MUNICIPIO)}.</p>`;
+    hayAlgo = true;
+  }
   html += "</div>";
   box.innerHTML = hayAlgo ? html : "";
+
+  const filtro = box.querySelector("#homeFiltroMuni");
+  if (filtro) pintarFiltroMunicipio(filtro, renderHomeFavSalidas);
 
   box.querySelectorAll(".home-fav-parada").forEach(el => {
     el.addEventListener("click", () => openModal(cont => buildStopScheduleModalContent(cont, el.dataset.stopId)));
@@ -3458,20 +4260,19 @@ function wireInicio() {
     const nombre = e.target.value.trim();
     if (!nombre) return;
     buildStopsDatalist();
-    const id = PARADA_POR_NOMBRE && PARADA_POR_NOMBRE[nombre];
-    if (!id) {
-      document.getElementById("homeOrigenTexto").textContent = "No se reconoce esa parada; elígela de la lista.";
+    const punto = interpretarBusquedaExtremo(nombre);
+    if (!punto) {
+      document.getElementById("homeOrigenTexto").textContent = "No se reconoce; elige una parada o un municipio de la lista.";
       return;
     }
-    ROUTE_DESTINO = { type: "stop", id };
+    ROUTE_DESTINO = punto;
     irAPantalla("screenRuta");
     setTimeout(() => {
-      document.getElementById("destinoInput").value = nombre;
-      document.getElementById("destinoStatus").textContent = `Parada: ${nombre}`;
+      document.getElementById("destinoInput").value = textoDeExtremo(punto);
+      document.getElementById("destinoStatus").textContent = describeEndpoint(punto);
       if (ROUTE_ORIGIN) {
-        const desc = ROUTE_ORIGIN.type === "stop" ? APP.data.paradas[ROUTE_ORIGIN.id].nombre : "Punto marcado";
-        document.getElementById("origenInput").value = ROUTE_ORIGIN.type === "stop" ? desc : "";
-        document.getElementById("origenStatus").textContent = ROUTE_ORIGIN.type === "stop" ? `Parada: ${desc}` : "Punto de partida marcado";
+        document.getElementById("origenInput").value = textoDeExtremo(ROUTE_ORIGIN);
+        document.getElementById("origenStatus").textContent = describeEndpoint(ROUTE_ORIGIN);
         onCalcularRuta();
       }
     }, 90);
@@ -3532,6 +4333,7 @@ async function init() {
   setStatus("Cargando datos…");
   try {
     APP.data = await loadData(false);
+    construirGrafo();
     const fecha = APP.data.generado ? new Date(APP.data.generado).toLocaleString("es-ES") : "?";
     setStatus(`${APP.data.lineas.length} líneas · datos generados ${fecha}`);
   } catch (err) {
@@ -3559,6 +4361,7 @@ async function init() {
     setStatus("Actualizando datos…");
     try {
       APP.data = await loadData(true);
+      construirGrafo();
       const fecha = APP.data.generado ? new Date(APP.data.generado).toLocaleString("es-ES") : "?";
       setStatus(`${APP.data.lineas.length} líneas · datos generados ${fecha}`);
       buildMunicipioOptions();

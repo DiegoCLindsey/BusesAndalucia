@@ -11,15 +11,18 @@ tiempo real.
 
 ## Qué hace
 
-- **Inicio** — mapa con las 1.094 paradas de la red, tus próximas salidas
-  favoritas destacadas (filtrables por el municipio desde el que quieres
-  mirar) y buscador de destino.
+- **Inicio** — mapa de la red que de lejos agrupa las paradas por
+  municipio (un triángulo cada uno, que se despliega al tocarlo) y de
+  cerca las enseña una a una, tus próximas salidas favoritas destacadas
+  (filtrables por el municipio desde el que quieres mirar) y buscador de
+  destino.
 - **Líneas** — las 55 líneas del consorcio, con las próximas salidas en las
   paradas que tú elijas, recorrido en mapa, horario completo y PDF oficial
   de cada parada.
 - **Ruta** — de parada a parada, de un punto del mapa, desde tu ubicación o
-  **de municipio a municipio**, enseñando las combinaciones de líneas
-  disponibles y quedándose por defecto con la de menos trasbordos.
+  **de municipio a municipio** (eligiéndolo en el buscador o tocando su
+  triángulo en el mapa), enseñando las combinaciones de líneas disponibles
+  y quedándose por defecto con la de menos trasbordos.
 - **Favoritos** — paradas, líneas y rutas guardadas, con recálculo automático.
 - **Avisos** — notificación con la antelación que elijas antes de que salga
   tu autobús.
@@ -81,6 +84,11 @@ datos no vuelve a pedir nada al servidor.
   los bordes. Los anejos que quedan lejos de su municipio (Torre de la
   Reina es de Guillena aunque esté pegada a Alcalá del Río) llevan ancla
   propia.
+- **Agrupación del mapa.** Por debajo del zoom 13 el mapa enseña un
+  triángulo por municipio en vez de sus paradas. En el Aljarafe hay
+  pueblos a 1,3 km, así que de muy lejos esos triángulos se pisarían unos
+  a otros: los que chocan en pantalla se funden en uno solo, marcado con
+  cuántos lleva dentro, y al tocarlo se elige de cuál se habla.
 - **Sentido de circulación.** Se deduce de lo que le queda al recorrido por
   delante desde cada parada, no de dónde arrancó el autobús. Es lo que
   permite juntar en una sola próxima salida todos los recorridos que pasan

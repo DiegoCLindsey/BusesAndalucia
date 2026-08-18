@@ -758,6 +758,51 @@
   }
   .opcion-pill.active{border-color:var(--green); background:var(--paper-2);}
   .opcion-lineas{font-family:var(--font-display); font-weight:700; font-size:13px; color:var(--ink);}
+
+  /* Municipios en el mapa: un triángulo apuntando arriba, hermano del
+     círculo de las paradas. Relleno cuando está plegado (es un bloque),
+     hueco cuando está desplegado (ya se ven sus paradas por debajo). */
+  .muni-tri{overflow:visible;}
+  .muni-tri polygon{
+    fill:var(--green); stroke:#ffffff; stroke-width:7;
+    stroke-linejoin:round; paint-order:stroke;
+  }
+  .muni-tri.abierto polygon{fill:#ffffff; stroke:var(--green);}
+  .muni-tri.extremo{filter:drop-shadow(0 0 2px rgba(255,255,255,.95));}
+  .muni-tri.extremo polygon{fill:none; stroke-width:11;}
+  .muni-tri.extremo.origen polygon{stroke:var(--amber);}
+  .muni-tri.extremo.destino polygon{stroke:var(--green-dark);}
+  .muni-popup-title{
+    font-family:var(--font-display); font-weight:700; font-size:15px;
+    color:var(--ink); display:flex; align-items:center; gap:6px; margin-bottom:2px;
+  }
+  .muni-popup-sub{font-size:12px; color:var(--ink-faint); margin-bottom:8px;}
+  .muni-marcador{display:flex; align-items:center; justify-content:center;}
+  .muni-tri-cuenta{
+    position:absolute; top:-4px; right:-8px;
+    font-family:var(--font-mono); font-size:9.5px; font-weight:700; line-height:1;
+    padding:2px 4px; border-radius:999px;
+    background:var(--amber); color:var(--ink); border:1.5px solid #ffffff;
+  }
+  .muni-popup-volver{
+    background:none; border:none; padding:0 0 6px 0; cursor:pointer;
+    font-family:var(--font-body); font-size:12px; font-weight:600; color:var(--green);
+  }
+  .muni-popup-lineas{max-height:150px; overflow-y:auto; margin:10px 0 4px;}
+  .muni-popup-fila{
+    display:flex; align-items:center; gap:8px; width:100%; text-align:left;
+    padding:6px 0; background:none; border:none; border-top:1px solid var(--border); cursor:pointer;
+  }
+  .muni-popup-fila:first-child{border-top:none;}
+  .muni-popup-code{
+    font-family:var(--font-display); font-weight:700; font-size:11.5px;
+    padding:3px 7px; border-radius:5px; background:var(--paper-2); color:var(--ink-soft); white-space:nowrap;
+  }
+  .muni-popup-fila-name{font-size:13px; font-weight:600; color:var(--ink); white-space:nowrap;}
+  .muni-popup-fila-sub{
+    flex:1; min-width:0; font-size:11.5px; color:var(--ink-faint); text-align:right;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
   .opcion-meta{font-size:11.5px; color:var(--ink-faint);}
   .selector-bloque{margin-top:14px;}
   .selector-titulo{
@@ -792,7 +837,7 @@
 </header>
 
 <nav class="nav" id="mainNav">
-  <button class="nav-btn active" data-screen="screenInicio" type="button"><span class="nav-ico">🗺️</span>Inicio</button>
+  <button class="nav-btn active" data-screen="screenInicio" type="button"><span class="nav-ico">🌍</span>Inicio</button>
   <button class="nav-btn" data-screen="screenLineas" type="button"><span class="nav-ico">🚌</span>Líneas</button>
   <button class="nav-btn" data-screen="screenRuta" type="button"><span class="nav-ico">🧭</span>Ruta</button>
 </nav>
@@ -843,7 +888,7 @@
         <label class="field-label">Origen</label>
         <div class="endpoint-row">
           <input type="text" class="input" id="origenInput" list="listaParadas" placeholder="Parada o municipio…">
-          <button class="btn-chip" id="origenMuni" type="button" title="Elegir un municipio entero">🏙</button>
+          <button class="btn-chip" id="origenMuni" type="button" title="Elegir un municipio entero">▲</button>
           <button class="btn-chip" id="origenGeo" type="button" title="Usar mi ubicación">📍</button>
           <button class="btn-chip" id="origenPin" type="button" title="Marcar en el mapa">🖊</button>
         </div>
@@ -853,7 +898,7 @@
         <label class="field-label">Destino</label>
         <div class="endpoint-row">
           <input type="text" class="input" id="destinoInput" list="listaParadas" placeholder="Parada o municipio…">
-          <button class="btn-chip" id="destinoMuni" type="button" title="Elegir un municipio entero">🏙</button>
+          <button class="btn-chip" id="destinoMuni" type="button" title="Elegir un municipio entero">▲</button>
           <button class="btn-chip" id="destinoGeo" type="button" title="Usar mi ubicación">📍</button>
           <button class="btn-chip" id="destinoPin" type="button" title="Marcar en el mapa">🏁</button>
         </div>
@@ -1741,6 +1786,359 @@ function renderMap(containerEl, paradaIds, onMarkerClick, mapRef) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Capa de red: municipios de lejos, paradas de cerca                   */
+/* ------------------------------------------------------------------ */
+/** A la escala del área metropolitana, 1.094 círculos son una mancha: no
+ * se lee nada y no se puede pinchar en nada. Por debajo de este zoom el
+ * mapa enseña el nivel de arriba del grafo tripartito — un municipio por
+ * triángulo — y solo al acercarse aparecen sus paradas. Cualquier
+ * municipio se puede desplegar a mano sin acercarse, tocando su
+ * triángulo; tocándolo otra vez se vuelve a condensar.
+ *
+ * Agrupar por municipio no basta del todo: en el Aljarafe hay pueblos a
+ * 1,3 km, así que de muy lejos sus triángulos se pisan unos a otros y se
+ * vuelven impinchables. Por eso los que chocan en pantalla se funden en
+ * un solo triángulo que, al tocarlo, despliega la lista de los
+ * municipios que lleva dentro. */
+const ZOOM_AGRUPADO = 13;
+
+const MUNI_LADO_MIN = 15;
+const MUNI_LADO_MAX = 30;
+
+function ladoDeMunicipios(municipios) {
+  const paradas = municipios.reduce((n, m) => {
+    const nodo = GRAFO.municipios.get(m);
+    return n + (nodo ? nodo.paradas.length : 0);
+  }, 0);
+  const escala = Math.min(1, Math.sqrt(paradas) / Math.sqrt(70));
+  return Math.round(MUNI_LADO_MIN + (MUNI_LADO_MAX - MUNI_LADO_MIN) * escala);
+}
+
+/** Triángulo apuntando arriba, el equivalente de municipio al círculo de
+ * una parada. Crece con las paradas que agrupa, para que de un vistazo
+ * se vea dónde hay red de verdad y dónde cuatro paradas contadas. */
+function iconoMunicipio(municipios, abierto, lado) {
+  lado = lado || ladoDeMunicipios(municipios);
+  const alto = Math.round(lado * 0.87); // triángulo equilátero
+  const varios = municipios.length > 1
+    ? `<span class="muni-tri-cuenta">${municipios.length}</span>`
+    : "";
+  return L.divIcon({
+    className: "muni-marcador",
+    html: `<svg class="muni-tri${abierto ? " abierto" : ""}" width="${lado}" height="${alto}" viewBox="0 0 100 87" aria-hidden="true">
+             <polygon points="50,4 96,83 4,83"/>
+           </svg>${varios}`,
+    iconSize: [lado, alto],
+    iconAnchor: [lado / 2, alto / 2]
+  });
+}
+
+/** Junta en un mismo triángulo los municipios que a este zoom se pisarían
+ * en pantalla. Gana el que más paradas tiene: es el que da nombre al
+ * grupo y el que fija dónde se dibuja. */
+function agruparMunicipiosEnPantalla(map, municipios) {
+  const ordenados = municipios.slice().sort((a, b) =>
+    GRAFO.municipios.get(b).paradas.length - GRAFO.municipios.get(a).paradas.length);
+  const grupos = [];
+  ordenados.forEach(municipio => {
+    const nodo = GRAFO.municipios.get(municipio);
+    const punto = map.latLngToLayerPoint([nodo.lat, nodo.lng]);
+    const lado = ladoDeMunicipios([municipio]);
+    const grupo = grupos.find(g => {
+      const holgura = (g.lado + lado) * 0.5;
+      return punto.distanceTo(g.punto) < holgura;
+    });
+    if (grupo) {
+      grupo.municipios.push(municipio);
+      grupo.lado = ladoDeMunicipios(grupo.municipios);
+    } else {
+      grupos.push({ municipios: [municipio], punto, lado, lat: nodo.lat, lng: nodo.lng });
+    }
+  });
+  return grupos;
+}
+
+/** Monta sobre un mapa la capa de red y devuelve el mando para manejarla.
+ *
+ * `opciones`:
+ *  - `onParada(id)`            qué hacer al tocar una parada.
+ *  - `onGrupo(grupo, marca)`   qué hacer al tocar un triángulo.
+ *  - `estilo`                  estilo de los círculos de parada.
+ */
+function crearCapaRed(map, opciones) {
+  opciones = opciones || {};
+  const estilo = opciones.estilo || { radius: 5, weight: 1.5, color: "#ffffff", fillColor: "#2F6F4F", fillOpacity: 0.95 };
+
+  const marcadores = {};          // paradaId -> circleMarker
+  const grupoDeParadas = new Map(); // municipio -> layerGroup con sus paradas
+  const sueltas = L.layerGroup(); // paradas sin municipio conocido
+  const triangulos = L.layerGroup();
+  const expandidos = new Set();
+  const limites = [];
+  let dibujados = [];             // grupos pintados ahora mismo
+
+  Object.entries(APP.data.paradas).forEach(([id, p]) => {
+    if (p.lat == null || p.lng == null) return;
+    limites.push([p.lat, p.lng]);
+    const marcador = L.circleMarker([p.lat, p.lng], estilo)
+      .bindTooltip(p.nombre, { direction: "top" });
+    marcador.on("click", () => opciones.onParada && opciones.onParada(id));
+    marcadores[id] = marcador;
+    if (p.municipio) {
+      if (!grupoDeParadas.has(p.municipio)) grupoDeParadas.set(p.municipio, L.layerGroup());
+      grupoDeParadas.get(p.municipio).addLayer(marcador);
+    } else {
+      sueltas.addLayer(marcador);
+    }
+  });
+
+  const conMapa = GRAFO.lista.filter(m => {
+    const nodo = GRAFO.municipios.get(m);
+    return nodo && nodo.lat != null;
+  });
+
+  const agrupando = () => map.getZoom() < ZOOM_AGRUPADO;
+
+  function pintarTriangulos() {
+    triangulos.clearLayers();
+    dibujados = agrupando() ? agruparMunicipiosEnPantalla(map, conMapa) : [];
+    dibujados.forEach(grupo => {
+      const abierto = grupo.municipios.some(m => expandidos.has(m));
+      const marca = L.marker([grupo.lat, grupo.lng], { icon: iconoMunicipio(grupo.municipios, abierto, grupo.lado) });
+      const paradas = grupo.municipios.reduce((n, m) => n + GRAFO.municipios.get(m).paradas.length, 0);
+      marca.bindTooltip(grupo.municipios.length === 1
+        ? `${grupo.municipios[0]} · ${paradas} paradas`
+        : `${grupo.municipios[0]} y ${grupo.municipios.length - 1} más · ${paradas} paradas`,
+        { direction: "top" });
+      marca.on("click", () => {
+        // Un solo municipio: el toque lo despliega o lo condensa, que es
+        // lo que uno espera de un botón que se ve como un bloque. Varios:
+        // no hay nada que desplegar hasta elegir cuál.
+        if (grupo.municipios.length === 1) alternar(grupo.municipios[0], marca);
+        if (opciones.onGrupo) opciones.onGrupo(grupo, marca);
+      });
+      grupo.marca = marca;
+      triangulos.addLayer(marca);
+    });
+  }
+
+  function refrescar() {
+    const agrupa = agrupando();
+    grupoDeParadas.forEach((grupo, municipio) => {
+      const verParadas = !agrupa || expandidos.has(municipio);
+      if (verParadas && !map.hasLayer(grupo)) grupo.addTo(map);
+      if (!verParadas && map.hasLayer(grupo)) map.removeLayer(grupo);
+    });
+    if (!map.hasLayer(sueltas)) sueltas.addTo(map);
+    // De cerca los triángulos solo estorban: ahí manda la parada.
+    if (agrupa && !map.hasLayer(triangulos)) triangulos.addTo(map);
+    if (!agrupa && map.hasLayer(triangulos)) map.removeLayer(triangulos);
+    pintarTriangulos();
+  }
+
+  /** Despliega o condensa un municipio. `marca` es el triángulo que se ha
+   * tocado: se le cambia el icono en el sitio para no tener que
+   * repintarlos todos y cerrar de paso el menú que acaba de abrirse. */
+  function alternar(municipio, marca) {
+    if (expandidos.has(municipio)) expandidos.delete(municipio);
+    else expandidos.add(municipio);
+    const grupo = grupoDeParadas.get(municipio);
+    if (grupo) {
+      const ver = !agrupando() || expandidos.has(municipio);
+      if (ver && !map.hasLayer(grupo)) grupo.addTo(map);
+      if (!ver && map.hasLayer(grupo)) map.removeLayer(grupo);
+    }
+    const dibujado = dibujados.find(g => g.municipios.includes(municipio));
+    if (marca && dibujado) {
+      marca.setIcon(iconoMunicipio(dibujado.municipios,
+        dibujado.municipios.some(m => expandidos.has(m)), dibujado.lado));
+    }
+  }
+
+  map.on("zoomend", refrescar);
+  refrescar();
+
+  return {
+    marcadores, limites, expandidos, refrescar, alternar,
+    estaExpandido: municipio => expandidos.has(municipio),
+    agrupando,
+    grupoDibujadoDe: municipio => dibujados.find(g => g.municipios.includes(municipio)),
+    /** Deja a la vista una parada concreta aunque su municipio esté
+     * condensado; si no, tocar un resultado no llevaría a ningún sitio. */
+    asegurarVisible: paradaId => {
+      const municipio = municipioDeParada(paradaId);
+      if (municipio && agrupando() && !expandidos.has(municipio)) {
+        expandidos.add(municipio);
+        refrescar();
+      }
+    }
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Menú contextual de un municipio                                      */
+/* ------------------------------------------------------------------ */
+/** Leaflet solo corta la propagación de `mousedown` dentro de un globo,
+ * no la del `click`, así que tocar cualquier botón de dentro llega
+ * también al mapa y este cierra el globo por su cuenta. Estos menús
+ * cambian de contenido sin cerrarse (elegir municipio, desplegar sus
+ * paradas), así que hay que cortarlo a mano. */
+function sinPropagarClic(elemento) {
+  L.DomEvent.on(elemento, "click", L.DomEvent.stopPropagation);
+  return elemento;
+}
+
+function trianguloSvg(clase) {
+  return `<svg class="muni-tri${clase ? " " + clase : ""}" width="14" height="12" viewBox="0 0 100 87" aria-hidden="true"><polygon points="50,4 96,83 4,83"/></svg>`;
+}
+
+/** Qué es un municipio, qué líneas lo recorren y qué puedes hacer con él.
+ * Es el sitio donde el nivel "municipio" del grafo se toca con el dedo:
+ * desde aquí se despliegan sus paradas y se usa el municipio entero como
+ * extremo de una ruta. `volver`, si viene, pinta una vuelta al grupo del
+ * que se ha llegado. */
+function buildMunicipioPopupContent(municipio, capa, modo, marca, volver) {
+  const nodo = GRAFO.municipios.get(municipio);
+  const wrap = document.createElement("div");
+  wrap.className = "muni-popup";
+  const lineas = [...(nodo ? nodo.lineas : [])]
+    .map(slug => APP.data.lineas.find(l => l.slug === slug))
+    .filter(Boolean)
+    .sort((a, b) => a.titulo.localeCompare(b.titulo, "es"));
+
+  wrap.innerHTML = `
+    ${volver ? '<button type="button" class="muni-popup-volver" id="muniVolver">‹ Volver</button>' : ""}
+    <div class="muni-popup-title">${trianguloSvg()} ${escapeHtml(municipio)}</div>
+    <div class="muni-popup-sub">${nodo ? nodo.paradas.length : 0} paradas · ${lineas.length} línea${lineas.length === 1 ? "" : "s"}</div>`;
+  if (volver) wrap.querySelector("#muniVolver").addEventListener("click", volver);
+
+  const btnDesplegar = document.createElement("button");
+  btnDesplegar.type = "button";
+  btnDesplegar.className = "btn-chip";
+  const pintarBoton = () => {
+    btnDesplegar.textContent = capa.estaExpandido(municipio)
+      ? "▾ Condensar sus paradas"
+      : `▸ Ver sus ${nodo ? nodo.paradas.length : 0} paradas`;
+  };
+  pintarBoton();
+  btnDesplegar.addEventListener("click", () => { capa.alternar(municipio, marca); pintarBoton(); });
+  wrap.appendChild(btnDesplegar);
+
+  if (lineas.length) {
+    const lista = document.createElement("div");
+    lista.className = "muni-popup-lineas";
+    lineas.forEach(l => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "muni-popup-fila";
+      row.innerHTML = `<span class="muni-popup-code">${escapeHtml(codigoLinea(l.titulo))}</span>
+        <span class="muni-popup-fila-sub">${escapeHtml(municipiosDeLinea(l.slug).join(" · "))}</span>`;
+      row.addEventListener("click", () => openLineModal(l.slug));
+      lista.appendChild(row);
+    });
+    wrap.appendChild(lista);
+  }
+
+  wrap.appendChild(accionesDeMunicipio(municipio, modo));
+  return sinPropagarClic(wrap);
+}
+
+/** Botones de ruta de un municipio: es lo que lo convierte en un vértice
+ * "Municipio: —" del cálculo, igual que una parada o un punto marcado. */
+function accionesDeMunicipio(municipio, modo) {
+  const acciones = document.createElement("div");
+  acciones.className = "stop-popup-actions";
+  const punto = { type: "municipio", nombre: municipio };
+  const cerrar = () => {
+    if (modo === "ruta" && CURRENT_ROUTE_MAP) CURRENT_ROUTE_MAP.closePopup();
+    if (modo !== "ruta" && HOME_MAP) HOME_MAP.closePopup();
+  };
+
+  if (modo === "ruta") {
+    const esOrigen = ROUTE_ORIGIN && ROUTE_ORIGIN.type === "municipio" && ROUTE_ORIGIN.nombre === municipio;
+    const esDestino = ROUTE_DESTINO && ROUTE_DESTINO.type === "municipio" && ROUTE_DESTINO.nombre === municipio;
+    const btnOrigen = document.createElement("button");
+    btnOrigen.type = "button";
+    btnOrigen.className = "btn-chip" + (esOrigen ? " armed" : "");
+    btnOrigen.textContent = esOrigen ? "✕ Quitar origen" : "📍 Salgo de aquí";
+    btnOrigen.addEventListener("click", () => {
+      if (esOrigen) clearEndpoint("origen"); else setEndpoint("origen", punto);
+      cerrar();
+    });
+    acciones.appendChild(btnOrigen);
+
+    const btnDestino = document.createElement("button");
+    btnDestino.type = "button";
+    btnDestino.className = "btn-chip" + (esDestino ? " armed" : "");
+    btnDestino.textContent = esDestino ? "✕ Quitar destino" : "🏁 Voy aquí";
+    btnDestino.addEventListener("click", () => {
+      if (esDestino) clearEndpoint("destino"); else setEndpoint("destino", punto);
+      cerrar();
+    });
+    acciones.appendChild(btnDestino);
+  } else {
+    const btnIr = document.createElement("button");
+    btnIr.type = "button";
+    btnIr.className = "btn-chip";
+    btnIr.textContent = "🧭 Ir a este municipio";
+    btnIr.addEventListener("click", () => {
+      cerrar();
+      irAPantalla("screenRuta");
+      setTimeout(() => {
+        buildStopsDatalist();
+        setEndpoint("destino", punto);
+        if (ROUTE_ORIGIN) onCalcularRuta();
+      }, 90);
+    });
+    acciones.appendChild(btnIr);
+  }
+  return acciones;
+}
+
+/** Menú de un triángulo que lleva varios municipios dentro: la lista
+ * para elegir de cuál se habla. Al elegir uno se cambia el contenido del
+ * mismo globo, con vuelta atrás. */
+function buildGrupoPopupContent(grupo, capa, modo, marca, popup) {
+  const wrap = document.createElement("div");
+  wrap.className = "muni-popup";
+  const paradas = grupo.municipios.reduce((n, m) => n + GRAFO.municipios.get(m).paradas.length, 0);
+  wrap.innerHTML = `
+    <div class="muni-popup-title">${trianguloSvg()} ${grupo.municipios.length} municipios aquí</div>
+    <div class="muni-popup-sub">${paradas} paradas · demasiado juntos para separarlos a este zoom</div>`;
+
+  const lista = document.createElement("div");
+  lista.className = "muni-popup-lineas";
+  grupo.municipios.slice().sort((a, b) => a.localeCompare(b, "es")).forEach(municipio => {
+    const nodo = GRAFO.municipios.get(municipio);
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "muni-popup-fila";
+    row.innerHTML = `<span class="muni-popup-fila-name">${escapeHtml(municipio)}</span>
+      <span class="muni-popup-fila-sub">${nodo.paradas.length} paradas · ${nodo.lineas.size} línea${nodo.lineas.size === 1 ? "" : "s"}</span>`;
+    row.addEventListener("click", () => {
+      popup.setContent(buildMunicipioPopupContent(municipio, capa, modo, marca,
+        () => popup.setContent(buildGrupoPopupContent(grupo, capa, modo, marca, popup))));
+    });
+    lista.appendChild(row);
+  });
+  wrap.appendChild(lista);
+  return sinPropagarClic(wrap);
+}
+
+/** Abre el menú del triángulo tocado: la ficha del municipio si lleva uno
+ * solo, o la lista para elegir si lleva varios. */
+function abrirMenuGrupo(map, grupo, marca, capa, modo) {
+  // El globo no puede ser más alto que el mapa: si lo es, Leaflet no
+  // tiene a dónde desplazarlo y se sale por arriba del recuadro.
+  const alto = Math.max(170, map.getSize().y - 80);
+  const popup = L.popup({ minWidth: 240, maxHeight: alto }).setLatLng(marca.getLatLng());
+  popup.setContent(grupo.municipios.length === 1
+    ? buildMunicipioPopupContent(grupo.municipios[0], capa, modo, marca)
+    : buildGrupoPopupContent(grupo, capa, modo, marca, popup));
+  popup.openOn(map);
+}
+
+/* ------------------------------------------------------------------ */
 /* Render: horario completo + tablero de próxima salida + PDF          */
 /* ------------------------------------------------------------------ */
 function renderBoard(container, servicio) {
@@ -2285,7 +2683,7 @@ function abrirMenuReferencia(linea, ref, onCambio) {
         <span class="cabecera-time">${escapeHtml(fmt.main)}<span class="cabecera-sub">${escapeHtml(fmt.sub)}</span></span>
       </div>
       <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:14px;">
-        ${esFav ? '<button type="button" class="btn-chip" id="menuElegirParada">🏙 Elegir mis paradas</button>' : ""}
+        ${esFav ? '<button type="button" class="btn-chip" id="menuElegirParada">▲ Elegir mis paradas</button>' : ""}
         <button type="button" class="btn-chip" id="menuNotificar">${notif ? "🔔 Aviso activo · editar" : "🔔 Notifícame"}</button>
         <button type="button" class="btn-chip" id="menuVerHorario">🕑 Ver horario completo</button>
         <button type="button" class="btn-chip" id="menuVerLinea">🚌 Ver la línea</button>
@@ -2552,6 +2950,7 @@ const LS_ROUTING_KEY = "ctasRoutingV3"; // v3: conexiones reales (v1/v2 usaban f
 let ROUTING = null;
 let CURRENT_ROUTE_MAP = null;
 let ROUTE_MARKERS = {};
+let ROUTE_CAPA = null;   // capa de red del mapa de rutas (municipios + paradas)
 let ROUTE_ORIGIN = null;   // {type:'stop', id} | {type:'point', lat, lng}
 let ROUTE_DESTINO = null;
 let ROUTE_ARM_MODE = null; // 'origen' | 'destino' | null
@@ -3166,19 +3565,29 @@ function initRouteMap() {
     attribution: "&copy; OpenStreetMap"
   }).addTo(map);
 
-  const latlngs = [];
-  Object.entries(APP.data.paradas).forEach(([id, p]) => {
-    if (p.lat == null) return;
-    latlngs.push([p.lat, p.lng]);
-    const marker = L.circleMarker([p.lat, p.lng], {
-      radius: 5, weight: 1.5, color: "#ffffff", fillColor: "#2F6F4F", fillOpacity: 0.95
-    }).addTo(map).bindTooltip(p.nombre, { direction: "top" });
-    marker.on("click", () => onRouteMapStopClick(id));
-    ROUTE_MARKERS[id] = marker;
+  // El mapa se abre entero, o sea de lejos, o sea agrupado por municipio:
+  // que es justo la escala a la que se piensa un viaje metropolitano.
+  ROUTE_CAPA = crearCapaRed(map, {
+    onParada: onRouteMapStopClick,
+    onGrupo: onRouteMapGrupoClick
   });
-  if (latlngs.length) map.fitBounds(latlngs, { padding: [16, 16] });
+  ROUTE_MARKERS = ROUTE_CAPA.marcadores;
+  if (ROUTE_CAPA.limites.length) map.fitBounds(ROUTE_CAPA.limites, { padding: [16, 16] });
   else map.setView([37.389, -5.984], 10);
+  ROUTE_CAPA.refrescar();
   map.on("click", e => onRouteMapClick(e.latlng));
+}
+
+/** Tocar un triángulo con el modo "marcar en el mapa" armado fija ese
+ * municipio como extremo de la ruta sin más rodeos; si lleva varios
+ * dentro no hay nada que adivinar, así que se abre el menú para elegir. */
+function onRouteMapGrupoClick(grupo, marca) {
+  if (ROUTE_ARM_MODE && grupo.municipios.length === 1) {
+    setEndpoint(ROUTE_ARM_MODE, { type: "municipio", nombre: grupo.municipios[0] });
+    disarmClickMode();
+    return;
+  }
+  abrirMenuGrupo(CURRENT_ROUTE_MAP, grupo, marca, ROUTE_CAPA, "ruta");
 }
 
 function onRouteMapStopClick(id) {
@@ -3300,6 +3709,7 @@ function buildStopPopupContent(id) {
 }
 
 function openStopPopup(id) {
+  if (ROUTE_CAPA) ROUTE_CAPA.asegurarVisible(id);
   const marker = ROUTE_MARKERS[id];
   if (!marker) return;
   marker.bindPopup(buildStopPopupContent(id), { minWidth: 230 }).openPopup();
@@ -3357,18 +3767,31 @@ function placeEndpointMarker(which, point) {
   if (!CURRENT_ROUTE_MAP) return;
   const latlng = coordenadasDeExtremo(APP.data, point);
   if (!latlng) return;
-  const esMunicipio = point.type === "municipio";
-  const icon = L.divIcon({
-    className: "",
-    html: `<div style="font-size:22px; line-height:1;">${esMunicipio ? "🏙" : (which === "origen" ? "📍" : "🏁")}</div>`,
-    iconSize: [22, 22], iconAnchor: [11, 20]
-  });
+  // Un municipio elegido como extremo no lleva chincheta: no es un
+  // sitio, es una zona entera. Se marca con un anillo triangular alrededor
+  // de su propio triángulo — más grande y sin relleno, para no taparlo.
+  let icon;
+  if (point.type === "municipio") {
+    const lado = Math.max(38, Math.round(ladoDeMunicipios([point.nombre]) * 1.8));
+    const alto = Math.round(lado * 0.87);
+    icon = L.divIcon({
+      className: "",
+      html: `<svg class="muni-tri extremo ${which}" width="${lado}" height="${alto}" viewBox="0 0 100 87" aria-hidden="true"><polygon points="50,4 96,83 4,83"/></svg>`,
+      iconSize: [lado, alto], iconAnchor: [lado / 2, alto / 2]
+    });
+  } else {
+    icon = L.divIcon({
+      className: "",
+      html: `<div style="font-size:22px; line-height:1;">${which === "origen" ? "📍" : "🏁"}</div>`,
+      iconSize: [22, 22], iconAnchor: [11, 20]
+    });
+  }
   if (which === "origen") {
     if (ROUTE_ORIGIN_MARKER) CURRENT_ROUTE_MAP.removeLayer(ROUTE_ORIGIN_MARKER);
-    ROUTE_ORIGIN_MARKER = L.marker(latlng, { icon }).addTo(CURRENT_ROUTE_MAP);
+    ROUTE_ORIGIN_MARKER = L.marker(latlng, { icon, zIndexOffset: 900 }).addTo(CURRENT_ROUTE_MAP);
   } else {
     if (ROUTE_DESTINO_MARKER) CURRENT_ROUTE_MAP.removeLayer(ROUTE_DESTINO_MARKER);
-    ROUTE_DESTINO_MARKER = L.marker(latlng, { icon }).addTo(CURRENT_ROUTE_MAP);
+    ROUTE_DESTINO_MARKER = L.marker(latlng, { icon, zIndexOffset: 900 }).addTo(CURRENT_ROUTE_MAP);
   }
 }
 
@@ -4023,6 +4446,7 @@ async function renderFavoritosTab() {
 /* Pantalla "Inicio": mapa + "¿A dónde quieres ir?"                    */
 /* ------------------------------------------------------------------ */
 let HOME_MAP = null;
+let HOME_CAPA = null;
 let HOME_ORIGEN_MARKER = null;
 
 function initHomeMap() {
@@ -4032,18 +4456,13 @@ function initHomeMap() {
     maxZoom: 19, attribution: "&copy; OpenStreetMap"
   }).addTo(HOME_MAP);
 
-  const latlngs = [];
-  Object.entries(APP.data.paradas).forEach(([id, p]) => {
-    if (p.lat == null) return;
-    latlngs.push([p.lat, p.lng]);
-    L.circleMarker([p.lat, p.lng], {
-      radius: 5, weight: 1.5, color: "#ffffff", fillColor: "#2F6F4F", fillOpacity: 0.95
-    }).addTo(HOME_MAP)
-      .bindTooltip(p.nombre, { direction: "top" })
-      .on("click", () => openModal(container => buildStopScheduleModalContent(container, id)));
+  HOME_CAPA = crearCapaRed(HOME_MAP, {
+    onParada: id => openModal(container => buildStopScheduleModalContent(container, id)),
+    onGrupo: (grupo, marca) => abrirMenuGrupo(HOME_MAP, grupo, marca, HOME_CAPA, "inicio")
   });
-  if (latlngs.length) HOME_MAP.fitBounds(latlngs, { padding: [16, 16] });
+  if (HOME_CAPA.limites.length) HOME_MAP.fitBounds(HOME_CAPA.limites, { padding: [16, 16] });
   else HOME_MAP.setView([37.389, -5.984], 10);
+  HOME_CAPA.refrescar();
 }
 
 function setHomeOrigen(point, textoDescriptivo) {

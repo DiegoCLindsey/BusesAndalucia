@@ -22,7 +22,9 @@ tiempo real.
 - **Ruta** — de parada a parada, de un punto del mapa, desde tu ubicación o
   **de municipio a municipio** (eligiéndolo en el buscador o tocando su
   triángulo en el mapa), enseñando las combinaciones de líneas disponibles
-  y quedándose por defecto con la de menos trasbordos.
+  y quedándose por defecto con la de menos trasbordos. El itinerario se lee
+  como una línea vertical: hora y sitio en cada punto, qué coges entre
+  punto y punto, y cuánto esperas en cada trasbordo.
 - **Favoritos** — paradas, líneas y rutas guardadas, con recálculo automático.
 - **Avisos** — notificación con la antelación que elijas antes de que salga
   tu autobús.
@@ -96,6 +98,12 @@ datos no vuelve a pedir nada al servidor.
   Reina y otros de Guillena.
 - Una parada donde todos los recorridos terminan no ofrece salidas: la hora
   que ctas.es publica ahí es de llegada.
+- **La espera del trasbordo.** El itinerario funde en un solo punto los dos
+  momentos de un trasbordo sin cambiar de parada — la hora a la que llegas
+  y la hora a la que sales — y enseña la diferencia. Antes esa espera solo
+  aparecía después de un tramo a pie, así que en el caso más común (cambiar
+  de línea en la misma parada) el dato que más importa del trasbordo era
+  justo el que faltaba.
 - Los horarios por parada se publican en ctas.es de forma independiente,
   sin un identificador de viaje que enlace la salida de una parada con la
   llegada a la siguiente. El fichero de rutas **infiere** esas conexiones

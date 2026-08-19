@@ -424,27 +424,16 @@
   .btn-fav:hover{transform:scale(1.15);}
 
   /* ---------- Pantalla Inicio ---------- */
-  .home-wrap{position:relative;}
+  /* El buscador iba flotando sobre el mapa y le tapaba el tercio de
+     abajo. Va antes que el mapa y como una tarjeta más: es la acción
+     principal de la pantalla, no un adorno encima de otra cosa. */
   .home-map{
     width:100%;
-    height:calc(100vh - 190px);
-    min-height:280px;
+    height:min(56vh, 460px);
+    min-height:260px;
     background:var(--paper-2);
-  }
-  @media (min-width:820px){
-    .home-map{height:calc(100vh - 250px); border-radius:var(--radius); border:1px solid var(--border);}
-  }
-  .home-search{
-    position:absolute; left:12px; right:12px; bottom:12px;
-    background:var(--card);
-    border-radius:14px;
+    border-radius:var(--radius);
     border:1px solid var(--border);
-    box-shadow:0 4px 16px rgba(0,0,0,0.14);
-    padding:12px;
-    z-index:900;
-  }
-  @media (min-width:820px){
-    .home-search{left:16px; right:auto; width:380px; top:16px; bottom:auto;}
   }
   .home-search-title{
     font-family:var(--font-display); font-weight:700; font-size:15px;
@@ -491,8 +480,11 @@
     cursor:pointer;
   }
   .linea-row:hover{background:var(--paper-2);}
-  .linea-row-name{font-size:13.5px; font-weight:600; flex:1;}
-  .linea-row-muni{font-size:11px; color:var(--ink-faint); display:block; font-weight:500;}
+  .linea-row-name{font-size:13.5px; font-weight:600; flex:1; min-width:0;}
+  .linea-row-muni{
+    font-size:11px; color:var(--ink-faint); display:block; font-weight:500;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
 
   /* ---------- Salidas de cabecera por sentido ---------- */
   .cabecera-list{display:flex; flex-direction:column; gap:2px; margin:6px 0 4px 0; align-items:stretch;}
@@ -631,32 +623,6 @@
   .btn-chip:hover{border-color:var(--green);}
   .endpoint-status{font-size:12px; color:var(--ink-soft); margin-top:5px; min-height:16px;}
 
-  .itin-summary{
-    font-family:var(--font-display);
-    font-size:17px;
-    margin-bottom:4px;
-  }
-  .itin-summary .accent{color:var(--green);}
-  .itin-summary-detail{font-size:13px; color:var(--ink-soft); margin-bottom:8px;}
-  .itin-leg{
-    display:flex; gap:10px; align-items:flex-start;
-    padding:10px 0;
-    border-top:1px dashed var(--border);
-  }
-  .itin-leg:first-child{border-top:none;}
-  .itin-leg-icon{
-    font-size:16px;
-    width:26px; height:26px;
-    display:flex; align-items:center; justify-content:center;
-    border-radius:50%;
-    background:var(--paper-2);
-    flex-shrink:0;
-  }
-  .itin-leg-body{flex:1;}
-  .itin-leg-title{font-weight:700; font-size:14px;}
-  .itin-leg-sub{font-size:12px; color:var(--ink-faint);}
-  .itin-leg-warn{color:var(--brick); font-weight:600; margin-top:4px;}
-
   .leaflet-container{z-index:1;}
   .leaflet-top, .leaflet-bottom{z-index:800;}
 
@@ -686,52 +652,96 @@
   }
   .modal-close:hover{border-color:var(--green); color:var(--green-dark);}
 
-  /* Timeline de itinerario */
-  .timeline-leg{margin-bottom:4px;}
-  .timeline-line-header{
-    display:flex; justify-content:space-between; align-items:baseline;
-    background:none; border:none; width:100%; text-align:left; cursor:pointer;
-    padding:6px 0;
+  /* ---------------------------------------------------------------- */
+  /* Itinerario                                                        */
+  /* ---------------------------------------------------------------- */
+  /* Lo primero que se mira de una ruta son las dos horas: a qué hora
+     sales y a qué hora llegas. Van en grande y en la misma línea; lo
+     demás (duración, trasbordos, criterio) es contexto y va debajo. */
+  .itin-horas{
+    font-family:var(--font-mono); font-weight:700;
+    font-size:clamp(22px, 7vw, 28px); line-height:1.1; color:var(--ink);
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
   }
-  .timeline-line-header:hover .timeline-line-name{text-decoration:underline;}
-  .timeline-line-name{font-family:var(--font-display); font-weight:700; font-size:14px; color:var(--green-dark);}
-  .timeline-line-meta{font-size:11px; color:var(--ink-faint); font-family:var(--font-mono);}
-  .timeline-stops-row{
-    display:flex; align-items:center;
-    overflow-x:auto; padding:6px 2px 10px 2px;
+  .itin-horas .flecha{color:var(--ink-faint); font-weight:400;}
+  .itin-horas .llegada{color:var(--green);}
+  .itin-dur{font-size:13px; color:var(--ink-soft); margin-top:6px;}
+  .itin-dur b{color:var(--ink);}
+  .itin-tags{display:flex; gap:6px; flex-wrap:wrap; margin-top:10px;}
+  .itin-tag{
+    font-size:11.5px; font-weight:600; padding:4px 9px; border-radius:999px;
+    background:var(--paper-2); color:var(--ink-soft); white-space:nowrap;
   }
-  .timeline-stop{
-    display:flex; flex-direction:column; align-items:center;
-    flex-shrink:0; cursor:pointer; padding:0 2px;
+  .itin-tag.ya{background:var(--amber); color:var(--ink);}
+  .itin-extremos{font-size:12.5px; color:var(--ink-soft); margin-top:10px;}
+  .itin-extremos b{color:var(--ink);}
+  .itin-leg-warn{color:var(--brick); font-weight:600; margin-top:4px;}
+
+  /* El itinerario es una espina vertical: un punto por sitio donde pasa
+     algo (subes, bajas, esperas) y entre punto y punto qué haces. Antes
+     era una fila horizontal de puntos con los nombres recortados a
+     "URB VILL…", que no se podían leer ni tocar. */
+  .itin{margin-top:2px;}
+  .itin-fila{display:grid; grid-template-columns:46px 20px minmax(0,1fr); column-gap:10px;}
+  .itin-fila > .itin-espina{position:relative;}
+  .itin-fila > .itin-espina::before{
+    content:""; position:absolute; left:50%; top:0; bottom:0;
+    width:3px; margin-left:-1.5px; background:var(--green);
   }
-  .timeline-dot{
-    width:12px; height:12px; border-radius:50%;
-    background:#fff; border:2px solid var(--green);
+  .itin-fila.andando > .itin-espina::before{
+    background:repeating-linear-gradient(to bottom, var(--ink-faint) 0 4px, transparent 4px 9px);
   }
-  .timeline-dot.endpoint{
-    width:16px; height:16px; background:var(--green); border-color:var(--green-dark);
+  .itin-fila.primera > .itin-espina::before{top:9px;}
+  .itin-fila.ultima > .itin-espina::before{bottom:calc(100% - 12px);}
+  .itin-punto{
+    position:relative; z-index:1; width:13px; height:13px; border-radius:50%;
+    margin:3px auto 0; background:#fff; border:3px solid var(--green);
   }
-  .timeline-connector{width:20px; height:2px; background:var(--green); flex-shrink:0;}
-  .timeline-stop-label{
-    font-size:9px; color:var(--ink-faint); max-width:52px; text-align:center;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:3px;
+  .itin-fila.extremo .itin-punto{background:var(--green); box-shadow:0 0 0 3px var(--paper);}
+
+  .itin-hora{
+    font-family:var(--font-mono); font-size:13px; color:var(--ink);
+    text-align:right; padding-top:1px; line-height:1.5;
   }
-  .timeline-transfer{
-    display:flex; align-items:center; gap:10px;
-    padding:8px 4px; margin:2px 0 8px 0;
-    border-left:2px dashed var(--border);
-    margin-left:6px; padding-left:16px;
+  .itin-hora .segunda{display:block; color:var(--ink-faint);}
+  .itin-hito{padding-bottom:2px;}
+  .itin-parada{font-size:14px; font-weight:700; color:var(--ink); line-height:1.3;}
+  .itin-parada.pulsable{cursor:pointer;}
+  .itin-parada.pulsable:hover{color:var(--green-dark);}
+  .itin-muni{font-size:11.5px; font-weight:600; color:var(--ink-faint);}
+  .itin-espera{
+    display:inline-block; margin-top:5px;
+    font-size:12px; font-weight:600; color:var(--ink);
+    background:var(--paper-2); border-radius:999px; padding:3px 9px;
   }
-  .timeline-transfer-icon{font-size:16px;}
-  .timeline-transfer-text{font-size:12px; color:var(--ink-soft);}
-  .timeline-transfer-text b{color:var(--ink);}
-  .itin-steps{
-    list-style:none; margin:14px 0 0 0; padding:12px 0 0 0;
-    border-top:1px solid var(--border);
-    font-size:13px;
+  .itin-tramo{padding:9px 0 12px 0;}
+  .itin-tramo-cab{
+    display:flex; align-items:center; gap:8px; width:100%;
+    background:none; border:none; padding:0; text-align:left; cursor:pointer;
   }
-  .itin-steps li{padding:4px 0; color:var(--ink-soft);}
-  .itin-steps li b{color:var(--ink);}
+  .linea-badge{
+    font-family:var(--font-display); font-weight:700; font-size:12px;
+    padding:3px 8px; border-radius:6px; background:var(--green); color:#fff;
+    white-space:nowrap; flex-shrink:0;
+  }
+  .itin-hacia{
+    font-size:13.5px; font-weight:600; color:var(--ink);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .itin-tramo-pie{
+    margin-top:5px; background:none; border:none; padding:0; cursor:pointer;
+    font-family:var(--font-body); font-size:12px; color:var(--ink-soft); text-align:left;
+  }
+  .itin-tramo-pie:hover{color:var(--green-dark);}
+  .itin-tramo-pie .flecha-abrir{display:inline-block; transition:transform .15s;}
+  .itin-tramo-pie[aria-expanded="true"] .flecha-abrir{transform:rotate(180deg);}
+  .itin-intermedias{
+    list-style:none; margin:8px 0 0 0; padding:0 0 0 12px;
+    border-left:2px solid var(--border);
+  }
+  .itin-intermedias li{font-size:12px; color:var(--ink-soft); padding:3px 0; cursor:pointer;}
+  .itin-intermedias li:hover{color:var(--green-dark);}
+  .itin-andando{font-size:12.5px; color:var(--ink-soft);}
 
   .criterio-row{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px;}
   .criterio-pill{
@@ -757,7 +767,9 @@
     background:var(--paper); cursor:pointer; text-align:left;
   }
   .opcion-pill.active{border-color:var(--green); background:var(--paper-2);}
-  .opcion-lineas{font-family:var(--font-display); font-weight:700; font-size:13px; color:var(--ink);}
+  .opcion-lineas{display:flex; align-items:center; gap:4px;}
+  .opcion-mas{font-size:11px; color:var(--ink-faint);}
+  .opcion-meta{font-family:var(--font-mono); font-size:11.5px; color:var(--ink-faint);}
 
   /* Municipios en el mapa: un triángulo apuntando arriba, hermano del
      círculo de las paradas. Relleno cuando está plegado (es un bloque),
@@ -803,7 +815,6 @@
     flex:1; min-width:0; font-size:11.5px; color:var(--ink-faint); text-align:right;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
-  .opcion-meta{font-size:11.5px; color:var(--ink-faint);}
   .selector-bloque{margin-top:14px;}
   .selector-titulo{
     font-size:12px; font-weight:700; text-transform:uppercase;
@@ -846,18 +857,16 @@
 
   <section id="screenInicio" class="screen active">
     <div id="homeFavSalidas"></div>
-    <div class="home-wrap">
-      <div id="homeMap" class="home-map"></div>
-      <div class="home-search">
-        <p class="home-search-title">¿A dónde quieres ir?</p>
-        <input type="text" class="input" id="homeDestinoInput" list="listaParadas" placeholder="Busca una parada de destino…">
-        <div class="home-origen-line" id="homeOrigenLine">
-          <span id="homeOrigenTexto">Localizando…</span>
-          <button class="btn-chip" id="homeBtnUbicacion" type="button" style="font-size:12px; padding:4px 8px;">📍 Usar mi ubicación</button>
-        </div>
-        <div class="home-quickfavs" id="homeQuickFavs"></div>
+    <div class="card home-search">
+      <p class="home-search-title">¿A dónde quieres ir?</p>
+      <input type="text" class="input" id="homeDestinoInput" list="listaParadas" placeholder="Parada o municipio de destino…">
+      <div class="home-origen-line" id="homeOrigenLine">
+        <span id="homeOrigenTexto">Localizando…</span>
+        <button class="btn-chip" id="homeBtnUbicacion" type="button" style="font-size:12px; padding:4px 8px;">📍 Usar mi ubicación</button>
       </div>
+      <div class="home-quickfavs" id="homeQuickFavs"></div>
     </div>
+    <div id="homeMap" class="home-map"></div>
   </section>
 
   <section id="screenLineas" class="screen">
@@ -2448,6 +2457,13 @@ function buildMunicipioOptions() {
     municipiosConLineas().map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join("");
 }
 
+/** El título de la línea sin su código delante, que ya se pinta aparte
+ * como distintivo. */
+function nombreSinCodigo(titulo) {
+  const codigo = codigoLinea(titulo);
+  return String(titulo).replace(new RegExp("^\\s*" + codigo.replace(/[-]/g, "\\-") + "\\s*-?\\s*"), "").trim() || String(titulo);
+}
+
 /** Código corto de la línea ("M-177") extraído del título completo. */
 function codigoLinea(titulo) {
   const m = String(titulo).match(/^\s*([A-Za-zÀ-ÿ]?-?\d+[A-Za-z]?)/);
@@ -2788,8 +2804,13 @@ function renderListadoLineas() {
   lineas.forEach(l => {
     const row = document.createElement("div");
     row.className = "linea-row";
+    // El código de la línea manda (es lo que se busca con el ojo) y el
+    // recorrido va en UNA línea recortada: el título ya nombra los
+    // municipios, así que listarlos otra vez a tres renglones convertía
+    // el listado en un muro de texto verde imposible de repasar.
     row.innerHTML = `
-      <span class="linea-row-name">${escapeHtml(l.titulo)}
+      <span class="linea-badge">${escapeHtml(codigoLinea(l.titulo))}</span>
+      <span class="linea-row-name">${escapeHtml(nombreSinCodigo(l.titulo))}
         <span class="linea-row-muni">${escapeHtml(municipiosDeLinea(l.slug).join(" · ") || "—")}</span>
       </span>`;
     const btnFav = document.createElement("button");
@@ -3900,9 +3921,9 @@ function etiquetaOpcion(res) {
                                                             // de la misma línea se
                                                             // nombran una vez
   const cuenta = res.numTrasbordos === 0
-    ? "Directo"
+    ? "directo"
     : `${res.numTrasbordos} trasbordo${res.numTrasbordos === 1 ? "" : "s"}`;
-  return { cuenta, lineas: codigos.length ? codigos.join(" + ") : "a pie" };
+  return { cuenta, codigos: codigos.length ? codigos : ["a pie"] };
 }
 
 /** Las opciones disponibles, en fila y ordenadas por trasbordos: la
@@ -3916,12 +3937,15 @@ function renderOpcionesRuta(contenedor, opciones, salidaDate, directo) {
   const fila = document.createElement("div");
   fila.className = "opciones-row";
   opciones.forEach((op, i) => {
-    const { cuenta, lineas } = etiquetaOpcion(op);
+    const { cuenta, codigos } = etiquetaOpcion(op);
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "opcion-pill" + (i === RUTA_OPCION_ACTIVA ? " active" : "");
-    btn.innerHTML = `<span class="opcion-lineas">${escapeHtml(lineas)}</span>
-      <span class="opcion-meta">${escapeHtml(cuenta)} · llega ${escapeHtml(fmtHoraAbs(op.diasSalida * 1440 + op.llegadaMin))}</span>`;
+    // Una opción se elige por las tres cosas a la vez: qué líneas coges,
+    // cuándo sales y cuándo llegas. Con solo la hora de llegada no se
+    // pueden comparar: la que llega antes puede salir mucho después.
+    btn.innerHTML = `<span class="opcion-lineas">${codigos.map(c => `<span class="linea-badge">${escapeHtml(c)}</span>`).join('<span class="opcion-mas">+</span>')}</span>
+      <span class="opcion-meta">${escapeHtml(fmtHoraAbs(op.salidaMin))} → ${escapeHtml(fmtHoraAbs(op.diasSalida * 1440 + op.llegadaMin))} · ${escapeHtml(cuenta)}</span>`;
     btn.addEventListener("click", () => {
       RUTA_OPCION_ACTIVA = i;
       renderRutaResultado(opciones[i], salidaDate, directo, opciones);
@@ -3930,6 +3954,134 @@ function renderOpcionesRuta(contenedor, opciones, salidaDate, directo) {
   });
   caja.appendChild(fila);
   contenedor.appendChild(caja);
+}
+
+/** Hacia dónde va el autobús en el tramo que se toma: el municipio donde
+ * te bajas, o el nombre de la parada si no cambias de municipio. Es lo
+ * que hace falta leer en el poste para saber si ese bus es el tuyo. */
+function haciaDondeVaTramo(leg) {
+  const muniOrigen = municipioDeParada(leg.origen);
+  const muniDestino = municipioDeParada(leg.destino);
+  if (muniDestino && muniDestino !== muniOrigen) return muniDestino;
+  const p = APP.data.paradas[leg.destino];
+  return p ? p.nombre : leg.destino;
+}
+
+/** Convierte los tramos del cálculo en la secuencia que se dibuja: un
+ * "hito" por sitio donde pasa algo (subes, bajas, esperas) y un "tramo"
+ * por lo que haces entre hito e hito.
+ *
+ * La gracia está en fundir dos hitos seguidos del mismo sitio: cuando
+ * haces trasbordo sin moverte de parada, no son dos puntos del recorrido
+ * sino uno con dos horas — llegas a y sales a —, y la diferencia entre
+ * ambas es la espera. Antes esa espera no se enseñaba en ningún sitio:
+ * el renglón de "espera N min" solo se pintaba tras un tramo a pie, así
+ * que en el caso más común (cambiar de línea en la misma parada) el dato
+ * que más importa del trasbordo era justo el que faltaba. */
+function construirFilasItinerario(res) {
+  const filas = [];
+  const ultimoHito = () => {
+    const ultimo = filas[filas.length - 1];
+    return ultimo && ultimo.tipo === "hito" ? ultimo : null;
+  };
+  const hito = (clave, campos) => {
+    const abierto = ultimoHito();
+    if (abierto && abierto.clave === clave) { Object.assign(abierto, campos); return; }
+    filas.push({ tipo: "hito", clave, ...campos });
+  };
+
+  res.legs.forEach(leg => {
+    if (leg.tipo === "bus") {
+      hito(leg.origen, { paradaId: leg.origen, salida: leg.salida });
+      filas.push({ tipo: "tramo", clase: "bus", leg });
+      hito(leg.destino, { paradaId: leg.destino, llegada: leg.llegada });
+    } else if (leg.tipo === "walk_inicio") {
+      hito("_partida_", { partida: true, salida: leg.salida });
+      filas.push({ tipo: "tramo", clase: "andando", leg });
+      hito(leg.destino, { paradaId: leg.destino, llegada: leg.llegada });
+    } else if (leg.tipo === "walk") {
+      hito(leg.origen, { paradaId: leg.origen, llegada: leg.salida });
+      filas.push({ tipo: "tramo", clase: "andando", leg });
+      hito(leg.destino, { paradaId: leg.destino, llegada: leg.llegada });
+    } else if (leg.tipo === "walk_fin") {
+      hito(leg.origen, { paradaId: leg.origen, llegada: leg.salida });
+      filas.push({ tipo: "tramo", clase: "andando", leg });
+      hito("_destino_", { destinoFinal: true, llegada: leg.llegada });
+    }
+  });
+  return filas;
+}
+
+function itinerarioHtml(res) {
+  const filas = construirFilasItinerario(res);
+  return filas.map((fila, i) => {
+    const clases = ["itin-fila"];
+    if (i === 0) clases.push("primera");
+    if (i === filas.length - 1) clases.push("ultima");
+
+    if (fila.tipo === "hito") {
+      clases.push("extremo");
+      const p = fila.paradaId ? APP.data.paradas[fila.paradaId] : null;
+      const nombre = fila.partida ? "Tu punto de partida"
+        : fila.destinoFinal ? "Tu destino"
+        : (p ? p.nombre : fila.paradaId);
+      const municipio = fila.paradaId ? municipioDeParada(fila.paradaId) : null;
+      const esperaMin = (fila.llegada != null && fila.salida != null) ? fila.salida - fila.llegada : 0;
+      const horas = fila.llegada != null && fila.salida != null && esperaMin > 0
+        ? `${fmtHoraAbs(fila.llegada)}<span class="segunda">${fmtHoraAbs(fila.salida)}</span>`
+        : fmtHoraAbs(fila.salida != null ? fila.salida : fila.llegada);
+      return `<div class="${clases.join(" ")}">
+        <div class="itin-hora">${horas}</div>
+        <div class="itin-espina"><div class="itin-punto"></div></div>
+        <div class="itin-hito">
+          <div class="itin-parada${fila.paradaId ? " pulsable" : ""}"${fila.paradaId ? ` data-stop-id="${escapeHtml(fila.paradaId)}"` : ""}>${escapeHtml(nombre)}</div>
+          ${municipio ? `<div class="itin-muni">${escapeHtml(municipio)}</div>` : ""}
+          ${esperaMin > 0 ? `<div class="itin-espera">⏱ ${esperaMin} min de espera</div>` : ""}
+        </div>
+      </div>`;
+    }
+
+    const leg = fila.leg;
+    if (fila.clase === "andando") {
+      clases.push("andando");
+      const distM = leg.distMetros != null
+        ? Math.round(leg.distMetros)
+        : (APP.data.paradas[leg.origen] && APP.data.paradas[leg.destino]
+            ? Math.round(haversine(APP.data.paradas[leg.origen].lat, APP.data.paradas[leg.origen].lng,
+                                   APP.data.paradas[leg.destino].lat, APP.data.paradas[leg.destino].lng))
+            : null);
+      return `<div class="${clases.join(" ")}">
+        <div class="itin-hora"></div>
+        <div class="itin-espina"></div>
+        <div class="itin-tramo"><div class="itin-andando">🚶 Camina${distM != null ? ` ${distM} m` : ""} · ${leg.llegada - leg.salida} min</div></div>
+      </div>`;
+    }
+
+    const linea = APP.data.lineas.find(l => l.slug === leg.lineaSlug);
+    const titulo = linea ? linea.titulo : leg.lineaSlug;
+    const intermedias = (leg.paradasRuta || []).slice(1, -1);
+    const nParadas = (leg.paradasRuta || [leg.origen, leg.destino]).length - 1;
+    const listaHtml = intermedias.length
+      ? `<ul class="itin-intermedias" hidden>${intermedias.map(id => {
+          const p = APP.data.paradas[id];
+          return `<li data-stop-id="${escapeHtml(id)}">${escapeHtml(p ? p.nombre : id)}</li>`;
+        }).join("")}</ul>`
+      : "";
+    return `<div class="${clases.join(" ")}">
+      <div class="itin-hora"></div>
+      <div class="itin-espina"></div>
+      <div class="itin-tramo">
+        <button type="button" class="itin-tramo-cab" data-linea="${escapeHtml(leg.lineaSlug)}" data-stop="${escapeHtml(leg.origen)}">
+          <span class="linea-badge">${escapeHtml(codigoLinea(titulo))}</span>
+          <span class="itin-hacia">hacia ${escapeHtml(haciaDondeVaTramo(leg))}</span>
+        </button>
+        <button type="button" class="itin-tramo-pie"${intermedias.length ? ' aria-expanded="false"' : ""}>
+          ${nParadas} parada${nParadas === 1 ? "" : "s"} · ${leg.llegada - leg.salida} min${intermedias.length ? ' <span class="flecha-abrir">▾</span>' : ""}
+        </button>
+        ${listaHtml}
+      </div>
+    </div>`;
+  }).join("");
 }
 
 function renderRutaResultado(res, salidaDate, directo, opciones) {
@@ -3946,112 +4098,69 @@ function renderRutaResultado(res, salidaDate, directo, opciones) {
     box.innerHTML = `<div class="card"><p class="empty">No se ha encontrado ninguna ruta en transporte público.</p>${avisoDirecto}</div>`;
     return;
   }
+
   const tFinalAbs = res.diasSalida * 1440 + res.llegadaMin;
   const fmtDur = m => { const h = Math.floor(m / 60), mm = Math.round(m % 60); return (h > 0 ? h + "h " : "") + mm + "min"; };
-
   const primerBus = res.legs.find(l => l.tipo === "bus");
+  // La hora de salida del encabezado es la del primer renglón del
+  // itinerario: si hay que caminar antes de coger nada, sales de casa
+  // cuando empieza el paseo, no cuando arranca el autobús.
+  const salidaRealMin = res.legs.length ? res.legs[0].salida : salidaMin;
+  const esperaInicialMin = primerBus ? primerBus.salida - Math.max(salidaMin, salidaRealMin) : 0;
   const totalTransporteMin = tFinalAbs - salidaMin;
-  let resumenHtml;
-  if (primerBus) {
-    const esperaMin = primerBus.salida - salidaMin;
-    const trayectoMin = tFinalAbs - primerBus.salida;
-    resumenHtml = `
-      <div class="itin-summary">Llegada estimada <span class="accent">${fmtHoraAbs(tFinalAbs)}</span></div>
-      <div class="itin-summary-detail">Próximo autobús en ${fmtDur(esperaMin)} · viaje de ${fmtDur(trayectoMin)} · total ${fmtDur(esperaMin + trayectoMin)}</div>`;
-  } else {
-    resumenHtml = `
-      <div class="itin-summary">Llegada estimada <span class="accent">${fmtHoraAbs(tFinalAbs)}</span></div>
-      <div class="itin-summary-detail">Todo el trayecto es a pie · ${fmtDur(totalTransporteMin)}</div>`;
-  }
-
-  let avisoCaminar = "";
-  if (directo && directo.minutos < totalTransporteMin) {
-    const esperaTxt = fmtDur((primerBus ? primerBus.salida : tFinalAbs) - salidaMin);
-    avisoCaminar = `<div class="itin-leg-warn" style="padding:10px 0 0 0;">🚶 Ir caminando en línea recta (${Math.round(directo.distMetros)} m) tardaría solo ${fmtDur(directo.minutos)} — menos que la ruta en autobús encontrada, que incluye ${esperaTxt} de espera/trasbordos.</div>`;
-  }
 
   const criterioLabel = { tiempo: "llegar antes", viaje: "viaje más corto", trasbordos: "menos trasbordos", caminar: "menos caminar" }[res.criterio] || "";
-  const statsHtml = `<div class="itin-summary-detail">Optimizada por <b>${criterioLabel}</b> · ${res.numTrasbordos} trasbordo${res.numTrasbordos === 1 ? "" : "s"} · ${Math.round(res.totalCaminandoMin)} min andando en total</div>`;
+  const tags = [];
+  const enCuanto = salidaRealMin - salidaMin;
+  if (enCuanto > 0) tags.push(`<span class="itin-tag${enCuanto <= 10 ? " ya" : ""}">Sal en ${fmtDur(enCuanto)}</span>`);
+  else tags.push(`<span class="itin-tag ya">Sal ya</span>`);
+  tags.push(`<span class="itin-tag">${res.numTrasbordos} trasbordo${res.numTrasbordos === 1 ? "" : "s"}</span>`);
+  if (res.totalCaminandoMin > 0) tags.push(`<span class="itin-tag">${Math.round(res.totalCaminandoMin)} min a pie</span>`);
+  tags.push(`<span class="itin-tag">Por ${escapeHtml(criterioLabel)}</span>`);
 
   // Con un municipio como extremo, la parada concreta la elige el
   // buscador: hay que decir cuál, o el itinerario no se puede seguir.
   let extremosHtml = "";
-  const pO = APP.data.paradas[res.origenStopId], pD = APP.data.paradas[res.destinoStopId];
   if (ROUTE_ORIGIN.type === "municipio" || ROUTE_DESTINO.type === "municipio") {
-    extremosHtml = `<div class="itin-summary-detail">Sale de <b>${escapeHtml(pO ? pO.nombre : "?")}</b>${municipioDeParada(res.origenStopId) ? " (" + escapeHtml(municipioDeParada(res.origenStopId)) + ")" : ""} y llega a <b>${escapeHtml(pD ? pD.nombre : "?")}</b>${municipioDeParada(res.destinoStopId) ? " (" + escapeHtml(municipioDeParada(res.destinoStopId)) + ")" : ""}</div>`;
+    const pO = APP.data.paradas[res.origenStopId], pD = APP.data.paradas[res.destinoStopId];
+    extremosHtml = `<div class="itin-extremos">Sale de <b>${escapeHtml(pO ? pO.nombre : "?")}</b> y llega a <b>${escapeHtml(pD ? pD.nombre : "?")}</b></div>`;
+  }
+
+  let avisoCaminar = "";
+  if (directo && directo.minutos < totalTransporteMin) {
+    avisoCaminar = `<div class="itin-leg-warn">🚶 Ir caminando en línea recta (${Math.round(directo.distMetros)} m) tardaría solo ${fmtDur(directo.minutos)} — menos que esta ruta, que incluye ${fmtDur(esperaInicialMin)} de espera.</div>`;
   }
 
   const puedeGuardar = ROUTE_ORIGIN && ROUTE_DESTINO && ROUTE_ORIGIN.type === "stop" && ROUTE_DESTINO.type === "stop";
   const favBtnHtml = puedeGuardar
-    ? `<button type="button" class="btn-chip" id="btnFavRuta" style="margin-top:8px;">${esFavoritoRuta(ROUTE_ORIGIN.id, ROUTE_DESTINO.id) ? "★ Quitar de favoritos" : "☆ Guardar ruta como favorita"}</button>`
+    ? `<button type="button" class="btn-chip" id="btnFavRuta" style="margin-top:10px;">${esFavoritoRuta(ROUTE_ORIGIN.id, ROUTE_DESTINO.id) ? "★ Quitar de favoritos" : "☆ Guardar ruta como favorita"}</button>`
     : "";
 
-  let html = `<div class="card">${resumenHtml}${statsHtml}${extremosHtml}${avisoCaminar}${favBtnHtml}</div><div class="card" id="itinTimeline">`;
+  box.innerHTML = `
+    <div class="card">
+      <div class="itin-horas">
+        <span>${fmtHoraAbs(salidaRealMin)}</span>
+        <span class="flecha">→</span>
+        <span class="llegada">${fmtHoraAbs(tFinalAbs)}</span>
+      </div>
+      <div class="itin-dur"><b>${fmtDur(tFinalAbs - salidaRealMin)}</b> de principio a fin${esperaInicialMin > 0 ? ` · el autobús sale ${fmtDur(esperaInicialMin)} después` : ""}</div>
+      <div class="itin-tags">${tags.join("")}</div>
+      ${extremosHtml}${avisoCaminar}${favBtnHtml}
+    </div>
+    <div class="card"><div class="itin">${itinerarioHtml(res)}</div></div>`;
 
-  res.legs.forEach((leg, idx) => {
-    if (leg.tipo === "bus") {
-      // Si el itinerario empieza directamente en autobús (sin caminar
-      // antes), la espera hasta su horario real se muestra aquí.
-      if (idx === 0 && leg.esperaMin > 0) {
-        const lineaEsp = APP.data.lineas.find(l => l.slug === leg.lineaSlug);
-        html += `<div class="timeline-transfer"><span class="timeline-transfer-icon">⏱</span><span class="timeline-transfer-text">Espera <b>${leg.esperaMin} min</b> al autobús de la línea ${escapeHtml(lineaEsp ? lineaEsp.titulo : leg.lineaSlug)}</span></div>`;
-      }
-      const linea = APP.data.lineas.find(l => l.slug === leg.lineaSlug);
-      const nombreLinea = linea ? linea.titulo : leg.lineaSlug;
-      const paradas = leg.paradasRuta || [leg.origen, leg.destino];
-      const nParadas = paradas.length - 1;
-      const dotsHtml = paradas.map((id, i) => {
-        const p = APP.data.paradas[id];
-        const esExtremo = i === 0 || i === paradas.length - 1;
-        return (i > 0 ? '<div class="timeline-connector"></div>' : "") +
-          `<div class="timeline-stop" data-stop-id="${escapeHtml(id)}">
-             <div class="timeline-dot${esExtremo ? " endpoint" : ""}"></div>
-             <div class="timeline-stop-label" title="${escapeHtml(p ? p.nombre : id)}">${escapeHtml(p ? p.nombre : id)}</div>
-           </div>`;
-      }).join("");
-      html += `
-        <div class="timeline-leg">
-          <button type="button" class="timeline-line-header" data-linea="${escapeHtml(leg.lineaSlug)}" data-stop="${escapeHtml(leg.origen)}">
-            <span class="timeline-line-name">🚌 ${escapeHtml(nombreLinea)}</span>
-            <span class="timeline-line-meta">${fmtHoraAbs(leg.salida)} → ${fmtHoraAbs(leg.llegada)}</span>
-          </button>
-          <div class="timeline-stops-row">${dotsHtml}</div>
-          <div class="itin-leg-sub">Sube en "${escapeHtml(APP.data.paradas[leg.origen].nombre)}", baja en "${escapeHtml(APP.data.paradas[leg.destino].nombre)}" (${nParadas} parada${nParadas === 1 ? "" : "s"}, ${leg.llegada - leg.salida} min)</div>
-        </div>`;
-    } else if (leg.tipo === "walk") {
-      // Trasbordo entre paradas distintas: paseo + espera real al
-      // siguiente autobús (la espera ya viene calculada en el propio
-      // tramo de bus siguiente, anclada a su horario real).
-      const distM = APP.data.paradas[leg.origen] && APP.data.paradas[leg.destino]
-        ? Math.round(haversine(APP.data.paradas[leg.origen].lat, APP.data.paradas[leg.origen].lng, APP.data.paradas[leg.destino].lat, APP.data.paradas[leg.destino].lng))
-        : null;
-      const siguienteBus = res.legs[idx + 1] && res.legs[idx + 1].tipo === "bus" ? res.legs[idx + 1] : null;
-      let texto = `Camina desde "${escapeHtml(APP.data.paradas[leg.origen].nombre)}" a "${escapeHtml(APP.data.paradas[leg.destino].nombre)}"${distM != null ? ` (${distM} m` : " ("}${distM != null ? ", " : ""}${leg.llegada - leg.salida} min)`;
-      html += `<div class="timeline-transfer"><span class="timeline-transfer-icon">🚶</span><span class="timeline-transfer-text">${texto}</span></div>`;
-      if (siguienteBus && siguienteBus.esperaMin > 0) {
-        const lineaSig = APP.data.lineas.find(l => l.slug === siguienteBus.lineaSlug);
-        html += `<div class="timeline-transfer"><span class="timeline-transfer-icon">⏱</span><span class="timeline-transfer-text">Espera <b>${siguienteBus.esperaMin} min</b> al autobús de la línea ${escapeHtml(lineaSig ? lineaSig.titulo : siguienteBus.lineaSlug)}</span></div>`;
-      }
-    } else if (leg.tipo === "walk_inicio" || leg.tipo === "walk_fin") {
-      const siguienteBus = leg.tipo === "walk_inicio" && res.legs[idx + 1] && res.legs[idx + 1].tipo === "bus" ? res.legs[idx + 1] : null;
-      const destinoNombre = leg.tipo === "walk_inicio" ? APP.data.paradas[leg.destino].nombre : "el destino";
-      let texto = `Camina hasta "${escapeHtml(destinoNombre)}" (${Math.round(leg.distMetros)} m, ${leg.llegada - leg.salida} min)`;
-      html += `<div class="timeline-transfer"><span class="timeline-transfer-icon">🚶</span><span class="timeline-transfer-text">${texto}</span></div>`;
-      if (siguienteBus && siguienteBus.esperaMin > 0) {
-        const lineaSig = APP.data.lineas.find(l => l.slug === siguienteBus.lineaSlug);
-        html += `<div class="timeline-transfer"><span class="timeline-transfer-icon">⏱</span><span class="timeline-transfer-text">Espera <b>${siguienteBus.esperaMin} min</b> al autobús de la línea ${escapeHtml(lineaSig ? lineaSig.titulo : siguienteBus.lineaSlug)}</span></div>`;
-      }
-    }
-  });
-
-  html += `<ul class="itin-steps">${buildPasosTexto(APP.data, res).map(p => `<li>${p}</li>`).join("")}</ul>`;
-  html += "</div>";
-  box.innerHTML = html;
-
-  box.querySelectorAll(".timeline-line-header").forEach(btn => {
+  box.querySelectorAll(".itin-tramo-cab").forEach(btn => {
     btn.addEventListener("click", () => openLineModal(btn.dataset.linea, btn.dataset.stop));
   });
-  box.querySelectorAll(".timeline-stop").forEach(el => {
+  box.querySelectorAll(".itin-tramo-pie[aria-expanded]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const lista = btn.parentNode.querySelector(".itin-intermedias");
+      const abierto = btn.getAttribute("aria-expanded") === "true";
+      btn.setAttribute("aria-expanded", abierto ? "false" : "true");
+      if (lista) lista.hidden = abierto;
+    });
+  });
+  box.querySelectorAll("[data-stop-id]").forEach(el => {
     el.addEventListener("click", () => openModal(container => buildStopScheduleModalContent(container, el.dataset.stopId)));
   });
   if (puedeGuardar) {
@@ -4062,39 +4171,6 @@ function renderRutaResultado(res, salidaDate, directo, opciones) {
   }
 
   drawRouteOnMap(res);
-}
-
-/** Traduce el itinerario a la lista de pasos en texto plano ("Sube en
- * X", "Bájate en Y", "Camina hasta Z", "Espera N min"...). */
-function buildPasosTexto(appData, res) {
-  const pasos = [];
-  res.legs.forEach((leg, idx) => {
-    if (leg.tipo === "walk_inicio") {
-      pasos.push(`Camina desde el origen hasta "<b>${escapeHtml(appData.paradas[leg.destino].nombre)}</b>" (${Math.round(leg.distMetros)} m, ${leg.llegada - leg.salida} min)`);
-    } else if (leg.tipo === "bus") {
-      if (idx === 0 && leg.esperaMin > 0) {
-        const lineaEsp = appData.lineas.find(l => l.slug === leg.lineaSlug);
-        pasos.push(`Espera <b>${leg.esperaMin} min</b> al autobús de la línea ${escapeHtml(lineaEsp ? lineaEsp.titulo : leg.lineaSlug)}`);
-      }
-      const linea = appData.lineas.find(l => l.slug === leg.lineaSlug);
-      const nombreLinea = linea ? linea.titulo : leg.lineaSlug;
-      const nParadas = (leg.paradasRuta || []).length - 1;
-      pasos.push(`Sube en "<b>${escapeHtml(appData.paradas[leg.origen].nombre)}</b>" (${escapeHtml(nombreLinea)}, ${fmtHoraAbs(leg.salida)}), baja en "<b>${escapeHtml(appData.paradas[leg.destino].nombre)}</b>" (${nParadas} parada${nParadas === 1 ? "" : "s"}, ${leg.llegada - leg.salida} min)`);
-    } else if (leg.tipo === "walk") {
-      const distM = appData.paradas[leg.origen] && appData.paradas[leg.destino]
-        ? Math.round(haversine(appData.paradas[leg.origen].lat, appData.paradas[leg.origen].lng, appData.paradas[leg.destino].lat, appData.paradas[leg.destino].lng))
-        : null;
-      pasos.push(`Camina desde "<b>${escapeHtml(appData.paradas[leg.origen].nombre)}</b>" a "<b>${escapeHtml(appData.paradas[leg.destino].nombre)}</b>"${distM != null ? ` (${distM} m, ` : " ("}${leg.llegada - leg.salida} min)`);
-      const siguienteBus = res.legs[idx + 1] && res.legs[idx + 1].tipo === "bus" ? res.legs[idx + 1] : null;
-      if (siguienteBus && siguienteBus.esperaMin > 0) {
-        const lineaSig = appData.lineas.find(l => l.slug === siguienteBus.lineaSlug);
-        pasos.push(`Espera <b>${siguienteBus.esperaMin} min</b> al autobús de la línea ${escapeHtml(lineaSig ? lineaSig.titulo : siguienteBus.lineaSlug)}`);
-      }
-    } else if (leg.tipo === "walk_fin") {
-      pasos.push(`Camina hasta el destino (${Math.round(leg.distMetros)} m, ${leg.llegada - leg.salida} min)`);
-    }
-  });
-  return pasos;
 }
 
 /** Distancia/tiempo a pie en línea recta directamente entre origen y
@@ -4395,27 +4471,39 @@ async function renderFavRutas() {
     } else {
       const tFinalAbs = res.diasSalida * 1440 + res.llegadaMin;
       const primerBus = res.legs.find(l => l.tipo === "bus");
+      // La ruta favorita se lee con la misma espina que en la pantalla
+      // de Ruta: una sola manera de enseñar un itinerario en toda la app.
       const resumen = document.createElement("div");
-      resumen.className = "itin-summary-detail";
+      resumen.className = "itin-horas";
       resumen.innerHTML = primerBus
-        ? `Próximo autobús a las <b>${fmtHoraAbs(primerBus.salida)}</b> · llegada <b>${fmtHoraAbs(tFinalAbs)}</b>`
-        : `Llegada <b>${fmtHoraAbs(tFinalAbs)}</b> (todo a pie)`;
+        ? `<span>${fmtHoraAbs(primerBus.salida)}</span><span class="flecha">→</span><span class="llegada">${fmtHoraAbs(tFinalAbs)}</span>`
+        : `<span class="llegada">${fmtHoraAbs(tFinalAbs)}</span>`;
       card.appendChild(resumen);
 
-      const ul = document.createElement("ul");
-      ul.className = "itin-steps";
-      buildPasosTexto(APP.data, res).forEach(p => {
-        const li = document.createElement("li");
-        li.innerHTML = p;
-        ul.appendChild(li);
+      const detalle = document.createElement("div");
+      detalle.className = "itin-dur";
+      detalle.innerHTML = `${res.numTrasbordos} trasbordo${res.numTrasbordos === 1 ? "" : "s"}${primerBus ? "" : " · todo a pie"}`;
+      card.appendChild(detalle);
+
+      const itin = document.createElement("div");
+      itin.className = "itin";
+      itin.style.marginTop = "10px";
+      itin.innerHTML = itinerarioHtml(res);
+      itin.querySelectorAll(".itin-tramo-pie[aria-expanded]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const lista = btn.parentNode.querySelector(".itin-intermedias");
+          const abierto = btn.getAttribute("aria-expanded") === "true";
+          btn.setAttribute("aria-expanded", abierto ? "false" : "true");
+          if (lista) lista.hidden = abierto;
+        });
       });
-      card.appendChild(ul);
+      card.appendChild(itin);
 
       const btnVerMapa = document.createElement("button");
       btnVerMapa.type = "button";
       btnVerMapa.className = "btn-chip";
       btnVerMapa.style.marginTop = "8px";
-      btnVerMapa.textContent = "🗺 Ver con mapa en Calculadora de ruta";
+      btnVerMapa.textContent = "🧭 Abrir en Ruta, con mapa";
       btnVerMapa.addEventListener("click", () => {
         ROUTE_ORIGIN = { type: "stop", id: fav.origenId };
         ROUTE_DESTINO = { type: "stop", id: fav.destinoId };

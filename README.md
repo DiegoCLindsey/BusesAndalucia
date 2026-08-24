@@ -14,8 +14,8 @@ tiempo real.
 - **Inicio** — tus próximas salidas primero, el buscador de destino
   después y el mapa al final. Si compartes la ubicación, aparecen también
   las paradas que tienes al lado con su próximo autobús. El mapa agrupa de
-  lejos las paradas por municipio (un triángulo cada uno, que se despliega
-  al tocarlo) y de cerca las enseña una a una.
+  lejos las paradas por municipio (un círculo cada uno, que se despliega al
+  tocarlo) y de cerca las enseña una a una.
 - **Líneas** — las 55 líneas del consorcio, con las próximas salidas en las
   paradas que tú elijas, recorrido en mapa, horario completo y PDF oficial
   de cada parada.
@@ -90,10 +90,13 @@ datos no vuelve a pedir nada al servidor.
   Reina es de Guillena aunque esté pegada a Alcalá del Río) llevan ancla
   propia.
 - **Agrupación del mapa.** Por debajo del zoom 13 el mapa enseña un
-  triángulo por municipio en vez de sus paradas. En el Aljarafe hay
-  pueblos a 1,3 km, así que de muy lejos esos triángulos se pisarían unos
-  a otros: los que chocan en pantalla se funden en uno solo, marcado con
-  cuántos lleva dentro, y al tocarlo se elige de cuál se habla.
+  círculo por municipio en vez de sus paradas. En el Aljarafe hay pueblos
+  a 1,3 km, así que de muy lejos esos círculos se pisarían unos a otros:
+  los que chocan en pantalla se funden en uno solo, con cuántos lleva
+  dentro escrito en el centro, y al tocarlo se elige de cuál se habla.
+  Todo el dibujo es el `circleMarker` de Leaflet: el aro es su propio
+  contorno, también cuando marca el origen o el destino de una ruta, sin
+  figuras superpuestas.
 - **Sentido de circulación.** Se deduce de lo que le queda al recorrido por
   delante desde cada parada, no de dónde arrancó el autobús. Es lo que
   permite juntar en una sola próxima salida todos los recorridos que pasan

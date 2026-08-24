@@ -1133,14 +1133,14 @@ function esFavoritoRuta(origenId, destinoId) {
   return FAVORITOS.rutas.some(r => r.origenId === origenId && r.destinoId === destinoId);
 }
 
-function toggleFavoritoRuta(origenId, destinoId, criterio) {
+function toggleFavoritoRuta(origenId, destinoId) {
   const idx = FAVORITOS.rutas.findIndex(r => r.origenId === origenId && r.destinoId === destinoId);
   if (idx >= 0) {
     FAVORITOS.rutas.splice(idx, 1);
   } else {
     const pO = APP.data.paradas[origenId], pD = APP.data.paradas[destinoId];
     FAVORITOS.rutas.push({
-      origenId, destinoId, criterio: criterio || "tiempo",
+      origenId, destinoId,
       origenNombre: pO ? pO.nombre : origenId, destinoNombre: pD ? pD.nombre : destinoId,
       cache: null
     });
@@ -1554,6 +1554,39 @@ function paradasDeMunicipio(nombre) {
   return m ? m.paradas : [];
 }
 
+/** Las paradas del NÚCLEO de un municipio: el pueblo, sin los polígonos
+ * y las urbanizaciones desperdigadas por el término.
+ *
+ * Importa al calcular rutas "de municipio a municipio". Quien dice "voy a
+ * Guillena" quiere ir al pueblo, y la parada más cercana a Sevilla que
+ * está en el término de Guillena es un polígono a siete kilómetros del
+ * centro: el buscador llegaba allí antes que a ningún otro sitio y daba
+ * el viaje por hecho. Se toma el centro mediano de las paradas del
+ * municipio y se quedan las que caen dentro; el radio se estira hasta
+ * abarcar el grueso de ellas, para no partir en dos las ciudades
+ * grandes. */
+const RADIO_NUCLEO_MIN_M = 1500;
+const NUCLEO_COBERTURA = 0.7;
+
+function paradasDeNucleo(nombre) {
+  const ids = paradasDeMunicipio(nombre).filter(id => {
+    const p = APP.data.paradas[id];
+    return p && p.lat != null;
+  });
+  if (ids.length < 4) return paradasDeMunicipio(nombre);
+  const lats = ids.map(id => APP.data.paradas[id].lat).sort((a, b) => a - b);
+  const lngs = ids.map(id => APP.data.paradas[id].lng).sort((a, b) => a - b);
+  const cLat = lats[Math.floor(lats.length / 2)];
+  const cLng = lngs[Math.floor(lngs.length / 2)];
+  const dist = ids
+    .map(id => ({ id, d: haversine(cLat, cLng, APP.data.paradas[id].lat, APP.data.paradas[id].lng) }))
+    .sort((a, b) => a.d - b.d);
+  const corte = Math.max(RADIO_NUCLEO_MIN_M,
+    dist[Math.min(dist.length - 1, Math.floor(dist.length * NUCLEO_COBERTURA))].d);
+  const nucleo = dist.filter(x => x.d <= corte).map(x => x.id);
+  return nucleo.length ? nucleo : paradasDeMunicipio(nombre);
+}
+
 /** Paradas de un municipio ordenadas por nombre, opcionalmente solo las
  * de una línea concreta. Es lo que se ofrece al elegir "mi parada". */
 function paradasDeMunicipioEnLinea(nombre, lineaSlug) {
@@ -1584,11 +1617,167 @@ function municipiosDeLinea(lineaSlug) {
 }
 
 /* ------------------------------------------------------------------ */
+/* La red de verdad: viajes reconstruidos                              */
+/* ------------------------------------------------------------------ */
+/** ctas.es publica los horarios parada a parada, sin un identificador que
+ * diga qué salida de una parada es la misma que la llegada a la
+ * siguiente. Hasta ahora esas conexiones se INFERÍAN emparejando horas
+ * consecutivas, y salía mal: en la M-177 el enlace real de las 15:00
+ * desde Plaza de Armas no existía, y en su lugar había un salto de 14:27
+ * a 15:04 para un trayecto de cuatro minutos. Con eso, ir de Sevilla a
+ * Guillena — media hora en un directo — daba casi cuatro horas dando
+ * rodeos.
+ *
+ * No hace falta inferir nada. Dentro de un recorrido, cada parada publica
+ * la MISMA cantidad de pasos, y el k-ésimo de cada una es el mismo
+ * autobús: basta con leerlos en columna. Lo único que hay que detectar es
+ * dónde acaba una "ida" y empieza la "vuelta" de un circular, y eso lo
+ * dice el propio horario: es donde la hora retrocede.
+ *
+ * Un BLOQUE es un tramo seguido del recorrido en el que todos los viajes
+ * avanzan en el tiempo. Cada bloque es una "ruta" en el sentido de
+ * RAPTOR: una secuencia fija de paradas recorrida por varios viajes. */
+const RED = {
+  rutas: [],                     // {lineaSlug, varianteId, frecuencia, paradas, viajes, destino}
+  porParada: new Map(),          // paradaId -> [{ruta, pos}]
+  bloqueDeServicio: new Map(),   // "varianteId|orden" -> ruta (para nombrar el sentido)
+  construida: false
+};
+
+const FRECUENCIAS = ["laborable", "sabado", "domingo"];
+
+/** Todos los pasos de una parada en un recorrido y un tipo de día, en
+ * minutos desde medianoche y ordenados. */
+function pasosDeServicio(servicio, frecuencia) {
+  const bucket = (servicio.horarios || []).find(h => normFrecuencia(h.frecuencia) === frecuencia);
+  if (!bucket) return [];
+  const out = [];
+  for (const hora of Object.keys(bucket.pasos || {})) {
+    (bucket.pasos[hora] || []).forEach(m => out.push(parseInt(hora, 10) * 60 + m));
+  }
+  return out.sort((a, b) => a - b);
+}
+
+/** ¿Los pasos de esta parada son la continuación de los de la anterior?
+ * Lo son si hay tantos como antes y ninguno se ha adelantado; la excepción
+ * es el viaje que cruza la medianoche, donde 23:50 sí precede a 00:10. */
+function encajaEnBloque(previos, pasos) {
+  return previos.length === pasos.length &&
+    previos.every((t, k) => t <= pasos[k] || (t >= 22 * 60 && pasos[k] <= 3 * 60));
+}
+
+/** Parte el recorrido de una variante en bloques con viajes coherentes.
+ * Se corta cuando cambia el número de pasos (otro tramo de servicio) o
+ * cuando alguna hora retrocede (ahí empieza la vuelta del circular).
+ *
+ * Alguna parada aparece dos veces en el mismo punto del recorrido con dos
+ * cuadros de horarios distintos (ctas.es publica así los servicios que
+ * comparten cabecera). Cuando eso pasa se elige el cuadro que continúa el
+ * bloque en marcha; si ninguno lo hace, el primero, y el bloque se corta
+ * como en cualquier otro cambio de servicio. */
+function bloquesDeVariante(variante, frecuencia, serviciosDe) {
+  const bloques = [];
+  let actual = [];
+  const cerrar = () => { if (actual.length > 1) bloques.push(actual); actual = []; };
+
+  (variante.paradas || []).forEach((paradaId, i) => {
+    if (!APP.data.paradas[paradaId]) { cerrar(); return; }
+    const candidatos = serviciosDe(variante.nodo_id, i + 1)
+      .map(s => pasosDeServicio(s, frecuencia))
+      .filter(p => p.length);
+    if (!candidatos.length) { cerrar(); return; }
+
+    if (!actual.length) {
+      actual.push({ paradaId, pasos: candidatos[0], orden: i + 1 });
+      return;
+    }
+    const previos = actual[actual.length - 1].pasos;
+    const sigue = candidatos.find(p => encajaEnBloque(previos, p));
+    if (!sigue) cerrar();
+    actual.push({ paradaId, pasos: sigue || candidatos[0], orden: i + 1 });
+  });
+  cerrar();
+  return bloques;
+}
+
+function construirRed() {
+  RED.rutas = [];
+  RED.porParada.clear();
+  RED.bloqueDeServicio.clear();
+
+  // Índice (variante, orden) -> servicios, para no recorrer las paradas
+  // una y otra vez. Es una lista porque un mismo punto del recorrido
+  // puede traer más de un cuadro de horarios.
+  const porVariante = new Map();
+  Object.values(APP.data.paradas).forEach(p => {
+    (p.servicios || []).forEach(s => {
+      if (!porVariante.has(s.variante_nodo_id)) porVariante.set(s.variante_nodo_id, new Map());
+      const m = porVariante.get(s.variante_nodo_id);
+      if (!m.has(s.orden)) m.set(s.orden, []);
+      m.get(s.orden).push(s);
+    });
+  });
+  const serviciosDe = (varianteId, orden) => {
+    const m = porVariante.get(varianteId);
+    return (m && m.get(orden)) || [];
+  };
+
+  (APP.data.lineas || []).forEach(linea => {
+    (linea.variantes || []).forEach(variante => {
+      FRECUENCIAS.forEach(frecuencia => {
+        bloquesDeVariante(variante, frecuencia, serviciosDe).forEach(bloque => {
+          const cuantos = bloque[0].pasos.length;
+          const viajes = [];
+          for (let k = 0; k < cuantos; k++) {
+            const tiempos = [];
+            let previo = null;
+            bloque.forEach(({ pasos }) => {
+              let t = pasos[k];
+              if (previo != null && t < previo) t += 1440; // pasa de medianoche
+              tiempos.push(t);
+              previo = t;
+            });
+            viajes.push(tiempos);
+          }
+          viajes.sort((a, b) => a[0] - b[0]);
+
+          const ruta = {
+            indice: RED.rutas.length,
+            lineaSlug: linea.slug,
+            lineaTitulo: linea.titulo,
+            varianteId: variante.nodo_id,
+            frecuencia,
+            paradas: bloque.map(b => b.paradaId),
+            viajes,
+            destino: bloque[bloque.length - 1].paradaId
+          };
+          RED.rutas.push(ruta);
+
+          ruta.paradas.forEach((paradaId, pos) => {
+            if (!RED.porParada.has(paradaId)) RED.porParada.set(paradaId, []);
+            RED.porParada.get(paradaId).push({ ruta, pos });
+          });
+          // El sentido de una parada se nombra por el final de SU bloque:
+          // el laborable manda, que es el recorrido completo.
+          bloque.forEach(({ orden }) => {
+            const clave = variante.nodo_id + "|" + orden;
+            if (!RED.bloqueDeServicio.has(clave) || frecuencia === "laborable") {
+              RED.bloqueDeServicio.set(clave, ruta);
+            }
+          });
+        });
+      });
+    });
+  });
+  RED.construida = true;
+}
+
+/* ------------------------------------------------------------------ */
 /* Sentido de circulación en una parada                                 */
 /* ------------------------------------------------------------------ */
 /** Hacia dónde va un autobús concreto cuando pasa por una parada.
  *
- * Antes esto se deducía de la CABECERA de la variante (dónde arranca), y
+ * Esto se deducía antes de la CABECERA de la variante (dónde arranca), y
  * de ahí venía el fallo de las próximas salidas: la M-177 sale unas veces
  * de Torre de la Reina y otras de Guillena, pero ambas pasan por la misma
  * parada camino de Sevilla. Al agrupar por cabecera, mirando el sentido
@@ -1596,66 +1785,50 @@ function municipiosDeLinea(lineaSlug) {
  * se anunciaba como próxima salida la de una hora más tarde, ignorando el
  * que salía de Guillena y pasaba por delante mucho antes.
  *
- * El sentido se saca ahora de lo único que importa cuando estás esperando
- * en una parada: qué queda por delante en el recorrido. Se toma la parada
- * pendiente más lejana y su municipio da el nombre del sentido, así que
- * todos los autobuses que pasan por ahí camino de Sevilla caen en el
- * mismo grupo, salgan de donde salgan. En la parada de vuelta, ese mismo
- * recorrido ya solo tiene por delante paradas de Guillena, y se agrupa
- * como el sentido contrario. */
-const EXTREMOS_SENTIDO = 3; // paradas del final del recorrido que votan el sentido
-
+ * Después se probó a votar entre las paradas pendientes más lejanas, que
+ * arreglaba aquello pero seguía siendo una aproximación geométrica: en un
+ * circular, "lo que queda por delante" incluye la vuelta entera y el
+ * sentido acababa nombrando el punto de partida.
+ *
+ * Ahora el sentido sale del BLOQUE reconstruido (ver `construirRed`): el
+ * tramo del recorrido que el autobús hace de una tirada, de principio a
+ * fin, sin que la hora retroceda. Su última parada es el destino real de
+ * quien se sube aquí, y su municipio da el nombre del sentido. Si la
+ * parada es el final del bloque, no hay salida que anunciar. */
 function sentidoDeServicio(paradaId, servicio) {
-  const nodo = GRAFO.lineas.get(servicio.linea_slug);
-  const parada = APP.data.paradas[paradaId];
   const vacio = { clave: "_fin_", etiqueta: "fin de trayecto", destinoId: null };
-  if (!nodo || !parada) return vacio;
-  const recorrido = nodo.recorridos.find(r => r.nodoId === servicio.variante_nodo_id);
-  if (!recorrido) return vacio;
+  if (!RED.construida) construirRed();
+  const ruta = RED.bloqueDeServicio.get(servicio.variante_nodo_id + "|" + servicio.orden);
+  if (!ruta) return vacio;
 
-  // `orden` es 1-based sobre la lista de paradas de la variante; si por
-  // lo que sea no cuadra, se busca la parada en el recorrido.
-  let idx = (servicio.orden || 0) - 1;
-  if (recorrido.paradas[idx] !== paradaId) {
-    const pos = recorrido.posiciones.get(paradaId);
-    if (!pos || !pos.length) return vacio;
-    idx = pos[0];
+  // La parada puede salir más de una vez en el bloque; vale la última
+  // desde la que todavía queda recorrido por delante. Si su única
+  // aparición es el final —y en un circular el final es también la
+  // salida—, ahí no hay nada que anunciar: la hora que publica ctas.es
+  // para el último punto del trayecto es de llegada.
+  let pos = -1;
+  for (let i = ruta.paradas.length - 2; i >= 0; i--) {
+    if (ruta.paradas[i] === paradaId) { pos = i; break; }
   }
-  const pendientes = recorrido.paradas.slice(idx + 1);
-  if (!pendientes.length) return vacio;
+  if (pos < 0) return vacio;
 
-  // No basta con la parada pendiente más lejana: en un recorrido largo,
-  // la más lejana y la segunda están a metros una de otra y pueden caer
-  // en municipios distintos (los límites del Aljarafe pasan por medio de
-  // las calles). Se votan las EXTREMOS_SENTIDO más lejanas, que van
-  // todas al mismo sitio, y gana el municipio mayoritario.
-  const lejanas = pendientes
-    .map(id => APP.data.paradas[id])
-    .filter(p => p && p.lat != null && parada.lat != null)
-    .map(p => ({ p, d: haversine(parada.lat, parada.lng, p.lat, p.lng) }))
-    .sort((a, b) => b.d - a.d)
-    .slice(0, EXTREMOS_SENTIDO);
-  if (!lejanas.length) return vacio;
+  const destinoId = ruta.destino;
+  const destino = APP.data.paradas[destinoId];
+  if (!destino) return vacio;
+  const municipioDestino = destino.municipio || null;
+  const municipioParada = (APP.data.paradas[paradaId] || {}).municipio || null;
 
-  const votos = new Map();
-  lejanas.forEach(({ p }) => {
-    const m = p.municipio || null;
-    if (m) votos.set(m, (votos.get(m) || 0) + 1);
-  });
-  const municipioDestino = votos.size
-    ? [...votos.entries()].sort((a, b) => b[1] - a[1])[0][0]
-    : null;
-  const extremo = lejanas.find(({ p }) => !municipioDestino || p.municipio === municipioDestino) || lejanas[0];
-  const destinoId = pendientes.find(id => APP.data.paradas[id] === extremo.p) || pendientes[pendientes.length - 1];
-
-  // El sentido se nombra por el municipio hacia el que se va, incluso
-  // cuando es el mismo del que sales (una línea que da la vuelta y
-  // vuelve a entrar en el pueblo): así todos los recorridos que van
-  // "hacia allí" quedan en el mismo grupo, que es de lo que se trata.
+  // El sentido se agrupa por el municipio en el que acaba el trayecto:
+  // así todos los recorridos que van "hacia allí" caen juntos, salgan de
+  // donde salgan. Para nombrarlo, en cambio, no vale el municipio cuando
+  // es el mismo en el que estás —"hacia Guillena" estando en Guillena no
+  // dice nada—: ahí manda el nombre de la última parada.
+  const mismoMunicipio = municipioDestino && municipioDestino === municipioParada;
   return {
     clave: municipioDestino ? "m:" + municipioDestino : "p:" + destinoId,
-    etiqueta: municipioDestino || extremo.p.nombre,
-    destinoId
+    etiqueta: (!mismoMunicipio && municipioDestino) || destino.nombre,
+    destinoId,
+    alcance: ruta.paradas.length - pos
   };
 }
 
@@ -1678,10 +1851,19 @@ function sentidosEnParada(paradaId, lineaSlug, ahora) {
     if (!grupos.has(clave)) {
       grupos.set(clave, {
         clave, sentidoClave: sentido.clave, lineaSlug: s.linea_slug, lineaTitulo: s.linea_titulo,
-        etiqueta: sentido.etiqueta, destinoId: sentido.destinoId, servicios: []
+        etiqueta: sentido.etiqueta, destinoId: sentido.destinoId, alcance: sentido.alcance, servicios: []
       });
     }
-    grupos.get(clave).servicios.push(s);
+    const g = grupos.get(clave);
+    // Dentro de un mismo sentido puede haber recorridos que se quedan a
+    // medias y otros que llegan hasta el final: el grupo se nombra por el
+    // que más lejos llega, que es el que describe la dirección.
+    if (sentido.alcance > g.alcance) {
+      g.alcance = sentido.alcance;
+      g.etiqueta = sentido.etiqueta;
+      g.destinoId = sentido.destinoId;
+    }
+    g.servicios.push(s);
   });
   const now = ahora || new Date();
   const salida = [...grupos.values()].map(g => ({ ...g, dep: nextDepartureConOrigen(g.servicios, now) }));
@@ -2631,17 +2813,26 @@ function origenDestinoVariante(nombreVariante) {
  * dejaban fuera los autobuses que pasan por tu parada habiendo salido de
  * otro sitio.
  *
- * Mientras no elijas nada se usan las cabeceras de la línea, que siguen
- * siendo la vista razonable si la línea no es "tuya". En cuanto eliges
+ * Mientras no elijas nada se enseña por dónde empieza cada trayecto de la
+ * línea. Y "trayecto" son los bloques reconstruidos, no las variantes: la
+ * primera parada de una variante es sólo la cabecera de la ida, así que
+ * mirando ahí la vuelta no aparecía por ningún lado. En cuanto eliges
  * parada — primero municipio, luego parada — manda la tuya. */
 function referenciasPorDefecto(linea) {
+  if (!RED.construida) construirRed();
+  const suyas = RED.rutas.filter(r => r.lineaSlug === linea.slug);
+  // Normalmente manda el laborable, que es el servicio completo; alguna
+  // línea sólo circula en fin de semana y entonces vale lo que haya.
+  const conLaborable = suyas.filter(r => r.frecuencia === "laborable");
   const refs = [];
   const vistas = new Set();
-  (linea.variantes || []).forEach(v => {
-    const primera = (v.paradas || []).find(id => APP.data.paradas[id]);
-    if (!primera || vistas.has(primera)) return;
-    vistas.add(primera);
+  (conLaborable.length ? conLaborable : suyas).forEach(ruta => {
+    const primera = ruta.paradas[0];
+    if (!APP.data.paradas[primera]) return;
     sentidosEnParada(primera, linea.slug).forEach(s => {
+      const clave = primera + "|" + s.sentidoClave;
+      if (vistas.has(clave)) return;
+      vistas.add(clave);
       refs.push({ paradaId: primera, sentidoClave: s.sentidoClave, propia: false });
     });
   });
@@ -2833,7 +3024,7 @@ function abrirMenuReferencia(linea, ref, onCambio) {
         <span class="cabecera-ico">${icono("parada")}</span>
         <span class="cabecera-body">
           <span class="cabecera-nombre">${escapeHtml(ref.paradaNombre)}</span>
-          <span class="cabecera-meta">${escapeHtml(ref.municipio || "")}${ref.propia ? " · tu parada" : " · cabecera de la línea"}</span>
+          <span class="cabecera-meta">${escapeHtml(ref.municipio || "")}${ref.propia ? " · tu parada" : " · donde empieza el trayecto"}</span>
         </span>
         <span class="cabecera-time">${escapeHtml(fmt.main)}<span class="cabecera-sub">${escapeHtml(fmt.sub)}</span></span>
       </div>
@@ -3026,7 +3217,7 @@ function renderParadasCercanas(lat, lng) {
 /* Pestaña "Calculadora de ruta"                                       */
 /* ------------------------------------------------------------------ */
 const ROUTING_URL = "ctas_routing.json";
-const LS_ROUTING_KEY = "ctasRoutingV3"; // v3: conexiones reales (v1/v2 usaban formatos incompatibles)
+const LS_ROUTING_KEY = "ctasRoutingV4"; // v4: solo el grafo a pie (los viajes se reconstruyen en el cliente)
 let ROUTING = null;
 let CURRENT_ROUTE_MAP = null;
 let ROUTE_MARKERS = {};
@@ -3038,10 +3229,6 @@ let ROUTE_ORIGIN_MARKER = null;
 let ROUTE_DESTINO_MARKER = null;
 let ROUTE_PATH_LAYERS = [];
 let PARADA_POR_NOMBRE = null;
-// Menos trasbordos manda siempre: es lo que pide quien no se sabe la red.
-// Las alternativas más rápidas se ofrecen igual en la lista de opciones,
-// así que no hace falta que nadie elija un criterio de optimización.
-const CRITERIO = "trasbordos";
 let RUTA_OPCIONES = [];      // combinaciones de líneas calculadas para la última consulta
 let RUTA_OPCION_ACTIVA = 0;  // cuál se está enseñando (0 = la de menos trasbordos)
 
@@ -3077,7 +3264,7 @@ function resolverExtremo(appData, punto) {
     };
   }
   if (punto.type === "municipio") {
-    const ids = paradasDeMunicipio(punto.nombre);
+    const ids = paradasDeNucleo(punto.nombre);
     if (!ids.length) return null;
     return {
       tipo: "municipio", stopIds: new Set(ids),
@@ -3087,9 +3274,22 @@ function resolverExtremo(appData, punto) {
   }
   const near = nearestStop(appData, punto.lat, punto.lng);
   if (!near) return null;
+  // Desde un punto del mapa no vale con la parada más cercana: si a diez
+  // metros más allá hay otra por la que pasa la línea que sirve, el
+  // buscador tiene que poder usarla. Se ofrecen todas las que estén a un
+  // paseo razonable, y cada una entra con lo que cuesta llegar andando.
+  const RADIO_PUNTO_M = 700;
+  const cerca = Object.entries(appData.paradas)
+    .filter(([, p]) => p.lat != null)
+    .map(([id, p]) => ({ id, dist: haversine(punto.lat, punto.lng, p.lat, p.lng) }))
+    .filter(c => c.dist <= Math.max(RADIO_PUNTO_M, near.dist))
+    .sort((a, b) => a.dist - b.dist)
+    .slice(0, 12);
+  const seeds = (cerca.length ? cerca : [near])
+    .map(c => ({ stopId: c.id, walk: { lat: punto.lat, lng: punto.lng, dist: c.dist } }));
   return {
-    tipo: "punto", stopIds: new Set([near.id]),
-    seeds: [{ stopId: near.id, walk: { lat: punto.lat, lng: punto.lng, dist: near.dist } }],
+    tipo: "punto", stopIds: new Set(seeds.map(s => s.stopId)),
+    seeds,
     etiqueta: appData.paradas[near.id].nombre
   };
 }
@@ -3119,7 +3319,7 @@ async function loadRoutingData(force) {
         // Comprobación de forma: si la caché es de un formato antiguo o
         // está corrupta, la descartamos en vez de dejar que la app pete
         // más adelante al intentar usarla.
-        if (parsed && parsed.conexiones && parsed.vecinos) return parsed;
+        if (parsed && parsed.vecinos) return parsed;
         console.warn("Caché de rutas con formato inesperado, se descarta y se vuelve a pedir.");
       }
     } catch (e) {
@@ -3137,358 +3337,326 @@ async function loadRoutingData(force) {
   return json;
 }
 
-/** Puntuación compuesta usada para decidir, en cada relajación del
- * Connection Scan, si una nueva forma de llegar a una parada es "mejor"
- * que la que ya teníamos — el criterio de la persona decide qué pesa
- * más, el resto actúa como desempate:
- *  - tiempo: la hora de llegada real, sin más.
- *  - trasbordos: nº de trasbordos domina por completo (cada uno vale
- *    100000), la hora de llegada solo desempata entre rutas con el
- *    mismo nº de trasbordos.
- *  - caminar: los minutos caminados dominan igual que arriba. */
-function calcularScore(criterio, arr, trasbordos, caminando) {
-  if (criterio === "trasbordos") return trasbordos * 100000 + arr;
-  if (criterio === "caminar") return caminando * 100000 + arr;
-  return arr;
+/* ------------------------------------------------------------------ */
+/* Buscador de itinerarios (RAPTOR)                                     */
+/* ------------------------------------------------------------------ */
+/** Búsqueda por rondas sobre los viajes reales. Cada ronda añade un
+ * autobús más, así que la ronda en la que aparece un destino ES su número
+ * de trasbordos: al terminar se tienen todas las alternativas ordenadas
+ * de menos a más trasbordos, sin buscar una por una ni enumerar
+ * combinaciones de líneas a mano.
+ *
+ * Sustituye al barrido de conexiones anterior, que dependía de un grafo
+ * de enlaces inventado emparejando horas y por eso perdía viajes enteros. */
+const MAX_RONDAS = 4;           // como mucho cuatro autobuses: 3 trasbordos
+const MIN_TRASBORDO_MIN = 3;    // bajar, andar por el andén y subir
+
+/** Primer viaje de una ruta que se puede coger en `pos` a partir de `t`. */
+function primerViaje(ruta, pos, t) {
+  const viajes = ruta.viajes;
+  for (let i = 0; i < viajes.length; i++) {
+    if (viajes[i][pos] >= t) return i;
+  }
+  return -1;
 }
 
-const MIN_TRASBORDO_MIN = 3; // margen mínimo real para bajar, andar/esperar y subir
+/** Núcleo de la búsqueda: devuelve, por ronda, el mejor tiempo de llegada
+ * a cada parada y cómo se llegó. */
+function raptor(routing, origenes, frecuencia, destinoIds) {
+  const rutasDelDia = RED.rutas.filter(r => r.frecuencia === frecuencia);
+  const mejor = new Map();          // parada -> mejor llegada de cualquier ronda
+  const rondas = [new Map()];       // rondas[k] -> parada -> llegada en <=k buses
+  const padres = [new Map()];       // rondas[k] -> parada -> de dónde vino
 
-/** Ruta "mejor" entre origen y destino con un Connection Scan sobre
- * conexiones REALES (instancia por instancia, no una duración típica):
- * cada trasbordo se resuelve mirando de verdad a qué hora sale el
- * siguiente autobús de la línea que toca desde la parada en la que
- * quedas, filtrado por la hora a la que llegas ahí — nunca una espera
- * inventada. Un trasbordo a pie es SIEMPRE un único salto entre dos
- * paradas (nunca una cadena de paseos), porque el salto a pie solo se
- * genera como reacción a bajarte de un autobús, no se puede encadenar.
- * "Mejor" es configurable vía `criterio`: 'tiempo' | 'trasbordos' |
- * 'caminar' (ver calcularScore). Si a esa hora ya no queda servicio,
- * prueba también los 2 días siguientes.
- *
- * Origen y destino pueden ser conjuntos de paradas y no una sola (es lo
- * que pasa cuando el extremo es un municipio entero): la búsqueda
- * arranca desde todas a la vez y se da por llegada en la primera que
- * alcance, que es exactamente la semántica de "ir de Guillena a
- * Sevilla".
- *
- * `opciones.lineasPermitidas` restringe la búsqueda a un conjunto de
- * líneas concreto; es lo que permite poner hora real a cada una de las
- * combinaciones que se ofrecen. */
-function computeRoute(appData, routing, origin, destino, startDate, criterio, opciones) {
-  criterio = criterio || "tiempo";
-  opciones = opciones || {};
-  const permitidas = opciones.lineasPermitidas || null;
+  // Un salto a pie desde las paradas que acaban de mejorar: la parada de
+  // enfrente, la de la esquina, el otro andén. Nunca encadenados, para no
+  // convertir la búsqueda en un paseo por media provincia.
+  const saltosAPie = (k, desdeParadas) => {
+    const alcanzadas = new Set();
+    desdeParadas.forEach(paradaId => {
+      const desde = rondas[k].get(paradaId);
+      (routing.vecinos[paradaId] || []).forEach(([vecino, minutos]) => {
+        const cand = desde + minutos;
+        const actual = rondas[k].get(vecino);
+        if (actual === undefined || cand < actual) {
+          rondas[k].set(vecino, cand);
+          if (!mejor.has(vecino) || cand < mejor.get(vecino)) mejor.set(vecino, cand);
+          if (padres[k]) padres[k].set(vecino, { tipo: "pie", desde: paradaId, minutos });
+          alcanzadas.add(vecino);
+        }
+      });
+    });
+    return alcanzadas;
+  };
+
+  origenes.forEach(({ stopId, salida }) => {
+    rondas[0].set(stopId, salida);
+    if (!mejor.has(stopId) || salida < mejor.get(stopId)) mejor.set(stopId, salida);
+  });
+  // También desde el propio punto de partida: si el autobús que sirve
+  // pasa por la acera de enfrente —otra parada, otro identificador—, hay
+  // que poder cruzar la calle antes de coger el primero.
+  saltosAPie(0, [...rondas[0].keys()]).forEach(id => { /* ya marcadas abajo */ });
+
+  const cotaDestino = () => {
+    let t = Infinity;
+    destinoIds.forEach(id => { if (mejor.has(id)) t = Math.min(t, mejor.get(id)); });
+    return t;
+  };
+
+  let marcadas = new Set(rondas[0].keys());
+  for (let k = 1; k <= MAX_RONDAS && marcadas.size; k++) {
+    rondas[k] = new Map(rondas[k - 1]);
+    padres[k] = new Map();
+    const nuevas = new Set();
+
+    // Qué rutas hay que recorrer y desde qué posición: la más temprana
+    // de todas las paradas marcadas que las tocan.
+    const cola = new Map();         // ruta -> posición desde la que subir
+    marcadas.forEach(paradaId => {
+      (RED.porParada.get(paradaId) || []).forEach(({ ruta, pos }) => {
+        if (ruta.frecuencia !== frecuencia) return;
+        const previa = cola.get(ruta);
+        if (previa === undefined || pos < previa) cola.set(ruta, pos);
+      });
+    });
+
+    cola.forEach((desdePos, ruta) => {
+      let viaje = -1, subidaPos = -1;
+      for (let pos = desdePos; pos < ruta.paradas.length; pos++) {
+        const paradaId = ruta.paradas[pos];
+        if (viaje >= 0) {
+          const llegada = ruta.viajes[viaje][pos];
+          const tope = Math.min(mejor.has(paradaId) ? mejor.get(paradaId) : Infinity, cotaDestino());
+          if (llegada < tope) {
+            rondas[k].set(paradaId, llegada);
+            mejor.set(paradaId, llegada);
+            padres[k].set(paradaId, { tipo: "bus", ruta, viaje, subidaPos, bajadaPos: pos });
+            nuevas.add(paradaId);
+          }
+        }
+        // ¿Se puede coger un viaje anterior subiendo aquí?
+        const llegadaPrevia = rondas[k - 1].get(paradaId);
+        if (llegadaPrevia === undefined) continue;
+        const listo = llegadaPrevia + (k > 1 ? MIN_TRASBORDO_MIN : 0);
+        if (viaje < 0 || listo <= ruta.viajes[viaje][pos]) {
+          const cand = primerViaje(ruta, pos, listo);
+          if (cand >= 0 && (viaje < 0 || cand < viaje)) { viaje = cand; subidaPos = pos; }
+        }
+      }
+    });
+
+    saltosAPie(k, [...nuevas]).forEach(id => nuevas.add(id));
+
+    marcadas = nuevas;
+  }
+  return { rondas, padres };
+}
+
+/** Rehace el camino hasta una parada en una ronda concreta, en el mismo
+ * formato de tramos que ya dibujan el itinerario y el mapa. */
+function reconstruir(rondas, padres, paradaId, ronda) {
+  const crudos = [];
+  let actual = paradaId, k = ronda;
+  const visitados = new Set();
+  while (k > 0) {
+    const clave = k + "|" + actual;
+    if (visitados.has(clave)) break;
+    visitados.add(clave);
+    const padre = padres[k] && padres[k].get(actual);
+    if (!padre) { k--; continue; }
+    if (padre.tipo === "pie") {
+      crudos.push({ tipo: "walk", origen: padre.desde, destino: actual,
+        salida: rondas[k].get(padre.desde), llegada: rondas[k].get(actual) });
+      actual = padre.desde;
+    } else {
+      const { ruta, viaje, subidaPos, bajadaPos } = padre;
+      crudos.push({
+        tipo: "bus", lineaSlug: ruta.lineaSlug,
+        origen: ruta.paradas[subidaPos], destino: ruta.paradas[bajadaPos],
+        salida: ruta.viajes[viaje][subidaPos], llegada: ruta.viajes[viaje][bajadaPos],
+        paradasRuta: ruta.paradas.slice(subidaPos, bajadaPos + 1)
+      });
+      actual = ruta.paradas[subidaPos];
+      k--;
+    }
+  }
+  // El primer autobús puede cogerse en la parada de enfrente: ese paseo
+  // se decidió en la ronda 0 y hay que enseñarlo, o el itinerario
+  // arrancaría en un sitio al que nadie ha dicho cómo se llega.
+  const inicial = padres[0] && padres[0].get(actual);
+  if (inicial && inicial.tipo === "pie") {
+    crudos.push({ tipo: "walk", origen: inicial.desde, destino: actual,
+      salida: rondas[0].get(inicial.desde), llegada: rondas[0].get(actual) });
+  }
+  crudos.reverse();
+  return crudos;
+}
+
+/** Envuelve un camino crudo en el resultado que espera la interfaz:
+ * fusiona tramos, calcula esperas y añade los paseos de los extremos. */
+function montarItinerario(crudos, o, de, destinoStopId, salidaMin, diaOffset) {
+  crudos = crudos.map(l => ({ ...l, salida: l.salida + diaOffset, llegada: l.llegada + diaOffset }));
+  salidaMin += diaOffset;
+  const legs = [];
+  let totalCaminandoMin = 0;
+
+  const arranque = crudos.length ? crudos[0].origen : destinoStopId;
+  const seed = o.seeds.find(s => s.stopId === arranque);
+  if (seed && seed.walk) {
+    const wmin = walkMinutes(seed.walk.dist);
+    legs.push({ tipo: "walk_inicio", destino: seed.stopId, distMetros: seed.walk.dist,
+      salida: salidaMin - wmin, llegada: salidaMin });
+    totalCaminandoMin += wmin;
+  }
+
+  crudos.forEach(leg => {
+    if (leg.tipo === "walk") {
+      legs.push({ ...leg });
+      totalCaminandoMin += leg.llegada - leg.salida;
+      return;
+    }
+    const previa = legs[legs.length - 1];
+    const esperaMin = previa ? Math.max(0, leg.salida - previa.llegada) : Math.max(0, leg.salida - salidaMin);
+    legs.push({ ...leg, paradasIntermedias: leg.paradasRuta.length - 2, esperaMin });
+  });
+
+  let tFinal = legs.length ? legs[legs.length - 1].llegada : salidaMin;
+  const seedFin = de.seeds.find(s => s.stopId === destinoStopId);
+  if (seedFin && seedFin.walk) {
+    const wmin = walkMinutes(seedFin.walk.dist);
+    legs.push({ tipo: "walk_fin", origen: destinoStopId, salida: tFinal, llegada: tFinal + wmin, distMetros: seedFin.walk.dist });
+    tFinal += wmin;
+    totalCaminandoMin += wmin;
+  }
+
+  const primerBus = legs.find(l => l.tipo === "bus");
+  const diasSalida = Math.floor(tFinal / 1440);
+  return {
+    legs, llegadaMin: tFinal - diasSalida * 1440, diasSalida,
+    origenStopId: primerBus ? primerBus.origen : destinoStopId,
+    destinoStopId, totalCaminandoMin,
+    numTrasbordos: Math.max(0, legs.filter(l => l.tipo === "bus").length - 1),
+    lineas: legs.filter(l => l.tipo === "bus").map(l => l.lineaSlug),
+    salidaMin: legs.length ? legs[0].salida : salidaMin
+  };
+}
+
+/** Todas las formas razonables de ir de un extremo a otro, una por número
+ * de trasbordos, de menos a más. La primera es la que se enseña. */
+function calcularOpcionesRuta(appData, routing, origin, destino, salida) {
+  if (!RED.construida) construirRed();
   const o = resolverExtremo(appData, origin);
   const de = resolverExtremo(appData, destino);
-  if (!o || !de) return null;
+  RUTA_SIN_RESULTADO = null;
+  if (!o || !de) return [];
 
   for (let dia = 0; dia <= 2; dia++) {
-    const fecha = new Date(startDate.getTime() + dia * 86400000);
-    const freqKey = frecuenciaKeyForDate(fecha);
-    const conexiones = routing.conexiones[freqKey] || [];
-    const diaOffset = dia * 1440;
-    // startMin siempre en minutos ABSOLUTOS desde la medianoche del día
-    // de la consulta original (día 0), nunca reseteado a 0 en los días
-    // siguientes: si no, un tramo de un día posterior guardaba su hora
-    // "dentro de ese día" (p.ej. 07:00 → 420) sin sumarle el desplazamiento
-    // de día, y al compararla más tarde con la hora de salida original
-    // (p.ej. 23:00 → 1380) salía una espera negativa ("-58 minutos").
-    const startMin = diaOffset + (dia === 0 ? (startDate.getHours() * 60 + startDate.getMinutes()) : 0);
+    const fecha = new Date(salida.getTime() + dia * 86400000);
+    // Siempre en minutos desde la medianoche DE ESE día: los horarios de
+    // la red también lo están. El día se suma al final, al presentar.
+    const salidaMin = dia === 0 ? salida.getHours() * 60 + salida.getMinutes() : 0;
+    const origenes = o.seeds.map(seed => ({
+      stopId: seed.stopId,
+      salida: salidaMin + (seed.walk ? walkMinutes(seed.walk.dist) : 0)
+    }));
 
-    // Cada parada de "estado" guarda, además de sus métricas, una
-    // referencia directa al ESTADO PREDECESOR concreto que se usó para
-    // llegar a ella (no solo el ID de la parada anterior). Esto es
-    // crítico: si en vez de guardar la referencia volviéramos a mirar
-    // "¿cómo se llega mejor a A?" en el momento de reconstruir el
-    // camino, podríamos encontrarnos una versión de A mejorada
-    // POSTERIORMENTE (con mejor puntuación pero llegada más tardía) que
-    // ya no es compatible con la conexión concreta que se usó para
-    // saltar de A a B — eso producía tramos con "llegada" antes que
-    // "salida". Guardando el objeto de estado exacto en vez de su ID,
-    // la reconstrucción siempre es coherente por construcción.
-    const estado = new Map(); // stopId -> {score, arr, trasbordos, caminando, linea, leg, prev}
+    const { rondas, padres } = raptor(routing, origenes,
+      frecuenciaKeyForDate(fecha), de.stopIds);
 
-    // Además de la parada de origen en sí, se puede caminar directamente
-    // a otra parada cercana antes de subir a ningún autobús (por si la
-    // más próxima no es la mejor conectada).
-    const expandirCaminata = (desde, infoDesde) => {
-      for (const [vid, wmin] of (routing.vecinos[desde] || [])) {
-        const cand = infoDesde.arr + wmin;
-        const candCaminando = infoDesde.caminando + wmin;
-        const candScore = calcularScore(criterio, cand, infoDesde.trasbordos, candCaminando);
-        const estV = estado.get(vid);
-        if (!estV || candScore < estV.score) {
-          estado.set(vid, {
-            score: candScore, arr: cand, trasbordos: infoDesde.trasbordos, caminando: candCaminando, linea: "_walk_",
-            leg: { tipo: "walk", origen: desde, destino: vid, salida: infoDesde.arr, llegada: cand },
-            prev: infoDesde
+    const opciones = [];
+    const vistas = new Set();
+    for (let k = 1; k < rondas.length; k++) {
+      let mejorParada = null, mejorT = Infinity;
+      de.stopIds.forEach(id => {
+        const t = rondas[k].get(id);
+        if (t !== undefined && t < mejorT) { mejorT = t; mejorParada = id; }
+      });
+      if (!mejorParada) continue;
+      const crudos = reconstruir(rondas, padres, mejorParada, k);
+      if (!crudos.some(l => l.tipo === "bus")) continue;
+      const res = montarItinerario(crudos, o, de, mejorParada, salidaMin, dia * 1440);
+      const clave = res.lineas.join(">") + "@" + res.salidaMin;
+      if (vistas.has(clave)) continue;
+      vistas.add(clave);
+      opciones.push(res);
+    }
+    if (!opciones.length) continue;
+
+    // Una alternativa con más trasbordos sólo merece enseñarse si además
+    // llega antes; si no, es peor por los dos lados.
+    opciones.sort((a, b) => a.numTrasbordos - b.numTrasbordos ||
+      (a.diasSalida * 1440 + a.llegadaMin) - (b.diasSalida * 1440 + b.llegadaMin));
+    const buenas = [];
+    let mejorLlegada = Infinity;
+    opciones.forEach(op => {
+      const llegada = op.diasSalida * 1440 + op.llegadaMin;
+      if (buenas.length && llegada >= mejorLlegada) return;
+      buenas.push(op);
+      mejorLlegada = Math.min(mejorLlegada, llegada);
+    });
+    return buenas;
+  }
+  RUTA_SIN_RESULTADO = motivoSinRuta(routing, o, de);
+  return [];
+}
+
+/** Cuando no sale nada, por qué. Un "no se ha encontrado ninguna ruta"
+ * a secas invita a pensar que la aplicación falla; casi siempre lo que
+ * pasa es que el trayecto pide más trasbordos de los que tiene sentido
+ * ofrecer, o que hay que cruzar Sevilla por dentro y el metro, el tranvía
+ * y los urbanos de TUSSAM no están en estos horarios.
+ *
+ * Se cuenta a saltos, sin mirar la hora: cuántos autobuses distintos hay
+ * que encadenar como mínimo para llegar. */
+let RUTA_SIN_RESULTADO = null;
+
+function saltosMinimos(routing, origenIds, destinoIds) {
+  const meta = new Set(destinoIds);
+  const vistas = new Map();
+  let frente = [];
+  const anotar = (id, saltos) => {
+    if (vistas.has(id) && vistas.get(id) <= saltos) return;
+    vistas.set(id, saltos);
+    frente.push(id);
+  };
+  origenIds.forEach(id => anotar(id, 0));
+  origenIds.forEach(id => (routing.vecinos[id] || []).forEach(([v]) => anotar(v, 0)));
+  if (frente.some(id => meta.has(id))) return 0;
+
+  for (let saltos = 1; saltos <= 8 && frente.length; saltos++) {
+    const siguiente = [];
+    frente.forEach(paradaId => {
+      (RED.porParada.get(paradaId) || []).forEach(({ ruta, pos }) => {
+        if (ruta.frecuencia !== "laborable") return;
+        for (let i = pos + 1; i < ruta.paradas.length; i++) {
+          const q = ruta.paradas[i];
+          if (vistas.has(q)) continue;
+          vistas.set(q, saltos);
+          siguiente.push(q);
+          (routing.vecinos[q] || []).forEach(([v]) => {
+            if (!vistas.has(v)) { vistas.set(v, saltos); siguiente.push(v); }
           });
         }
-      }
-    };
-
-    o.seeds.forEach(seed => {
-      const andando = seed.walk ? walkMinutes(seed.walk.dist) : 0;
-      const salidaMin = startMin + andando;
-      const inicial = {
-        score: calcularScore(criterio, salidaMin, 0, andando),
-        arr: salidaMin, trasbordos: 0, caminando: andando, linea: "_origen_",
-        leg: seed.walk ? { tipo: "walk_inicio", destino: seed.stopId, distMetros: seed.walk.dist, salida: startMin, llegada: salidaMin } : null,
-        prev: null
-      };
-      const previo = estado.get(seed.stopId);
-      if (previo && previo.score <= inicial.score) return;
-      estado.set(seed.stopId, inicial);
-      // Con un municipio entero como origen no se camina de una parada a
-      // otra: ya estás, por definición, en cualquiera de ellas.
-      if (o.tipo !== "municipio") expandirCaminata(seed.stopId, inicial);
+      });
     });
-
-    for (const c of conexiones) {
-      const dep = c[2] + diaOffset, arr = c[3] + diaOffset;
-      const a = c[0], b = c[1], lineaSlug = c[4];
-      if (dep < startMin) continue;
-      if (permitidas && !permitidas.has(lineaSlug)) continue;
-      const estA = estado.get(a);
-      if (!estA) continue;
-      const mismaLinea = estA.linea === lineaSlug;
-      const buffer = (mismaLinea || estA.linea === "_origen_") ? 0 : MIN_TRASBORDO_MIN;
-      if (dep < estA.arr + buffer) continue;
-
-      const nuevoTrasbordos = (!mismaLinea && estA.linea !== "_origen_") ? estA.trasbordos + 1 : estA.trasbordos;
-      const nuevoScore = calcularScore(criterio, arr, nuevoTrasbordos, estA.caminando);
-      const estB = estado.get(b);
-      if (!estB || nuevoScore < estB.score) {
-        const info = {
-          score: nuevoScore, arr, trasbordos: nuevoTrasbordos, caminando: estA.caminando, linea: lineaSlug,
-          leg: { tipo: "bus", origen: a, destino: b, salida: dep, llegada: arr, lineaSlug },
-          prev: estA
-        };
-        estado.set(b, info);
-        expandirCaminata(b, info);
-      }
-    }
-
-    // Con destino "municipio" vale cualquiera de sus paradas: gana la que
-    // mejor puntúe según el criterio elegido.
-    let estadoDestino = null, destinoStopId = null;
-    de.stopIds.forEach(id => {
-      const est = estado.get(id);
-      if (!est) return;
-      if (!estadoDestino || est.score < estadoDestino.score) { estadoDestino = est; destinoStopId = id; }
-    });
-    if (!estadoDestino) continue;
-    // Llegar al destino sin haberse subido a nada solo tiene sentido si
-    // el destino ES el origen; si no, es que el buscador no ha encontrado
-    // ninguna combinación de autobuses.
-    if (!estadoDestino.leg && !o.stopIds.has(destinoStopId)) continue;
-
-    const seedDestino = de.seeds.find(s => s.stopId === destinoStopId);
-    const walkFinal = seedDestino ? seedDestino.walk : null;
-
-    const crudos = [];
-    let cur = estadoDestino;
-    while (cur && cur.leg) {
-      crudos.push(cur.leg);
-      cur = cur.prev;
-    }
-    crudos.reverse();
-
-    // Fusiona tramos de bus consecutivos de la misma línea en un único
-    // tramo de viaje (guardando la secuencia de paradas intermedias para
-    // poder dibujarlas), y calcula cuánto se espera en cada trasbordo:
-    // como las horas ya son reales de principio a fin, la espera es
-    // sencillamente la diferencia entre horas reales.
-    const legs = [];
-    let totalCaminandoMin = 0;
-    crudos.forEach(leg => {
-      if (leg.tipo === "walk_inicio" || leg.tipo === "walk") {
-        legs.push({ ...leg });
-        totalCaminandoMin += leg.llegada - leg.salida;
-      } else if (leg.tipo === "bus") {
-        const anterior = legs[legs.length - 1];
-        if (anterior && anterior.tipo === "bus" && anterior.lineaSlug === leg.lineaSlug && leg.llegada >= anterior.llegada) {
-          anterior.destino = leg.destino;
-          anterior.llegada = leg.llegada;
-          anterior.paradasIntermedias = (anterior.paradasIntermedias || 0) + 1;
-          anterior.paradasRuta.push(leg.destino);
-        } else {
-          const previa = legs[legs.length - 1];
-          const esperaMin = previa ? Math.max(0, leg.salida - previa.llegada) : 0;
-          legs.push({
-            tipo: "bus", origen: leg.origen, destino: leg.destino, salida: leg.salida, llegada: leg.llegada,
-            lineaSlug: leg.lineaSlug, paradasIntermedias: 0, paradasRuta: [leg.origen, leg.destino], esperaMin
-          });
-        }
-      }
-    });
-
-    const primerBus = legs.find(l => l.tipo === "bus");
-    const origenStopId = primerBus ? primerBus.origen : destinoStopId;
-    let tFinal = legs.length ? legs[legs.length - 1].llegada : estadoDestino.arr;
-    if (walkFinal) {
-      const wmin = walkMinutes(walkFinal.dist);
-      legs.push({ tipo: "walk_fin", origen: destinoStopId, salida: tFinal, llegada: tFinal + wmin, distMetros: walkFinal.dist });
-      tFinal += wmin;
-      totalCaminandoMin += wmin;
-    }
-
-    const diasSalida = Math.floor(tFinal / 1440);
-    const llegadaMin = tFinal - diasSalida * 1440;
-    const numTrasbordos = Math.max(0, legs.filter(l => l.tipo === "bus").length - 1);
-    const lineas = legs.filter(l => l.tipo === "bus").map(l => l.lineaSlug);
-    return {
-      legs, llegadaMin, diasSalida, origenStopId, destinoStopId,
-      totalCaminandoMin, numTrasbordos, criterio, lineas,
-      salidaMin: primerBus ? primerBus.salida : startMin
-    };
+    if (siguiente.some(id => meta.has(id))) return saltos;
+    frente = siguiente;
   }
   return null;
 }
 
-/* ------------------------------------------------------------------ */
-/* Opciones disponibles (nivel "línea" del grafo tripartito)            */
-/* ------------------------------------------------------------------ */
-/** Paradas a las que puedes llegar con una línea subiéndote en alguna de
- * `desde`. Respeta el orden del recorrido: que una línea pase por A y
- * por B no significa que te lleve de A a B (en el sentido contrario, no
- * te sirve). */
-function alcanceDeLinea(slug, desde) {
-  const nodo = GRAFO.lineas.get(slug);
-  const alcanzables = new Set();
-  if (!nodo) return alcanzables;
-  nodo.recorridos.forEach(r => {
-    let subido = false;
-    r.paradas.forEach(id => {
-      if (!subido) { if (desde.has(id)) subido = true; return; }
-      alcanzables.add(id);
-    });
-  });
-  return alcanzables;
+function motivoSinRuta(routing, o, de) {
+  const saltos = saltosMinimos(routing, o.stopIds, de.stopIds);
+  if (saltos === 0) return "Están tan cerca que se llega andando: no hace falta coger nada.";
+  if (saltos === null) return "No hay ninguna combinación de autobuses metropolitanos que una estas dos paradas. Si el trayecto pasa por dentro de Sevilla, hará falta metro, tranvía o un urbano de TUSSAM, que no están en estos horarios.";
+  if (saltos > MAX_RONDAS) return `El trayecto necesitaría ${saltos - 1} trasbordos, más de los que merece la pena hacer en autobús. Si cruza Sevilla por dentro, el metro o un urbano de TUSSAM lo resuelven en mucho menos, pero no están en estos horarios.`;
+  return "Hoy ya no queda ningún autobús que haga este trayecto, ni mañana a esta hora.";
 }
 
-/** El mismo conjunto de paradas más las que están a un paseo. Los
- * trasbordos reales rara vez son en la misma parada: llegas a Plaza de
- * Armas y sales del Prado. Sin esto, la búsqueda de combinaciones daba
- * por imposibles trayectos que se hacen todos los días. */
-function expandirAPie(stopIds, routing) {
-  const out = new Set(stopIds);
-  stopIds.forEach(id => (routing.vecinos[id] || []).forEach(([vid]) => out.add(vid)));
-  return out;
-}
-
-function lineasQuePasanPor(stopIds) {
-  const out = new Set();
-  stopIds.forEach(id => {
-    const nodo = GRAFO.paradas.get(id);
-    if (nodo) nodo.lineas.forEach(slug => out.add(slug));
-  });
-  return out;
-}
-
-const MAX_OPCIONES = 8;
-
-/** Combinaciones de líneas que llevan del origen al destino, recorriendo
- * el grafo por su nivel de líneas: primero las directas (cero
- * trasbordos) y, si hacen falta más, las de un trasbordo. Esto es lo que
- * se ofrece como "opciones disponibles"; poner horas reales a cada una
- * es después trabajo del Connection Scan.
- *
- * No se enumeran combinaciones de dos trasbordos o más: son cientos y
- * ninguna es "la opción que uno elegiría a mano". Cuando no hay nada con
- * uno o cero, se deja que el buscador general encuentre lo que haya. */
-function combinacionesDeLineas(origenIds, destinoIds, routing) {
-  const salida = expandirAPie(origenIds, routing);
-  const salen = lineasQuePasanPor(salida);
-  const directas = [];
-  const alcances = new Map();
-  salen.forEach(slug => {
-    const alcance = alcanceDeLinea(slug, salida);
-    alcances.set(slug, alcance);
-    for (const id of destinoIds) {
-      if (alcance.has(id)) { directas.push([slug]); return; }
-    }
-  });
-  if (directas.length >= 4) return directas.slice(0, MAX_OPCIONES);
-
-  const conTrasbordo = [];
-  salen.forEach(slug1 => {
-    const bruto = alcances.get(slug1);
-    if (!bruto || !bruto.size) return;
-    const alcance1 = expandirAPie(bruto, routing);
-    lineasQuePasanPor(alcance1).forEach(slug2 => {
-      if (slug2 === slug1) return;
-      const nodo2 = GRAFO.lineas.get(slug2);
-      if (!nodo2) return;
-      let enlaces = 0;
-      alcance1.forEach(id => { if (nodo2.paradas.has(id)) enlaces++; });
-      if (!enlaces) return;
-      const alcance2 = alcanceDeLinea(slug2, alcance1);
-      for (const id of destinoIds) {
-        if (alcance2.has(id)) { conTrasbordo.push({ lineas: [slug1, slug2], enlaces }); return; }
-      }
-    });
-  });
-  // Entre las de un trasbordo se prefieren las que comparten más paradas
-  // de enlace: cuantos más sitios donde cambiar, más probable es que
-  // haya un enlace con espera razonable.
-  conTrasbordo.sort((a, b) => b.enlaces - a.enlaces);
-  return directas.concat(conTrasbordo.map(c => c.lineas)).slice(0, MAX_OPCIONES);
-}
-
-/** Las opciones que se enseñan: cada combinación de líneas con su
- * itinerario real (horas, paradas y esperas), ordenadas SIEMPRE por
- * número de trasbordos primero — que es el criterio por defecto de la
- * app — y por hora de llegada dentro de cada grupo.
- *
- * Se añade además la mejor ruta sin restringir líneas, por si el grafo
- * no daba ninguna combinación corta (dos trasbordos o más). */
-function calcularOpcionesRuta(appData, routing, origin, destino, salida, criterio) {
-  const o = resolverExtremo(appData, origin);
-  const de = resolverExtremo(appData, destino);
-  if (!o || !de) return [];
-
-  const opciones = [];
-  const vistas = new Set();
-  const agregar = res => {
-    if (!res) return;
-    const clave = res.lineas.join(">") + "@" + res.salidaMin;
-    if (vistas.has(clave)) return;
-    vistas.add(clave);
-    opciones.push(res);
-  };
-
-  combinacionesDeLineas(o.stopIds, de.stopIds, routing).forEach(lineas => {
-    agregar(computeRoute(appData, routing, origin, destino, salida, criterio, { lineasPermitidas: new Set(lineas) }));
-  });
-  agregar(computeRoute(appData, routing, origin, destino, salida, criterio));
-  if (criterio !== "tiempo") agregar(computeRoute(appData, routing, origin, destino, salida, "tiempo"));
-
-  opciones.sort((a, b) => {
-    if (a.numTrasbordos !== b.numTrasbordos) return a.numTrasbordos - b.numTrasbordos;
-    const av = a.diasSalida * 1440 + a.llegadaMin;
-    const bv = b.diasSalida * 1440 + b.llegadaMin;
-    return av - bv;
-  });
-  // Una alternativa solo merece enseñarse si aporta algo. Entre las que
-  // tienen el mismo número de trasbordos se enseñan todas (son sitios y
-  // horas distintos, y eso lo decide la persona), pero una con MÁS
-  // trasbordos solo entra si además llega antes que todo lo anterior: si
-  // no, es peor por los dos lados y solo estorba.
-  const buenas = [];
-  let mejorLlegada = Infinity;
-  let trasbordosGrupo = -1;
-  opciones.forEach(o => {
-    const llegada = o.diasSalida * 1440 + o.llegadaMin;
-    if (o.numTrasbordos !== trasbordosGrupo) {
-      if (trasbordosGrupo >= 0 && llegada >= mejorLlegada) return;
-      trasbordosGrupo = o.numTrasbordos;
-    }
-    buenas.push(o);
-    mejorLlegada = Math.min(mejorLlegada, llegada);
-  });
-  return buenas.slice(0, MAX_OPCIONES);
+/** La mejor de todas: la que menos trasbordos tiene. */
+function computeRoute(appData, routing, origin, destino, salida) {
+  return calcularOpcionesRuta(appData, routing, origin, destino, salida)[0] || null;
 }
 
 function fmtHoraAbs(minAbs) {
@@ -4103,7 +4271,8 @@ function renderRutaResultado(res, salidaDate, directo, opciones) {
     const avisoDirecto = directo
       ? `<p class="empty">Caminando en línea recta serían ${Math.round(directo.distMetros)} m (~${directo.minutos} min).</p>`
       : "";
-    box.innerHTML = `<div class="card"><p class="empty">No se ha encontrado ninguna ruta en transporte público.</p>${avisoDirecto}</div>`;
+    const motivo = RUTA_SIN_RESULTADO || "No se ha encontrado ninguna ruta en autobús.";
+    box.innerHTML = `<div class="card"><p class="empty">${escapeHtml(motivo)}</p>${avisoDirecto}</div>`;
     return;
   }
 
@@ -4171,7 +4340,7 @@ function renderRutaResultado(res, salidaDate, directo, opciones) {
   });
   if (puedeGuardar) {
     box.querySelector("#btnFavRuta").addEventListener("click", e => {
-      toggleFavoritoRuta(ROUTE_ORIGIN.id, ROUTE_DESTINO.id, res.criterio);
+      toggleFavoritoRuta(ROUTE_ORIGIN.id, ROUTE_DESTINO.id);
       const guardada = esFavoritoRuta(ROUTE_ORIGIN.id, ROUTE_DESTINO.id);
       e.currentTarget.innerHTML = icono("estrella") + (guardada ? "Guardada" : "Guardar esta ruta");
       e.currentTarget.classList.toggle("armed", guardada);
@@ -4217,7 +4386,7 @@ async function onCalcularRuta() {
   const salida = horaInput ? new Date(horaInput) : new Date();
   const directo = distanciaDirecta(APP.data, ROUTE_ORIGIN, ROUTE_DESTINO);
 
-  RUTA_OPCIONES = calcularOpcionesRuta(APP.data, ROUTING, ROUTE_ORIGIN, ROUTE_DESTINO, salida, CRITERIO);
+  RUTA_OPCIONES = calcularOpcionesRuta(APP.data, ROUTING, ROUTE_ORIGIN, ROUTE_DESTINO, salida);
   RUTA_OPCION_ACTIVA = 0;
   renderRutaResultado(RUTA_OPCIONES[0] || null, salida, directo, RUTA_OPCIONES);
 }
@@ -4405,7 +4574,7 @@ function getOrRecalcularFavoritoRuta(fav) {
     return fav.cache.resultado;
   }
   if (!ROUTING) return fav.cache ? fav.cache.resultado : null;
-  const res = computeRoute(APP.data, ROUTING, { type: "stop", id: fav.origenId }, { type: "stop", id: fav.destinoId }, ahora, fav.criterio || "tiempo");
+  const res = computeRoute(APP.data, ROUTING, { type: "stop", id: fav.origenId }, { type: "stop", id: fav.destinoId }, ahora);
   if (res) {
     const primerBus = res.legs.find(l => l.tipo === "bus");
     const midnightBase = new Date(ahora);

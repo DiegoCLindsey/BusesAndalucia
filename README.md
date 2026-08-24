@@ -21,11 +21,11 @@ tiempo real.
   de cada parada.
 - **Ruta** — de parada a parada, de un punto del mapa, desde tu ubicación o
   **de municipio a municipio** (eligiéndolo en el buscador o tocando su
-  triángulo en el mapa). Enseña las combinaciones de líneas disponibles y
-  se queda con la de menos trasbordos, sin pedirte que elijas ningún
-  criterio de optimización. El itinerario se lee como una línea vertical:
-  hora y sitio en cada punto, qué coges entre punto y punto, y cuánto
-  esperas en cada trasbordo.
+  círculo en el mapa). Enseña las combinaciones de líneas disponibles y se
+  queda con la de menos trasbordos, sin pedirte que elijas ningún criterio
+  de optimización. El itinerario se lee como una línea vertical: hora y
+  sitio en cada punto, qué coges entre punto y punto, y cuánto esperas en
+  cada trasbordo. Cuando no hay manera de llegar, dice por qué.
 - **Favoritos** — paradas, líneas y rutas guardadas, con recálculo automático.
 - **Avisos** — que te avise 5, 10 o 15 minutos antes de que salga tu
   autobús, mientras la app siga abierta.
@@ -41,12 +41,12 @@ como aplicación en el móvil.
 |---|---|
 | `index.html` | La aplicación entera (HTML + CSS + JS en un solo fichero) |
 | `ctas_data_app.json` | Líneas, paradas, horarios, coordenadas y municipio (~2,4 MB) |
-| `ctas_routing.json` | Conexiones para el cálculo de rutas (~3,8 MB) |
+| `ctas_routing.json` | Distancias a pie entre paradas cercanas (~70 KB) |
 | `sw.js` | Service Worker: caché offline y notificaciones |
 | `manifest.json`, `icon.svg` | Instalación como PWA |
 | `ctas_scraper.py` | Extrae los datos de ctas.es |
 | `build_app_data.py` | Genera `ctas_data_app.json` |
-| `build_routing_data.py` | Genera `ctas_routing.json` |
+| `build_routing_data.py` | Genera `ctas_routing.json` (grafo a pie) |
 | `build_municipios.py` | Asigna su municipio a cada parada |
 
 ## Desarrollo local
@@ -97,11 +97,45 @@ datos no vuelve a pedir nada al servidor.
   Todo el dibujo es el `circleMarker` de Leaflet: el aro es su propio
   contorno, también cuando marca el origen o el destino de una ruta, sin
   figuras superpuestas.
-- **Sentido de circulación.** Se deduce de lo que le queda al recorrido por
-  delante desde cada parada, no de dónde arrancó el autobús. Es lo que
-  permite juntar en una sola próxima salida todos los recorridos que pasan
-  por tu parada camino del mismo sitio, aunque unos salgan de Torre de la
-  Reina y otros de Guillena.
+- **Los viajes se reconstruyen, no se infieren.** ctas.es publica los
+  horarios parada a parada sin un identificador que diga qué salida de una
+  parada es la misma que la llegada a la siguiente. Antes esas conexiones
+  se deducían emparejando horas consecutivas y salían mal: en la M-177 el
+  enlace real de las 15:00 desde Plaza de Armas no existía y en su lugar
+  había un salto de 14:27 a 15:04 para un trayecto de cuatro minutos, así
+  que ir de Sevilla a Guillena —media hora en un directo— daba casi cuatro
+  horas dando rodeos.
+
+  No hace falta inferir nada. Dentro de un tramo seguido del recorrido cada
+  parada publica la misma cantidad de pasos, y el k-ésimo de todas ellas es
+  el mismo autobús: basta con leerlos en columna. Lo único que hay que
+  detectar es dónde termina la ida y empieza la vuelta de un circular, y
+  eso lo dice el propio horario: es donde la hora retrocede. A cada uno de
+  esos tramos lo llamamos **bloque**; salen 352 bloques con 3.124 viajes
+  reales, sin descartar ninguno, y cubren 1.086 de las 1.094 paradas.
+
+- **La búsqueda es un RAPTOR por rondas.** Cada ronda añade un autobús más,
+  así que la ronda en la que aparece el destino *es* su número de
+  trasbordos: al terminar están todas las alternativas ordenadas de menos a
+  más trasbordos, sin enumerar combinaciones de líneas a mano. Se admiten
+  hasta cuatro autobuses y un salto a pie entre medias (nunca encadenado).
+  Una consulta tarda unos pocos milisegundos.
+
+- **Sentido de circulación.** Es el final del bloque que coges, no la
+  cabecera de la línea. Así todos los recorridos que pasan por tu parada
+  camino del mismo sitio caen en una sola próxima salida, salgan unos de
+  Torre de la Reina y otros de Guillena. Cuando el bloque termina en tu
+  mismo municipio, el sentido se nombra por la última parada: "hacia
+  Guillena" estando en Guillena no dice nada.
+
+- **"Voy a tal municipio" es ir a su núcleo.** La parada del término de
+  Guillena más cercana a Sevilla es un polígono a siete kilómetros del
+  pueblo: buscando la llegada más temprana a *cualquier* parada del
+  municipio, el buscador se plantaba allí y daba el viaje por hecho. Para
+  las rutas de municipio a municipio se usan sólo las paradas del núcleo
+  —centro mediano de las paradas del término, con el radio estirado hasta
+  abarcar el grueso de ellas—, de modo que las ciudades grandes no se
+  parten en dos.
 - Una parada donde todos los recorridos terminan no ofrece salidas: la hora
   que ctas.es publica ahí es de llegada.
 - **La espera del trasbordo.** El itinerario funde en un solo punto los dos
@@ -110,11 +144,11 @@ datos no vuelve a pedir nada al servidor.
   aparecía después de un tramo a pie, así que en el caso más común (cambiar
   de línea en la misma parada) el dato que más importa del trasbordo era
   justo el que faltaba.
-- Los horarios por parada se publican en ctas.es de forma independiente,
-  sin un identificador de viaje que enlace la salida de una parada con la
-  llegada a la siguiente. El fichero de rutas **infiere** esas conexiones
-  emparejando horas consecutivas, descartando las combinaciones
-  físicamente imposibles según la distancia real entre paradas.
+- **Lo que no está en los datos.** El consorcio publica los autobuses
+  metropolitanos; el metro, el tranvía y los urbanos de TUSSAM no. Cruzar
+  Sevilla por dentro para salir por el otro lado sale caro o directamente
+  imposible, y hay pares de paradas sin ninguna combinación razonable. En
+  vez de inventarse un itinerario de cuatro horas, la app lo dice.
 - Los recorridos dibujados en el mapa unen paradas consecutivas en línea
   recta: ctas.es no publica la geometría real por calle.
 - **Los avisos sólo suenan con la app viva.** No hay servidor propio que

@@ -898,7 +898,6 @@
       </div>
       <div class="home-quickfavs" id="homeQuickFavs"></div>
     </div>
-    <div id="homeCercanas"></div>
   </section>
 
   <section id="screenLineas" class="screen">
@@ -3253,40 +3252,6 @@ function wireLineSearch() {
 /* ------------------------------------------------------------------ */
 /* Pestaña "Geolocalización"                                           */
 /* ------------------------------------------------------------------ */
-const CERCANAS_CUANTAS = 4;
-
-function renderParadasCercanas(lat, lng) {
-  const box = document.getElementById("homeCercanas");
-  if (!box) return;
-  const cerca = Object.entries(APP.data.paradas)
-    .filter(([, p]) => p.lat != null)
-    .map(([id, p]) => ({ id, p, dist: haversine(lat, lng, p.lat, p.lng) }))
-    .sort((a, b) => a.dist - b.dist)
-    .slice(0, CERCANAS_CUANTAS);
-  if (!cerca.length) { box.innerHTML = ""; return; }
-
-  box.innerHTML = `<div class="card">
-    <h3 class="section-title">${icono("cerca")}Paradas cerca de ti</h3>
-    <div id="cercanasLista"></div>
-  </div>`;
-  const lista = box.querySelector("#cercanasLista");
-  cerca.forEach(({ id, p, dist }) => {
-    const salidas = sentidosEnParada(id, null).slice(0, 2);
-    const fila = document.createElement("div");
-    fila.className = "cabecera-row";
-    const fmt = salidas.length ? formatDeparture(salidas[0].dep) : null;
-    fila.innerHTML = `
-      <span class="cabecera-ico">${icono("parada")}</span>
-      <span class="cabecera-body">
-        <span class="cabecera-nombre">${escapeHtml(p.nombre)}</span>
-        <span class="cabecera-meta">${formatDistance(dist)}${salidas.length ? " · " + escapeHtml(salidas.map(s => codigoLinea(s.lineaTitulo)).join(" · ")) : " · sin salidas"}</span>
-      </span>
-      ${fmt ? `<span class="cabecera-time">${escapeHtml(fmt.main)}<span class="cabecera-sub">${escapeHtml(fmt.sub)}</span></span>` : ""}`;
-    fila.addEventListener("click", () => openModal(cont => buildStopScheduleModalContent(cont, id)));
-    lista.appendChild(fila);
-  });
-}
-
 /* ------------------------------------------------------------------ */
 /* Pestaña "Calculadora de ruta"                                       */
 /* ------------------------------------------------------------------ */
@@ -4793,10 +4758,13 @@ function pedirUbicacionInicio() {
   texto.textContent = "Buscando dónde estás…";
   navigator.geolocation.getCurrentPosition(
     pos => {
-      const near = nearestStop(APP.data, pos.coords.latitude, pos.coords.longitude);
-      setHomeOrigen({ type: "point", lat: pos.coords.latitude, lng: pos.coords.longitude },
+      UBICACION = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      const near = nearestStop(APP.data, UBICACION.lat, UBICACION.lng);
+      setHomeOrigen({ type: "point", lat: UBICACION.lat, lng: UBICACION.lng },
         near ? `Desde ${APP.data.paradas[near.id].nombre}` : "Desde tu ubicación");
-      renderParadasCercanas(pos.coords.latitude, pos.coords.longitude);
+      // Saber dónde estás cambia QUÉ parada se enseña de cada línea, así
+      // que el listado se rehace entero, no sólo se le añade la distancia.
+      renderHomeFavSalidas();
     },
     () => {
       // Sin ubicación no se deja la pantalla muerta: se manda a Ruta, que
@@ -4813,36 +4781,93 @@ function pedirUbicacionInicio() {
 /* ------------------------------------------------------------------ */
 /* Seguimiento: desde qué paradas miras tus salidas                     */
 /* ------------------------------------------------------------------ */
-/** Las paradas que la persona vigila: sus paradas favoritas más los
- * puntos de referencia de sus líneas favoritas. Una parada que venga
- * solo de una línea favorita enseña únicamente esa línea; una parada
- * favorita enseña todas las que pasan por ella. */
-function paradasDeSeguimiento() {
-  const mapa = new Map();
-  FAVORITOS.paradas.forEach(f => {
-    if (!APP.data.paradas[f.id]) return;
-    mapa.set(f.id, { paradaId: f.id, municipio: municipioDeParada(f.id), filtros: null });
-  });
+/** Dónde está la persona, si lo ha compartido. Manda para elegir parada:
+ * "el próximo autobús" es el que pasa por la parada a la que puedo
+ * llegar andando, no por una que me pilla a cinco kilómetros. */
+let UBICACION = null;
+
+function distanciaA(paradaId) {
+  const p = APP.data.paradas[paradaId];
+  if (!UBICACION || !p || p.lat == null) return null;
+  return haversine(UBICACION.lat, UBICACION.lng, p.lat, p.lng);
+}
+
+/** De qué paradas se puede coger cada línea que a la persona le importa.
+ *
+ * El orden de preferencia es el que tiene sentido para quien va a coger
+ * el autobús: manda lo que ha marcado como suyo y, dentro de eso, lo que
+ * tiene más cerca.
+ *
+ *   1. Líneas favoritas. Si además ha elegido paradas para esa línea,
+ *      sólo esas; si no, cualquier parada por la que pase.
+ *   2. Paradas favoritas: todas las líneas que pasan por ellas.
+ *   3. Si no hay nada guardado, las paradas que tiene al lado.
+ *
+ * Luego, de cada línea se queda UNA parada —la más cercana de sus
+ * candidatas—, así que la M-177 no ocupa cuatro filas repartidas por el
+ * mapa. Eso sí, cada sentido va por su cuenta: la parada de ir y la de
+ * volver son dos paradas distintas, y esconder una de las dos es
+ * esconder justo la mitad que hace falta. */
+const CANDIDATAS_CERCA = 8;    // paradas del entorno cuando no hay favoritos
+const RADIO_MISMA_ESQUINA = 250; // metros: la parada de enfrente sigue siendo "aquí"
+
+/** Por dónde coger una línea favorita cuando no se han elegido paradas:
+ * la más cercana y las que están a su lado.
+ *
+ * Sólo la más cercana no vale, porque la parada de ir y la de volver son
+ * dos paradas distintas a veinte metros una de otra, y quedarse con una
+ * esconde justo el sentido que hace falta. Pero tampoco valen todas: la
+ * M-170 tiene tres finales de trayecto distintos y sus paradas más
+ * cercanas para dos de ellos están a once kilómetros, que no es una
+ * parada a la que nadie vaya a ir andando. */
+function paradasCercanasDeLinea(lineaSlug) {
+  const nodo = GRAFO.lineas.get(lineaSlug);
+  if (!nodo) return [];
+  const conDistancia = [...nodo.paradas]
+    .map(id => ({ id, dist: distanciaA(id) }))
+    .filter(c => c.dist != null)
+    .sort((a, b) => a.dist - b.dist);
+  if (!conDistancia.length) return [];
+  const corte = conDistancia[0].dist + RADIO_MISMA_ESQUINA;
+  return conDistancia.filter(c => c.dist <= corte).map(c => c.id);
+}
+
+function candidatasDeSeguimiento() {
+  const candidatas = [];   // {paradaId, lineaSlug|null}
+  const vistas = new Set();
+  const anotar = (paradaId, lineaSlug) => {
+    const clave = paradaId + "|" + (lineaSlug || "*");
+    if (vistas.has(clave) || !APP.data.paradas[paradaId]) return;
+    vistas.add(clave);
+    candidatas.push({ paradaId, lineaSlug });
+  };
+
   FAVORITOS.lineas.forEach(fl => {
     const linea = APP.data.lineas.find(l => l.slug === fl.slug);
     if (!linea) return;
-    referenciasDeLinea(linea).forEach(ref => {
-      const ya = mapa.get(ref.paradaId);
-      // Una parada favorita enseña todo lo que pasa por ella; una que
-      // viene solo de una línea favorita enseña esa línea y en el sentido
-      // que se eligió, que para eso se eligió.
-      if (ya) {
-        if (ya.filtros) ya.filtros.push({ lineaSlug: fl.slug, sentidoClave: ref.sentidoClave });
-        return;
-      }
-      mapa.set(ref.paradaId, {
-        paradaId: ref.paradaId,
-        municipio: municipioDeParada(ref.paradaId),
-        filtros: [{ lineaSlug: fl.slug, sentidoClave: ref.sentidoClave }]
-      });
-    });
+    const elegidas = (Array.isArray(fl.referencias) ? fl.referencias : [])
+      .map(r => r.paradaId)
+      .filter(id => APP.data.paradas[id]);
+    // Mandan las paradas que se hayan elegido a mano; si no hay, la que
+    // se tenga más cerca; y sin ubicación, por donde empieza cada
+    // trayecto, que es lo único que se puede saber a ciegas.
+    const deLaLinea = elegidas.length ? elegidas
+      : (UBICACION ? paradasCercanasDeLinea(fl.slug)
+                   : referenciasDeLinea(linea).map(r => r.paradaId));
+    deLaLinea.forEach(id => anotar(id, fl.slug));
   });
-  return [...mapa.values()];
+
+  FAVORITOS.paradas.forEach(f => anotar(f.id, null));
+
+  if (!candidatas.length && UBICACION) {
+    Object.entries(APP.data.paradas)
+      .filter(([, p]) => p.lat != null)
+      .map(([id, p]) => ({ id, dist: haversine(UBICACION.lat, UBICACION.lng, p.lat, p.lng) }))
+      .sort((a, b) => a.dist - b.dist)
+      .slice(0, CANDIDATAS_CERCA)
+      .forEach(c => anotar(c.id, null));
+  }
+  return candidatas;
 }
 
 /** Municipios desde los que la persona mira algo, para la fila de
@@ -4850,23 +4875,9 @@ function paradasDeSeguimiento() {
  * tus favoritos: la M-177 para en Guillena y en Sevilla, y quieres poder
  * mirar cada extremo por separado. */
 function municipiosDeSeguimiento() {
-  return [...new Set(paradasDeSeguimiento().map(e => e.municipio).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, "es"));
-}
-
-/** Salidas de una parada vigilada, ya filtradas a las líneas que
- * correspondan y ordenadas por proximidad. */
-function salidasDeSeguimiento(entrada, limite) {
-  limite = limite || 3;
-  if (!entrada.filtros) return lineasEnParadaPriorizadas(entrada.paradaId, limite);
-  const grupos = sentidosEnParada(entrada.paradaId, null)
-    .filter(g => entrada.filtros.some(f =>
-      f.lineaSlug === g.lineaSlug && (!f.sentidoClave || f.sentidoClave === g.sentidoClave)))
-    .map(g => ({
-      linea_slug: g.lineaSlug, linea_titulo: g.lineaTitulo, servicios: g.servicios,
-      dep: g.dep, direccion: "hacia " + g.etiqueta, favorita: true
-    }));
-  return { mostradas: grupos.slice(0, limite), total: grupos.length };
+  return [...new Set(candidatasDeSeguimiento()
+    .map(c => municipioDeParada(c.paradaId))
+    .filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
 }
 
 /** Fila de pastillas para elegir desde qué municipio mirar. Si solo hay
@@ -4899,30 +4910,46 @@ function pintarFiltroMunicipio(contenedor, onCambio) {
  * su parada iba después. Aquí no hay jerarquía de paradas: hay una cola
  * de autobuses, y arriba está el que se va antes. Cada fila se explica
  * sola —línea, hacia dónde y desde qué parada—, así que no hacen falta
- * cabeceras. */
+ * cabeceras.
+ *
+ * Y antes de ordenar, se poda: de cada línea y sentido queda la parada
+ * más cercana. Sin eso, marcar la M-177 como favorita llenaba la pantalla
+ * con la misma línea vista desde cuatro paradas repartidas por media
+ * provincia, y ninguna era necesariamente la de casa. */
 function salidasVigiladas() {
-  const salidas = [];
-  paradasDeSeguimiento().forEach(entrada => {
-    const parada = APP.data.paradas[entrada.paradaId];
+  const mejores = new Map();   // lineaSlug|sentido -> la salida en la parada más cercana
+
+  candidatasDeSeguimiento().forEach(({ paradaId, lineaSlug }) => {
+    const parada = APP.data.paradas[paradaId];
     if (!parada) return;
-    if (FILTRO_MUNICIPIO && entrada.municipio !== FILTRO_MUNICIPIO) return;
-    const { mostradas } = salidasDeSeguimiento(entrada, 99);
-    mostradas.forEach(g => {
+    const municipio = municipioDeParada(paradaId);
+    if (FILTRO_MUNICIPIO && municipio !== FILTRO_MUNICIPIO) return;
+    const dist = distanciaA(paradaId);
+
+    sentidosEnParada(paradaId, lineaSlug || null).forEach(g => {
       const espera = formatEspera(g.dep);
       if (!isFinite(espera.orden)) return;   // sin servicio: no es una salida
-      salidas.push({
-        paradaId: entrada.paradaId,
-        paradaNombre: parada.nombre,
-        municipio: entrada.municipio,
-        lineaSlug: g.linea_slug,
-        codigo: codigoLinea(g.linea_titulo),
-        hacia: (g.direccion || "").replace(/^hacia /, "") || g.linea_titulo,
+      const clave = g.lineaSlug + "|" + g.sentidoClave;
+      const previa = mejores.get(clave);
+      // Gana la parada más cercana; sin ubicación no hay con qué decidir,
+      // así que gana el autobús que pasa antes.
+      if (previa) {
+        const mejor = (previa.dist == null || dist == null)
+          ? espera.orden < previa.espera.orden
+          : dist < previa.dist;
+        if (!mejor) return;
+      }
+      mejores.set(clave, {
+        paradaId, paradaNombre: parada.nombre, municipio, dist,
+        lineaSlug: g.lineaSlug,
+        codigo: codigoLinea(g.lineaTitulo),
+        hacia: g.etiqueta,
         espera
       });
     });
   });
-  salidas.sort((a, b) => a.espera.orden - b.espera.orden);
-  return salidas;
+
+  return [...mejores.values()].sort((a, b) => a.espera.orden - b.espera.orden);
 }
 
 const SALIDAS_VISIBLES = 5;   // lo que cabe de un vistazo sin bajar
@@ -4943,11 +4970,23 @@ function resumirSalidas(salidas) {
   }).slice(0, SALIDAS_VISIBLES);
 }
 
-/** Bloque destacado en Inicio: lo primero que se ve al abrir la app. */
+/** Bloque destacado en Inicio: lo primero que se ve al abrir la app.
+ *
+ * Es el único listado de salidas de la pantalla. Antes había dos —"tus
+ * próximas salidas" y "paradas cerca de ti"— que contaban lo mismo con
+ * distinta letra; ahora, si no hay nada guardado, este mismo bloque
+ * enseña lo que pasa por las paradas que tienes al lado. */
 function renderHomeFavSalidas() {
   const box = document.getElementById("homeFavSalidas");
   if (!box) return;
-  if (!paradasDeSeguimiento().length) { box.innerHTML = ""; return; }
+  const hayFavoritos = FAVORITOS.lineas.length > 0 || FAVORITOS.paradas.length > 0;
+  if (!candidatasDeSeguimiento().length) {
+    box.innerHTML = hayFavoritos ? "" : `<div class="card home-fav-card">
+      <h2 class="home-fav-title">Tus próximas salidas</h2>
+      <p class="empty">Comparte tu ubicación para ver lo que pasa por las paradas que tienes al lado, o guarda una línea o una parada con la estrella.</p>
+    </div>`;
+    return;
+  }
 
   const salidas = salidasVigiladas();
   const visibles = VER_TODAS_SALIDAS ? salidas : resumirSalidas(salidas);
@@ -4958,7 +4997,7 @@ function renderHomeFavSalidas() {
       <span class="home-fav-code es-fav">${escapeHtml(sal.codigo)}</span>
       <span class="salida-cuerpo">
         <span class="salida-hacia">hacia ${escapeHtml(sal.hacia)}</span>
-        <span class="salida-parada">${escapeHtml(sal.paradaNombre)}</span>
+        <span class="salida-parada">${escapeHtml(sal.paradaNombre)}${sal.dist != null ? " · " + escapeHtml(formatDistance(sal.dist)) : ""}</span>
       </span>
       <span class="salida-cuando${sal.espera.urgente ? " ya" : ""}">${escapeHtml(sal.espera.cuando)}
         <span class="salida-reloj">${escapeHtml(sal.espera.reloj)}</span>
@@ -4967,10 +5006,10 @@ function renderHomeFavSalidas() {
 
   const vacio = FILTRO_MUNICIPIO
     ? `<p class="empty">No sigues ninguna parada en ${escapeHtml(FILTRO_MUNICIPIO)}.</p>`
-    : `<p class="empty">Tus paradas no tienen más salidas hoy.</p>`;
+    : `<p class="empty">No quedan más salidas hoy.</p>`;
 
   box.innerHTML = `<div class="card home-fav-card">
-      <h2 class="home-fav-title">Tus próximas salidas</h2>
+      <h2 class="home-fav-title">${hayFavoritos ? "Tus próximas salidas" : "Salidas cerca de ti"}</h2>
       <div id="homeFiltroMuni"></div>
       ${filas || vacio}
       ${ocultas > 0 || VER_TODAS_SALIDAS

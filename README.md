@@ -15,8 +15,9 @@ tiempo real.
   que falta para cada una: primero el autobús que se va antes, venga de la
   parada que venga. Cada fila dice la línea, hacia dónde va y desde qué
   parada, y en grande **cuánto queda** (la hora del reloj va debajo, en
-  pequeño). Debajo, el buscador de destino y, si compartes la ubicación,
-  las paradas que tienes al lado con su próximo autobús.
+  pequeño). De cada línea sale una sola parada, la que tengas más cerca.
+  Si no has guardado nada y compartes la ubicación, la lista enseña lo que
+  pasa por las paradas que tienes al lado. Debajo, el buscador de destino.
 - **Líneas** — las 55 líneas del consorcio, con las próximas salidas en las
   paradas que tú elijas, recorrido en mapa, horario completo y PDF oficial
   de cada parada.
@@ -90,6 +91,26 @@ datos no vuelve a pedir nada al servidor.
   los bordes. Los anejos que quedan lejos de su municipio (Torre de la
   Reina es de Guillena aunque esté pegada a Alcalá del Río) llevan ancla
   propia.
+- **Qué parada se enseña de cada línea.** El orden de preferencia es el
+  que tiene sentido para quien va a coger el autobús: manda lo que has
+  marcado como tuyo y, dentro de eso, lo que tienes más cerca.
+
+  1. **Líneas favoritas.** Si además has elegido paradas para esa línea,
+     sólo esas; si no, la que tengas más cerca de su recorrido.
+  2. **Paradas favoritas**: todas las líneas que pasan por ellas.
+  3. **Sin nada guardado**, las paradas que tienes al lado.
+
+  Después se poda: de cada línea y sentido queda una sola parada, la más
+  cercana. Sin eso, marcar la M-177 como favorita llenaba la pantalla con
+  la misma línea vista desde cuatro paradas repartidas por media
+  provincia. Los dos sentidos van por separado a propósito: la parada de
+  ir y la de volver son dos paradas distintas a veinte metros una de
+  otra, y quedarse con una sola escondería justo la mitad que hace falta.
+  Cuando la línea favorita no lleva paradas elegidas, se admiten también
+  las que estén a menos de 250 m de la más cercana —la de enfrente sigue
+  siendo "aquí"— pero no las de un final de trayecto que pilla a once
+  kilómetros.
+
 - **Lo que se enseña en Inicio.** El bloque de salidas iba agrupado por
   parada, y eso rompía justo lo que la pantalla tiene que responder: con
   dos paradas guardadas, un autobús que salía en un minuto quedaba por
@@ -98,7 +119,9 @@ datos no vuelve a pedir nada al servidor.
   el número grande es el que se usa para decidir ("11 min"), no el que hay
   que restar mentalmente ("15:03"). El resumen limita a dos salidas por
   parada para que ninguna se quede fuera de pantalla, y se despliega
-  entero de un toque. Inicio ya no lleva mapa: ocupaba media pantalla para
+  entero de un toque. Ya no hay dos listados —"tus próximas salidas" y
+  "paradas cerca de ti"— contando lo mismo con distinta letra: es uno.
+  Inicio ya no lleva mapa: ocupaba media pantalla para
   enseñar círculos sobre un fondo gris y empujaba fuera de la vista lo
   único que se viene a mirar. El mapa sigue entero en Ruta.
 

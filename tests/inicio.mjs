@@ -26,6 +26,11 @@ function servirLeafletLocal(page) {
   ]);
 }
 
+// En Guillena, junto a AV ANDALUCIA (ARROYO): la ubicación decide qué
+// parada se enseña de cada línea, así que las pruebas la fijan.
+const AQUI = { latitude: 37.5443, longitude: -6.0567 };
+const M177 = 'm-177-camas-guillena-pi-los-girasoles-sevilla-torre-de-la-reina';
+
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 412, height: 900 } });
 const errores = [];
@@ -98,6 +103,60 @@ if (await btn.count()) {
   const despues = await page.locator('#homeFavSalidas .salida-fila').count();
   ok(despues > antes, 'al desplegar se ven todas', `${antes} → ${despues}`);
 }
+
+/* ------------------------------------------------------------------ */
+/* Preferencia de parada: línea favorita > parada favorita > cercanía   */
+/* ------------------------------------------------------------------ */
+// Sin navegar de nuevo: se llama al motor con la ubicación puesta a mano,
+// que es lo que decide, y así una sola carga sirve para los cuatro casos.
+const preferencia = await page.evaluate(({ aqui, m177 }) => {
+  UBICACION = { lat: aqui.latitude, lng: aqui.longitude };
+  const resumen = () => salidasVigiladas().map(s => ({
+    linea: s.codigo, hacia: s.hacia, parada: s.paradaNombre,
+    metros: s.dist == null ? null : Math.round(s.dist)
+  }));
+  const idPor = n => Object.entries(APP.data.paradas).find(([, p]) => p.nombre === n)[0];
+  const casos = {};
+
+  FAVORITOS.lineas = []; FAVORITOS.paradas = [];
+  casos.sinNada = resumen();
+
+  FAVORITOS.lineas = [{ slug: m177 }]; FAVORITOS.paradas = [];
+  casos.lineaFavorita = resumen();
+
+  FAVORITOS.lineas = [];
+  FAVORITOS.paradas = ['AV ANDALUCIA (ARROYO)', 'PARQUE', 'PLAZA DE ARMAS']
+    .map(n => ({ id: idPor(n), nombre: n }));
+  casos.paradasFavoritas = resumen();
+
+  FAVORITOS.lineas = []; FAVORITOS.paradas = [];
+  return casos;
+}, { aqui: AQUI, m177: M177 });
+
+console.log(JSON.stringify(preferencia, null, 1));
+
+const unaParadaPorLineaYSentido = filas =>
+  new Set(filas.map(f => f.linea + '|' + f.hacia)).size === filas.length;
+
+ok(preferencia.sinNada.length > 0 && preferencia.sinNada.every(f => f.metros < 1000),
+  'sin nada guardado, sale lo que se tiene al lado',
+  JSON.stringify(preferencia.sinNada.map(f => f.metros)));
+
+ok(preferencia.lineaFavorita.length > 0 && preferencia.lineaFavorita.every(f => f.linea === 'M-177'),
+  'con una línea favorita, sólo esa línea');
+ok(preferencia.lineaFavorita.every(f => f.metros < 1000),
+  'y en la parada que se tiene más cerca, no en una cualquiera de su recorrido',
+  JSON.stringify(preferencia.lineaFavorita.map(f => f.parada + ' ' + f.metros + ' m')));
+ok(unaParadaPorLineaYSentido(preferencia.lineaFavorita),
+  'sin repetir la misma línea y sentido en varias paradas');
+
+const m177Favoritas = preferencia.paradasFavoritas.filter(f => f.linea === 'M-177');
+ok(unaParadaPorLineaYSentido(preferencia.paradasFavoritas),
+  'con tres paradas favoritas de la misma línea, una sola por sentido',
+  JSON.stringify(m177Favoritas.map(f => f.hacia + ' → ' + f.parada)));
+ok(m177Favoritas.every(f => f.parada !== 'PLAZA DE ARMAS'),
+  'y no la que está a diecisiete kilómetros',
+  JSON.stringify(m177Favoritas.map(f => f.parada + ' ' + f.metros + ' m')));
 
 ok(errores.length === 0, 'sin errores en consola', JSON.stringify(errores));
 console.log(fallos ? `\n${fallos} comprobaciones fallidas` : '\nTodo correcto');

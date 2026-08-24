@@ -1332,50 +1332,70 @@ function revisarNotificaciones() {
 
 function arrancarVigilanteNotificaciones() {
   if (NOTIF_TIMER) return;
-  NOTIF_TIMER = setInterval(revisarNotificaciones, 30000);
+  NOTIF_TIMER = setInterval(revisarNotificaciones, 15000);
   revisarNotificaciones();
 }
 
-/** Diálogo para activar/desactivar el aviso de una parada (opcionalmente
- * restringido a una línea concreta). Pide la antelación en minutos. */
+const ANTELACIONES = [5, 10, 15];
+
+/** Diálogo para poner o quitar el aviso de una parada (opcionalmente solo
+ * de una línea).
+ *
+ * Sin campos numéricos: tres botones con los tiempos que alguien elige de
+ * verdad. Y diciendo lo que el aviso puede y no puede hacer — esto no es
+ * una alarma del móvil: no hay servidor que mande un push, así que sólo
+ * suena mientras la app siga viva. Prometerlo de otra forma sería dejar a
+ * alguien esperando un aviso que no va a llegar. */
 function abrirDialogoNotificacion(paradaId, lineaSlug, onCambio) {
   const p = APP.data.paradas[paradaId];
-  const existente = getNotificacion(paradaId, lineaSlug);
   openModal(container => {
-    container.innerHTML = `
-      <h3 class="detail-title">Avisarme antes de la salida</h3>
-      <div class="detail-meta">${escapeHtml(p ? p.nombre : paradaId)}${lineaSlug ? " · solo esta línea" : " · cualquier línea"}</div>
-      <div class="field" style="margin-top:12px;">
-        <label class="field-label">Antelación (minutos)</label>
-        <input type="number" class="input" id="notifMin" min="1" max="120" step="1" value="${existente ? existente.antelacionMin : 10}">
-      </div>
-      <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button type="button" class="btn" id="notifGuardar">${icono("campana")}Activar aviso</button>
-        ${existente ? '<button type="button" class="btn-chip" id="notifQuitar">${icono("cerrar")}Quitar aviso</button>' : ""}
-      </div>
-      <p class="board-note" style="margin-top:10px;">Se avisa una sola vez y el aviso se desactiva solo; si lo pospones, vuelve a sonar ${SNOOZE_MIN} minutos después. La app debe estar abierta en una pestaña para poder avisarte.</p>
-      <div class="board-note" id="notifEstado"></div>`;
+    const pintar = () => {
+      const existente = getNotificacion(paradaId, lineaSlug);
+      const elegido = existente ? existente.antelacionMin : 10;
+      const linea = lineaSlug ? APP.data.lineas.find(l => l.slug === lineaSlug) : null;
+      container.innerHTML = `
+        <h3 class="detail-title">Avísame antes de que salga</h3>
+        <div class="detail-meta">${escapeHtml(p ? p.nombre : paradaId)}${linea ? " · " + escapeHtml(codigoLinea(linea.titulo)) : " · cualquier línea"}</div>
+        <div class="selector-bloque">
+          <div class="selector-titulo">Con cuánta antelación</div>
+          <div class="chip-row" id="notifMinutos">
+            ${ANTELACIONES.map(m => `<button type="button" class="muni-chip${m === elegido ? " active" : ""}" data-min="${m}">${m} min</button>`).join("")}
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:6px;">
+          <button type="button" class="btn" id="notifGuardar">${icono("campana")}${existente ? "Cambiar el aviso" : "Avísame"}</button>
+          ${existente ? `<button type="button" class="btn-chip" id="notifQuitar">${icono("cerrar")}Quitar</button>` : ""}
+        </div>
+        <div class="board-note" id="notifEstado">${existente ? `Aviso puesto ${existente.antelacionMin} min antes.` : ""}</div>
+        <p class="board-note">Suena una vez y se quita solo; si lo pospones, vuelve ${SNOOZE_MIN} minutos después.
+        Ojo: sólo puede sonar <b>mientras la app siga abierta</b>, aunque esté en segundo plano. Si la cierras del todo, no hay aviso.</p>`;
 
-    container.querySelector("#notifGuardar").addEventListener("click", async () => {
-      const min = parseInt(container.querySelector("#notifMin").value, 10);
-      if (!min || min < 1) {
-        container.querySelector("#notifEstado").textContent = "Introduce un número de minutos válido.";
-        return;
-      }
-      const permitido = await pedirPermisoNotificaciones();
-      setNotificacion(paradaId, lineaSlug, min);
-      container.querySelector("#notifEstado").textContent = permitido
-        ? `Aviso activado: te avisaré ${min} min antes.`
-        : `Aviso activado, pero tu navegador ha bloqueado las notificaciones del sistema: te avisaré dentro de la app.`;
-      if (onCambio) onCambio();
-      setTimeout(closeModal, 1200);
-    });
-    const btnQuitar = container.querySelector("#notifQuitar");
-    if (btnQuitar) btnQuitar.addEventListener("click", () => {
-      quitarNotificacion(paradaId, lineaSlug);
-      if (onCambio) onCambio();
-      closeModal();
-    });
+      let minutos = elegido;
+      container.querySelectorAll("#notifMinutos .muni-chip").forEach(btn => {
+        btn.addEventListener("click", () => {
+          minutos = parseInt(btn.dataset.min, 10);
+          container.querySelectorAll("#notifMinutos .muni-chip").forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+        });
+      });
+
+      container.querySelector("#notifGuardar").addEventListener("click", async () => {
+        const permitido = await pedirPermisoNotificaciones();
+        setNotificacion(paradaId, lineaSlug, minutos);
+        if (onCambio) onCambio();
+        container.querySelector("#notifEstado").textContent = permitido
+          ? `Listo: te aviso ${minutos} min antes.`
+          : `Listo, pero tu navegador no deja sacar avisos del sistema: te avisaré dentro de la app.`;
+        setTimeout(closeModal, 1300);
+      });
+      const btnQuitar = container.querySelector("#notifQuitar");
+      if (btnQuitar) btnQuitar.addEventListener("click", () => {
+        quitarNotificacion(paradaId, lineaSlug);
+        if (onCambio) onCambio();
+        closeModal();
+      });
+    };
+    pintar();
   });
 }
 
@@ -2818,7 +2838,7 @@ function abrirMenuReferencia(linea, ref, onCambio) {
         <span class="cabecera-time">${escapeHtml(fmt.main)}<span class="cabecera-sub">${escapeHtml(fmt.sub)}</span></span>
       </div>
       <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:14px;">
-        ${esFav ? '<button type="button" class="btn-chip" id="menuElegirParada">${icono("municipio")}Elegir mis paradas</button>' : ""}
+        ${esFav ? `<button type="button" class="btn-chip" id="menuElegirParada">${icono("municipio")}Elegir mis paradas</button>` : ""}
         <button type="button" class="btn-chip" id="menuNotificar">${icono("campana")}${notif ? "Aviso activo" : "Avísame"}</button>
         <button type="button" class="btn-chip" id="menuVerHorario">${icono("reloj")}Ver horario completo</button>
         <button type="button" class="btn-chip" id="menuVerLinea">${icono("bus")}Ver la línea</button>

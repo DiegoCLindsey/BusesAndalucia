@@ -27,8 +27,8 @@ tiempo real.
   hora y sitio en cada punto, qué coges entre punto y punto, y cuánto
   esperas en cada trasbordo.
 - **Favoritos** — paradas, líneas y rutas guardadas, con recálculo automático.
-- **Avisos** — notificación con la antelación que elijas antes de que salga
-  tu autobús.
+- **Avisos** — que te avise 5, 10 o 15 minutos antes de que salga tu
+  autobús, mientras la app siga abierta.
 - **Claro y noche** — el tema sigue al del móvil y se puede fijar a mano
   desde la cabecera.
 
@@ -117,8 +117,11 @@ datos no vuelve a pedir nada al servidor.
   físicamente imposibles según la distancia real entre paradas.
 - Los recorridos dibujados en el mapa unen paradas consecutivas en línea
   recta: ctas.es no publica la geometría real por calle.
-- Los avisos requieren tener la aplicación abierta en una pestaña: no hay
-  servidor propio ni notificaciones push.
+- **Los avisos sólo suenan con la app viva.** No hay servidor propio que
+  mande un push, así que el aviso lo dispara la propia página: funciona en
+  segundo plano, pero si cierras la app del todo no puede sonar. El
+  diálogo lo dice antes de que actives nada, para no dejar a nadie
+  esperando un aviso que no va a llegar.
 
 ## Licencia
 

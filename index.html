@@ -362,12 +362,12 @@
   }
 
   /* ---------- Mapas ---------- */
-  .mapbox, .home-map{
+  .mapbox{
     width:100%; border-radius:var(--radius);
     border:1px solid var(--hairline); overflow:hidden;
     background:var(--bg-2);
   }
-  .home-map{height:min(56vh, 460px); min-height:260px; margin-bottom:14px;}
+
   .leaflet-container{z-index:1; background:var(--bg-2) !important; font-family:inherit !important;}
   .leaflet-top, .leaflet-bottom{z-index:800;}
   /* Las teselas de OSM son claras: de noche se invierten para no deslumbrar. */
@@ -407,6 +407,42 @@
   .quickfav:hover{border-color:var(--brand); color:var(--brand);}
 
   /* Bloque de próximas salidas: es lo primero que se mira al abrir. */
+  /* Una salida = una fila. Lo que se lee primero es cuánto queda, que es
+     la pregunta ("¿me da tiempo?"); la hora del reloj va debajo, pequeña,
+     para el que quiera apuntarla. */
+  .salida-fila{
+    display:flex; align-items:center; gap:12px;
+    padding:11px 0; border-top:1px solid var(--line);
+    cursor:pointer; -webkit-tap-highlight-color:transparent;
+  }
+  .salida-fila:first-of-type{border-top:none;}
+  .salida-fila:active{opacity:.6;}
+  .salida-cuerpo{flex:1; min-width:0; overflow:hidden;}
+  .salida-hacia{
+    display:block;
+    font-size:15px; font-weight:700; color:var(--text);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .salida-parada{
+    display:block;
+    font-size:12px; font-weight:600; color:var(--text-mute);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px;
+  }
+  .salida-cuando{
+    text-align:right; flex:none; padding-left:4px;
+    font-size:19px; font-weight:800; color:var(--brand);
+    font-variant-numeric:tabular-nums; line-height:1.1;
+  }
+  .salida-cuando.ya{color:var(--warn, #c2410c);}
+  .salida-reloj{
+    display:block; font-size:12px; font-weight:600;
+    color:var(--text-mute); letter-spacing:0;
+  }
+  .salida-mas{
+    display:block; width:100%; margin-top:10px; padding:8px 0;
+    background:none; border:none; cursor:pointer;
+    font:inherit; font-size:13px; font-weight:700; color:var(--brand);
+  }
   .home-fav-title{
     margin:0 0 4px 0; font-size:21px; font-weight:700; letter-spacing:-.025em;
   }
@@ -801,7 +837,7 @@
   .fav-linea-header{display:flex; align-items:center; gap:10px; margin-bottom:4px;}
   .fav-linea-titulo{
     flex:1; min-width:0; font-size:14px; font-weight:700; line-height:1.3;
-    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
 
   /* Aviso de salida inminente */
@@ -844,7 +880,7 @@
 </header>
 
 <nav class="nav" id="mainNav">
-  <button class="nav-btn active" data-screen="screenInicio" type="button" data-ico="mapa">Inicio</button>
+  <button class="nav-btn active" data-screen="screenInicio" type="button" data-ico="reloj">Inicio</button>
   <button class="nav-btn" data-screen="screenLineas" type="button" data-ico="bus">Líneas</button>
   <button class="nav-btn" data-screen="screenRuta" type="button" data-ico="brujula">Ruta</button>
 </nav>
@@ -857,13 +893,12 @@
       <p class="home-search-title">¿A dónde quieres ir?</p>
       <input type="text" class="input" id="homeDestinoInput" list="listaParadas" placeholder="Parada o municipio de destino…">
       <div class="home-origen-line" id="homeOrigenLine">
-        <span id="homeOrigenTexto">Localizando…</span>
+        <span id="homeOrigenTexto">Desde donde estés</span>
         <button class="btn-chip" id="homeBtnUbicacion" type="button">Usar mi ubicación</button>
       </div>
       <div class="home-quickfavs" id="homeQuickFavs"></div>
     </div>
     <div id="homeCercanas"></div>
-    <div id="homeMap" class="home-map"></div>
   </section>
 
   <section id="screenLineas" class="screen">
@@ -944,8 +979,7 @@
 </aside>
 
 <footer>
-  Horarios programados del Consorcio de Transportes de Sevilla, no posición en tiempo real.
-  Herramienta personal, sin relación con el Consorcio.
+  Horarios programados del Consorcio de Transportes de Sevilla. No es tiempo real.
 </footer>
 
 <div id="modalRoot"></div>
@@ -1054,8 +1088,7 @@ function aplicarTema(tema) {
  * Leaflet, así que al cambiar de tema hay que decírselo uno a uno. */
 function repintarMapas() {
   const estilo = { color: colorTema("card"), fillColor: colorTema("brand") };
-  [typeof HOME_CAPA !== "undefined" ? HOME_CAPA : null,
-   typeof ROUTE_CAPA !== "undefined" ? ROUTE_CAPA : null].forEach(capa => {
+  [typeof ROUTE_CAPA !== "undefined" ? ROUTE_CAPA : null].forEach(capa => {
     if (!capa) return;
     Object.values(capa.marcadores).forEach(m => m.setStyle(estilo));
     capa.refrescar();
@@ -1826,7 +1859,7 @@ function sentidoDeServicio(paradaId, servicio) {
   const mismoMunicipio = municipioDestino && municipioDestino === municipioParada;
   return {
     clave: municipioDestino ? "m:" + municipioDestino : "p:" + destinoId,
-    etiqueta: (!mismoMunicipio && municipioDestino) || destino.nombre,
+    etiqueta: (!mismoMunicipio && municipioDestino) || nombreLegible(destino.nombre),
     destinoId,
     alcance: ruta.paradas.length - pos
   };
@@ -2005,6 +2038,27 @@ function formatDeparture(dep) {
     sub = `en ${dep.dias} días`;
   }
   return { main: `${hh}:${mm}`, sub };
+}
+
+/** Lo mismo del revés, para las listas de "próxima salida": delante lo
+ * que hay que decidir —cuánto queda— y detrás la hora del reloj.
+ *
+ * Quien mira la app en la parada no está leyendo un horario, está
+ * preguntando si le da tiempo. "11 min" responde; "15:03" obliga a mirar
+ * el móvil y restar. */
+function formatEspera(dep) {
+  if (!dep) return { cuando: "—", reloj: "sin servicio", urgente: false, orden: Infinity };
+  const reloj = `${String(dep.h).padStart(2, "0")}:${String(dep.m).padStart(2, "0")}`;
+  const orden = dep.dias * 1440 + dep.h * 60 + dep.m;
+  if (dep.dias > 0) {
+    return { cuando: reloj, reloj: dep.dias === 1 ? "mañana" : `en ${dep.dias} días`, urgente: false, orden };
+  }
+  const ahora = new Date();
+  const faltan = (dep.h * 60 + dep.m) - (ahora.getHours() * 60 + ahora.getMinutes());
+  if (faltan <= 0) return { cuando: "ahora", reloj, urgente: true, orden };
+  if (faltan < 60) return { cuando: `${faltan} min`, reloj, urgente: faltan <= 10, orden };
+  const h = Math.floor(faltan / 60), m = faltan % 60;
+  return { cuando: m ? `${h} h ${m}` : `${h} h`, reloj, urgente: false, orden };
 }
 
 /** La línea bajo la cabecera sólo habla cuando hay algo que decir: al
@@ -2380,8 +2434,7 @@ function accionesDeMunicipio(municipio, modo) {
   acciones.className = "stop-popup-actions";
   const punto = { type: "municipio", nombre: municipio };
   const cerrar = () => {
-    if (modo === "ruta" && CURRENT_ROUTE_MAP) CURRENT_ROUTE_MAP.closePopup();
-    if (modo !== "ruta" && HOME_MAP) HOME_MAP.closePopup();
+    if (CURRENT_ROUTE_MAP) CURRENT_ROUTE_MAP.closePopup();
   };
 
   if (modo === "ruta") {
@@ -2747,16 +2800,33 @@ function buildStopScheduleModalContent(container, stopId) {
     const fmt = formatDeparture(g.dep);
     const li = document.createElement("li");
     li.className = "serviceitem";
+    // El título completo de la línea es su recorrido entero
+    // ("M-177 - Camas - Guillena - Pi Los Girasoles - Sevilla - Torre De
+    // La Reina"): ocupaba dos renglones por fila para decir algo que el
+    // distintivo y el "hacia" ya resuelven.
     li.innerHTML = `
-      <div style="flex:1;">
-        <div class="servicename">${escapeHtml(g.lineaTitulo)}</div>
-        <div class="servicevariant">hacia ${escapeHtml(g.etiqueta)}</div>
+      <span class="home-fav-code">${escapeHtml(codigoLinea(g.lineaTitulo))}</span>
+      <div style="flex:1; min-width:0;">
+        <div class="servicename">hacia ${escapeHtml(g.etiqueta)}</div>
       </div>
       <div class="servicetime">${fmt.main}<span class="servicesub">${escapeHtml(fmt.sub)}</span></div>
     `;
     li.addEventListener("click", () => openLineModal(g.lineaSlug, stopId));
     list.appendChild(li);
   });
+}
+
+/** Los nombres de parada vienen en mayúsculas del consorcio. Como
+ * etiqueta de destino quedan a gritos y desentonan al lado de los
+ * municipios ("hacia PLAZA DE ARMAS" junto a "hacia Guillena"), así que
+ * se pasan a capitales iniciales dejando en minúscula las partículas. */
+const PARTICULAS = new Set(["de", "del", "la", "las", "el", "los", "y", "a", "al", "en"]);
+
+function nombreLegible(texto) {
+  const bruto = String(texto || "");
+  if (bruto !== bruto.toUpperCase()) return bruto;   // ya viene escrito bien
+  return bruto.toLowerCase().replace(/[a-zà-ÿñ][\wà-ÿñ'’]*/g, (palabra, i) =>
+    i > 0 && PARTICULAS.has(palabra) ? palabra : palabra.charAt(0).toUpperCase() + palabra.slice(1));
 }
 
 /** Escapa un valor para usarlo dentro de un selector CSS de atributo
@@ -3059,19 +3129,23 @@ function renderSalidasDeLineaEn(contenedor, linea, onCambio) {
     contenedor.innerHTML = '<p class="empty">Sin salidas con datos en esta línea.</p>';
     return;
   }
+  // La misma fila que en Inicio: cuánto falta delante y la hora debajo.
+  // Se cae el "luego 16:30 · 17:00": tres horas por fila para responder a
+  // "¿cuándo pasa el próximo?" es enseñar el horario entero disfrazado, y
+  // el horario completo ya está a un toque.
   refs.forEach(ref => {
-    const fmt = formatDeparture(ref.dep);
-    const extra = ref.horas.length > 1 ? `<span class="cabecera-next">luego ${escapeHtml(ref.horas.slice(1).join(" · "))}</span>` : "";
-    const notif = getNotificacion(ref.paradaId, linea.slug);
+    const espera = formatEspera(ref.dep);
     const row = document.createElement("div");
-    row.className = "cabecera-row";
+    row.className = "salida-fila";
     row.innerHTML = `
       <span class="cabecera-ico">${icono("parada")}</span>
-      <span class="cabecera-body">
-        <span class="cabecera-nombre">hacia ${escapeHtml(ref.etiqueta)}</span>
-        <span class="cabecera-meta">${escapeHtml(ref.paradaNombre)}${ref.municipio ? " · " + escapeHtml(ref.municipio) : ""}</span>
+      <span class="salida-cuerpo">
+        <span class="salida-hacia">hacia ${escapeHtml(ref.etiqueta)}</span>
+        <span class="salida-parada">${escapeHtml(ref.paradaNombre)}</span>
       </span>
-      <span class="cabecera-time">${escapeHtml(fmt.main)}<span class="cabecera-sub">${escapeHtml(fmt.sub)}</span>${extra}</span>`;
+      <span class="salida-cuando${espera.urgente ? " ya" : ""}">${escapeHtml(espera.cuando)}
+        <span class="salida-reloj">${escapeHtml(espera.reloj)}</span>
+      </span>`;
     row.addEventListener("click", () => abrirMenuReferencia(linea, ref, onCambio));
     contenedor.appendChild(row);
   });
@@ -3135,14 +3209,14 @@ function renderListadoLineas() {
     const row = document.createElement("div");
     row.className = "linea-row";
     // El código de la línea manda (es lo que se busca con el ojo) y el
-    // recorrido va en UNA línea recortada: el título ya nombra los
-    // municipios, así que listarlos otra vez a tres renglones convertía
-    // el listado en un muro de texto verde imposible de repasar.
+    // Sólo el distintivo y el nombre. El nombre de la línea YA es la
+    // lista de sitios por los que pasa, así que repetir debajo los
+    // municipios del grafo hacía cincuenta y cinco filas de doble alto
+    // con los dos renglones recortados a mitad de palabra. Para buscar
+    // por municipio está el desplegable de arriba.
     row.innerHTML = `
       <span class="linea-badge">${escapeHtml(codigoLinea(l.titulo))}</span>
-      <span class="linea-row-name">${escapeHtml(nombreSinCodigo(l.titulo))}
-        <span class="linea-row-muni">${escapeHtml(municipiosDeLinea(l.slug).join(" · ") || "—")}</span>
-      </span>`;
+      <span class="linea-row-name">${escapeHtml(nombreSinCodigo(l.titulo))}</span>`;
     const btnFav = document.createElement("button");
     btnFav.type = "button";
     btnFav.className = "btn-fav";
@@ -4698,46 +4772,22 @@ async function renderFavoritosTab() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Pantalla "Inicio": mapa + "¿A dónde quieres ir?"                    */
+/* Pantalla "Inicio": próximas salidas + "¿A dónde quieres ir?"        */
 /* ------------------------------------------------------------------ */
-let HOME_MAP = null;
-let HOME_CAPA = null;
-let HOME_ORIGEN_MARKER = null;
-
-function initHomeMap() {
-  if (HOME_MAP) { setTimeout(() => HOME_MAP.invalidateSize(), 60); return; }
-  HOME_MAP = L.map("homeMap", { scrollWheelZoom: false, zoomControl: true });
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19, attribution: "&copy; OpenStreetMap"
-  }).addTo(HOME_MAP);
-
-  HOME_CAPA = crearCapaRed(HOME_MAP, {
-    onParada: id => openModal(container => buildStopScheduleModalContent(container, id)),
-    onGrupo: (grupo, marca) => abrirMenuGrupo(HOME_MAP, grupo, marca, HOME_CAPA, "inicio")
-  });
-  if (HOME_CAPA.limites.length) HOME_MAP.fitBounds(HOME_CAPA.limites, { padding: [16, 16] });
-  else HOME_MAP.setView([37.389, -5.984], 10);
-  HOME_CAPA.refrescar();
-}
-
+/** Inicio ya no lleva mapa. Ocupaba media pantalla para enseñar círculos
+ * verdes sobre un fondo gris —de lejos ni siquiera se distinguen los
+ * pueblos— y empujaba fuera de la vista lo único que se viene a mirar:
+ * a qué hora pasa el próximo autobús. El mapa sigue entero en Ruta, que
+ * es donde hace falta señalar sitios. */
 function setHomeOrigen(point, textoDescriptivo) {
   ROUTE_ORIGIN = point;
   document.getElementById("homeOrigenTexto").textContent = textoDescriptivo;
-  if (!HOME_MAP) return;
-  const latlng = point.type === "stop"
-    ? [APP.data.paradas[point.id].lat, APP.data.paradas[point.id].lng]
-    : [point.lat, point.lng];
-  if (HOME_ORIGEN_MARKER) HOME_MAP.removeLayer(HOME_ORIGEN_MARKER);
-  HOME_ORIGEN_MARKER = L.marker(latlng, {
-    icon: L.divIcon({ className: "", html: `<span class="marca-extremo origen">${icono("pin")}</span>`, iconSize: [26, 26], iconAnchor: [13, 24] })
-  }).addTo(HOME_MAP);
-  HOME_MAP.setView(latlng, 14);
 }
 
 function pedirUbicacionInicio() {
   const texto = document.getElementById("homeOrigenTexto");
   if (!navigator.geolocation) {
-    texto.textContent = "Tu navegador no comparte la ubicación. Elige de dónde sales en la pestaña Ruta.";
+    texto.textContent = "Tu navegador no comparte la ubicación.";
     return;
   }
   texto.textContent = "Buscando dónde estás…";
@@ -4745,21 +4795,16 @@ function pedirUbicacionInicio() {
     pos => {
       const near = nearestStop(APP.data, pos.coords.latitude, pos.coords.longitude);
       setHomeOrigen({ type: "point", lat: pos.coords.latitude, lng: pos.coords.longitude },
-        near ? `Sales desde ${APP.data.paradas[near.id].nombre}` : "Sales desde tu ubicación");
+        near ? `Desde ${APP.data.paradas[near.id].nombre}` : "Desde tu ubicación");
       renderParadasCercanas(pos.coords.latitude, pos.coords.longitude);
     },
     () => {
-      // Requisito del boceto: si no se puede geolocalizar, pedir punto de
-      // partida explícito en vez de dejar la pantalla en un estado muerto.
-      texto.textContent = "No hemos podido localizarte. Marca de dónde sales:";
+      // Sin ubicación no se deja la pantalla muerta: se manda a Ruta, que
+      // es donde se puede marcar el punto de partida en el mapa.
+      texto.textContent = "No hemos podido localizarte.";
       const btn = document.getElementById("homeBtnUbicacion");
       btn.innerHTML = icono("lapiz") + "Marcar en el mapa";
-      btn.onclick = () => {
-        texto.textContent = "Toca el mapa para fijar tu punto de partida.";
-        if (HOME_MAP) HOME_MAP.once("click", e => {
-          setHomeOrigen({ type: "point", lat: e.latlng.lat, lng: e.latlng.lng }, "Punto de partida marcado en el mapa");
-        });
-      };
+      btn.onclick = () => irAPantalla("screenRuta");
     },
     { enableHighAccuracy: true, timeout: 10000 }
   );
@@ -4845,51 +4890,104 @@ function pintarFiltroMunicipio(contenedor, onCambio) {
   contenedor.appendChild(fila);
 }
 
-/** Bloque destacado en Inicio: las salidas que vigilas, en grande y lo
- * primero de todo, filtrables por el municipio desde el que quieres
- * mirar. Si no hay favoritos, no ocupa sitio. */
+/** Todas las salidas que vigilas, en una sola lista y ordenadas por lo
+ * que falta para cada una.
+ *
+ * Antes iban agrupadas por parada, y eso rompía justo lo que la pantalla
+ * tiene que responder: con dos paradas guardadas, un autobús que salía en
+ * un minuto quedaba por debajo de otro que salía en una hora, sólo porque
+ * su parada iba después. Aquí no hay jerarquía de paradas: hay una cola
+ * de autobuses, y arriba está el que se va antes. Cada fila se explica
+ * sola —línea, hacia dónde y desde qué parada—, así que no hacen falta
+ * cabeceras. */
+function salidasVigiladas() {
+  const salidas = [];
+  paradasDeSeguimiento().forEach(entrada => {
+    const parada = APP.data.paradas[entrada.paradaId];
+    if (!parada) return;
+    if (FILTRO_MUNICIPIO && entrada.municipio !== FILTRO_MUNICIPIO) return;
+    const { mostradas } = salidasDeSeguimiento(entrada, 99);
+    mostradas.forEach(g => {
+      const espera = formatEspera(g.dep);
+      if (!isFinite(espera.orden)) return;   // sin servicio: no es una salida
+      salidas.push({
+        paradaId: entrada.paradaId,
+        paradaNombre: parada.nombre,
+        municipio: entrada.municipio,
+        lineaSlug: g.linea_slug,
+        codigo: codigoLinea(g.linea_titulo),
+        hacia: (g.direccion || "").replace(/^hacia /, "") || g.linea_titulo,
+        espera
+      });
+    });
+  });
+  salidas.sort((a, b) => a.espera.orden - b.espera.orden);
+  return salidas;
+}
+
+const SALIDAS_VISIBLES = 5;   // lo que cabe de un vistazo sin bajar
+const SALIDAS_POR_PARADA = 2; // en el resumen, para que asomen todas
+let VER_TODAS_SALIDAS = false;
+
+/** El resumen no es la cabeza de la cola, es un resumen: si una parada
+ * tiene ocho líneas y otra una, enseñar las cinco primeras por hora deja
+ * la segunda parada fuera de la pantalla justo cuando es la que
+ * interesa. Se limita lo que aporta cada parada, y al desplegar se ve
+ * todo sin recortes. */
+function resumirSalidas(salidas) {
+  const cuenta = new Map();
+  return salidas.filter(sal => {
+    const n = (cuenta.get(sal.paradaId) || 0) + 1;
+    cuenta.set(sal.paradaId, n);
+    return n <= SALIDAS_POR_PARADA;
+  }).slice(0, SALIDAS_VISIBLES);
+}
+
+/** Bloque destacado en Inicio: lo primero que se ve al abrir la app. */
 function renderHomeFavSalidas() {
   const box = document.getElementById("homeFavSalidas");
   if (!box) return;
-  const entradas = paradasDeSeguimiento();
-  if (!entradas.length) { box.innerHTML = ""; return; }
+  if (!paradasDeSeguimiento().length) { box.innerHTML = ""; return; }
 
-  const visibles = entradas.filter(e => !FILTRO_MUNICIPIO || e.municipio === FILTRO_MUNICIPIO);
-  let html = '<div class="card home-fav-card"><h2 class="home-fav-title">Tus próximas salidas</h2><div id="homeFiltroMuni"></div>';
-  let hayAlgo = false;
-  visibles.forEach(entrada => {
-    const p = APP.data.paradas[entrada.paradaId];
-    if (!p) return;
-    const { mostradas, total } = salidasDeSeguimiento(entrada, 3);
-    if (!mostradas.length) return;
-    hayAlgo = true;
-    html += `<div class="home-fav-parada" data-stop-id="${escapeHtml(entrada.paradaId)}">
-      <div class="home-fav-parada-nombre">${icono("parada")}${escapeHtml(p.nombre)}${entrada.municipio ? ` <span class="home-fav-muni">${escapeHtml(entrada.municipio)}</span>` : ""}</div>`;
-    mostradas.forEach(g => {
-      const fmt = formatDeparture(g.dep);
-      const notif = getNotificacion(entrada.paradaId, g.linea_slug) || getNotificacion(entrada.paradaId, null);
-      html += `<div class="home-fav-fila">
-        <span class="home-fav-code${g.favorita ? " es-fav" : ""}">${escapeHtml(codigoLinea(g.linea_titulo))}</span>
-        <span class="home-fav-dir">${escapeHtml(g.direccion || g.linea_titulo)}</span>
-        <span class="home-fav-hora">${escapeHtml(fmt.main)}<span class="home-fav-sub">${escapeHtml(fmt.sub)}</span></span>
-      </div>`;
-    });
-    if (total > mostradas.length) {
-      html += `<div class="fav-parada-mas">+${total - mostradas.length} salida${total - mostradas.length === 1 ? "" : "s"} más · pulsa para ver todo</div>`;
-    }
-    html += `</div>`;
-  });
-  if (!hayAlgo && FILTRO_MUNICIPIO) {
-    html += `<p class="empty">No sigues ninguna parada en ${escapeHtml(FILTRO_MUNICIPIO)}.</p>`;
-    hayAlgo = true;
-  }
-  html += "</div>";
-  box.innerHTML = hayAlgo ? html : "";
+  const salidas = salidasVigiladas();
+  const visibles = VER_TODAS_SALIDAS ? salidas : resumirSalidas(salidas);
+  const ocultas = salidas.length - visibles.length;
+
+  const filas = visibles.map(sal => `
+    <div class="salida-fila" data-stop-id="${escapeHtml(sal.paradaId)}">
+      <span class="home-fav-code es-fav">${escapeHtml(sal.codigo)}</span>
+      <span class="salida-cuerpo">
+        <span class="salida-hacia">hacia ${escapeHtml(sal.hacia)}</span>
+        <span class="salida-parada">${escapeHtml(sal.paradaNombre)}</span>
+      </span>
+      <span class="salida-cuando${sal.espera.urgente ? " ya" : ""}">${escapeHtml(sal.espera.cuando)}
+        <span class="salida-reloj">${escapeHtml(sal.espera.reloj)}</span>
+      </span>
+    </div>`).join("");
+
+  const vacio = FILTRO_MUNICIPIO
+    ? `<p class="empty">No sigues ninguna parada en ${escapeHtml(FILTRO_MUNICIPIO)}.</p>`
+    : `<p class="empty">Tus paradas no tienen más salidas hoy.</p>`;
+
+  box.innerHTML = `<div class="card home-fav-card">
+      <h2 class="home-fav-title">Tus próximas salidas</h2>
+      <div id="homeFiltroMuni"></div>
+      ${filas || vacio}
+      ${ocultas > 0 || VER_TODAS_SALIDAS
+        ? `<button type="button" class="salida-mas" id="btnVerTodasSalidas">${VER_TODAS_SALIDAS ? "Ver menos" : `Ver ${ocultas} salida${ocultas === 1 ? "" : "s"} más`}</button>`
+        : ""}
+    </div>`;
 
   const filtro = box.querySelector("#homeFiltroMuni");
   if (filtro) pintarFiltroMunicipio(filtro, renderHomeFavSalidas);
 
-  box.querySelectorAll(".home-fav-parada").forEach(el => {
+  const btnMas = box.querySelector("#btnVerTodasSalidas");
+  if (btnMas) btnMas.addEventListener("click", () => {
+    VER_TODAS_SALIDAS = !VER_TODAS_SALIDAS;
+    renderHomeFavSalidas();
+  });
+
+  box.querySelectorAll(".salida-fila").forEach(el => {
     el.addEventListener("click", () => openModal(cont => buildStopScheduleModalContent(cont, el.dataset.stopId)));
   });
 }
@@ -4919,14 +5017,9 @@ function renderQuickFavs() {
     });
     box.appendChild(b);
   });
-  FAVORITOS.paradas.slice(0, 3).forEach(fav => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "quickfav";
-    b.innerHTML = icono("parada") + escapeHtml(fav.nombre);
-    b.addEventListener("click", () => openModal(container => buildStopScheduleModalContent(container, fav.id)));
-    box.appendChild(b);
-  });
+  // Las paradas favoritas NO se repiten aquí: ya están arriba, con sus
+  // horas y pulsables. Estas pastillas son para las rutas guardadas, que
+  // no aparecen en ningún otro sitio de la pantalla.
 }
 
 function wireInicio() {
@@ -4960,12 +5053,11 @@ function wireInicio() {
 function irAPantalla(idPantalla) {
   document.querySelectorAll(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.screen === idPantalla));
   document.querySelectorAll(".screen").forEach(p => p.classList.toggle("active", p.id === idPantalla));
-  if (idPantalla === "screenInicio") { initHomeMap(); renderHomeFavSalidas(); renderQuickFavs(); }
+  if (idPantalla === "screenInicio") { renderHomeFavSalidas(); renderQuickFavs(); }
   if (idPantalla === "screenRuta") { buildStopsDatalist(); initRouteMap(); }
   if (idPantalla === "screenLineas") { renderLineasFavoritas(); renderListadoLineas(); }
   if (CURRENT_MAP_REF.map) setTimeout(() => CURRENT_MAP_REF.map.invalidateSize(), 60);
   if (CURRENT_ROUTE_MAP) setTimeout(() => CURRENT_ROUTE_MAP.invalidateSize(), 60);
-  if (HOME_MAP) setTimeout(() => HOME_MAP.invalidateSize(), 60);
 }
 
 function abrirDrawerFavoritos() {
@@ -5023,7 +5115,6 @@ async function init() {
   wireInicio();
   renderQuickFavs();
   renderHomeFavSalidas();
-  initHomeMap();
   arrancarVigilanteNotificaciones();
   pedirUbicacionInicio();
 }

@@ -11,11 +11,12 @@ tiempo real.
 
 ## Qué hace
 
-- **Inicio** — tus próximas salidas primero, el buscador de destino
-  después y el mapa al final. Si compartes la ubicación, aparecen también
-  las paradas que tienes al lado con su próximo autobús. El mapa agrupa de
-  lejos las paradas por municipio (un círculo cada uno, que se despliega al
-  tocarlo) y de cerca las enseña una a una.
+- **Inicio** — una sola lista con tus próximas salidas, ordenada por lo
+  que falta para cada una: primero el autobús que se va antes, venga de la
+  parada que venga. Cada fila dice la línea, hacia dónde va y desde qué
+  parada, y en grande **cuánto queda** (la hora del reloj va debajo, en
+  pequeño). Debajo, el buscador de destino y, si compartes la ubicación,
+  las paradas que tienes al lado con su próximo autobús.
 - **Líneas** — las 55 líneas del consorcio, con las próximas salidas en las
   paradas que tú elijas, recorrido en mapa, horario completo y PDF oficial
   de cada parada.
@@ -89,6 +90,18 @@ datos no vuelve a pedir nada al servidor.
   los bordes. Los anejos que quedan lejos de su municipio (Torre de la
   Reina es de Guillena aunque esté pegada a Alcalá del Río) llevan ancla
   propia.
+- **Lo que se enseña en Inicio.** El bloque de salidas iba agrupado por
+  parada, y eso rompía justo lo que la pantalla tiene que responder: con
+  dos paradas guardadas, un autobús que salía en un minuto quedaba por
+  debajo de otro que salía en una hora sólo porque su parada iba después.
+  Ahora es una cola única ordenada por tiempo, cada fila se explica sola y
+  el número grande es el que se usa para decidir ("11 min"), no el que hay
+  que restar mentalmente ("15:03"). El resumen limita a dos salidas por
+  parada para que ninguna se quede fuera de pantalla, y se despliega
+  entero de un toque. Inicio ya no lleva mapa: ocupaba media pantalla para
+  enseñar círculos sobre un fondo gris y empujaba fuera de la vista lo
+  único que se viene a mirar. El mapa sigue entero en Ruta.
+
 - **Agrupación del mapa.** Por debajo del zoom 13 el mapa enseña un
   círculo por municipio en vez de sus paradas. En el Aljarafe hay pueblos
   a 1,3 km, así que de muy lejos esos círculos se pisarían unos a otros:

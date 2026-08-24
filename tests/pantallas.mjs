@@ -8,8 +8,11 @@
  *   python3 -m http.server 8765 &
  *   node tests/pantallas.mjs
  */
-import { chromium } from 'playwright';
 import fs from 'fs';
+
+// Playwright se resuelve como cualquier dependencia; PLAYWRIGHT_MODULE
+// permite apuntar a una instalación global cuando no hay node_modules.
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 
 // Si no hay salida a internet, se puede servir Leaflet desde disco:
 //   LEAFLET_DIR=./node_modules/leaflet/dist node tests/<fichero>.mjs
@@ -51,11 +54,13 @@ await page.evaluate(() => {
   openModal(c => buildStopScheduleModalContent(c, id));
 });
 await page.waitForTimeout(400);
-const ficha = await page.locator('.modal-content').innerText();
+const ficha = await page.locator('#modalContent').innerText();
 ok(/AV ANDALUCIA \(ARROYO\)/.test(ficha), 'la ficha de parada abre');
 ok(/hacia/.test(ficha), 'y dice hacia dónde va cada línea');
+ok(!/ - .* - .* - /.test(ficha), 'sin el recorrido entero de la línea en cada fila');
 ok(!/\$\{/.test(ficha), 'sin plantillas sin interpolar');
-await page.keyboard.press('Escape');
+await page.locator('#modalCloseBtn').click();
+await page.waitForTimeout(300);
 
 // --- Ruta de municipio a municipio -----------------------------------
 await page.evaluate(() => irAPantalla('screenRuta'));

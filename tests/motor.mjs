@@ -9,8 +9,11 @@
  *   python3 -m http.server 8765 &
  *   node tests/motor.mjs
  */
-import { chromium } from 'playwright';
 import fs from 'fs';
+
+// Playwright se resuelve como cualquier dependencia; PLAYWRIGHT_MODULE
+// permite apuntar a una instalación global cuando no hay node_modules.
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 
 // Si no hay salida a internet, se puede servir Leaflet desde disco:
 //   LEAFLET_DIR=./node_modules/leaflet/dist node tests/<fichero>.mjs

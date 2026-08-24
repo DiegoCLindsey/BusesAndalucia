@@ -5,852 +5,849 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Próxima Salida · Consorcio de Transportes de Sevilla (no oficial)</title>
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#2F6F4F">
+<meta name="theme-color" content="#F4F7FA">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Próxima Salida">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon.svg">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Archivo+Expanded:wght@600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+/* ==========================================================================
+   Próxima Salida — capa de diseño
+   Un solo juego de tokens para los dos temas. El claro es el de partida
+   (es una app que se usa en la calle, de día, con sol); el nocturno se
+   activa a mano o siguiendo al sistema.
+   ========================================================================== */
+
   :root{
-    --paper:#EEF1EC;
-    --paper-2:#E1E7DD;
-    --card:#FFFFFF;
-    --ink:#1C2321;
-    --ink-soft:#4B5650;
-    --ink-faint:#7C8880;
-    --green:#2F6F4F;
-    --green-dark:#1E4A34;
-    --amber:#FFB100;
-    --board-bg:#10151A;
-    --board-line:#232B24;
-    --brick:#C1443B;
-    --border:#D3DBCE;
-    --radius:12px;
-    --font-display:'Archivo Expanded', sans-serif;
-    --font-body:'Inter', sans-serif;
-    --font-mono:'IBM Plex Mono', monospace;
+    color-scheme:light;
+
+    --bg:        #F4F7FA;
+    --bg-2:      #EAF0F6;
+    --card:      #FFFFFF;
+    --surface:        rgba(14,32,48,.04);
+    --surface-strong: rgba(14,32,48,.07);
+    --hairline:       rgba(14,32,48,.11);
+    --hairline-soft:  rgba(14,32,48,.06);
+
+    --text:      #0E1B24;
+    --text-soft: #47606F;
+    --text-mute: #7A8D9B;
+
+    --brand:   #0E9F6E;
+    --brand-2: #0BA5B8;
+    --brand-ink:#FFFFFF;   /* texto sobre el degradado de marca */
+    --amber:   #D98200;
+    --coral:   #DB5348;
+
+    --glow: 0 0 0 1px rgba(14,159,110,.18), 0 16px 38px -18px rgba(14,159,110,.45);
+    --sombra-card: 0 1px 2px rgba(14,32,48,.05), 0 8px 24px -18px rgba(14,32,48,.35);
+    --radius: 20px;
+    --radius-sm: 14px;
+
+    --chrome: rgba(255,255,255,.88);
+
+    --font: 'Outfit', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   }
-  *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;}
+
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+
+    --bg:        #070D14;
+    --bg-2:      #0B131D;
+    --card:      #101A25;
+    --surface:        rgba(255,255,255,.045);
+    --surface-strong: rgba(255,255,255,.08);
+    --hairline:       rgba(255,255,255,.11);
+    --hairline-soft:  rgba(255,255,255,.06);
+
+    --text:      #E9F1F7;
+    --text-soft: #A3B5C4;
+    --text-mute: #6C8092;
+
+    --brand:   #2EE6A8;
+    --brand-2: #22C8E0;
+    --brand-ink:#04241C;
+    --amber:   #FFB020;
+    --coral:   #FF7A70;
+
+    --glow: 0 0 0 1px rgba(46,230,168,.22), 0 16px 40px -18px rgba(46,230,168,.5);
+    --sombra-card: 0 1px 2px rgba(0,0,0,.4), 0 12px 30px -20px rgba(0,0,0,.9);
+    --chrome: rgba(11,19,29,.9);
+  }
+
+  /* Sin elección explícita, se sigue al sistema. */
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme:dark;
+      --bg:#070D14; --bg-2:#0B131D; --card:#101A25;
+      --surface:rgba(255,255,255,.045); --surface-strong:rgba(255,255,255,.08);
+      --hairline:rgba(255,255,255,.11); --hairline-soft:rgba(255,255,255,.06);
+      --text:#E9F1F7; --text-soft:#A3B5C4; --text-mute:#6C8092;
+      --brand:#2EE6A8; --brand-2:#22C8E0; --brand-ink:#04241C;
+      --amber:#FFB020; --coral:#FF7A70;
+      --glow:0 0 0 1px rgba(46,230,168,.22), 0 16px 40px -18px rgba(46,230,168,.5);
+      --sombra-card:0 1px 2px rgba(0,0,0,.4), 0 12px 30px -20px rgba(0,0,0,.9);
+      --chrome:rgba(11,19,29,.9);
+    }
+  }
+
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+
   body{
-    background:var(--paper);
-    color:var(--ink);
-    font-family:var(--font-body);
-    line-height:1.45;
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font);
+    font-size:15px;
+    line-height:1.5;
     -webkit-font-smoothing:antialiased;
+    overscroll-behavior-y:none;
   }
-  a{color:var(--green-dark);}
-  /* ---------- Armazón responsive ---------- */
+
+  /* Dos manchas de color muy difuminadas al fondo: dan profundidad sin
+     competir con nada de lo que se lee encima. */
+  .aurora{position:fixed; inset:0; z-index:-1; pointer-events:none; overflow:hidden;}
+  .aurora::before, .aurora::after{
+    content:''; position:absolute; width:66vmax; height:66vmax; border-radius:50%;
+    filter:blur(88px); opacity:.20;
+  }
+  .aurora::before{
+    background:radial-gradient(circle at 30% 30%, var(--brand), transparent 62%);
+    top:-30vmax; left:-20vmax;
+  }
+  .aurora::after{
+    background:radial-gradient(circle at 70% 70%, var(--brand-2), transparent 62%);
+    bottom:-34vmax; right:-24vmax;
+  }
+  :root[data-theme="dark"] .aurora::before,
+  :root[data-theme="dark"] .aurora::after{opacity:.26;}
+
+  .numerico{font-variant-numeric:tabular-nums; font-feature-settings:'tnum';}
+
+  /* ---------- Estructura ---------- */
   header{
     position:sticky; top:0; z-index:50;
-    background:var(--paper);
-    border-bottom:1px solid var(--border);
+    background:var(--chrome);
+    backdrop-filter:blur(16px) saturate(150%);
+    -webkit-backdrop-filter:blur(16px) saturate(150%);
+    border-bottom:1px solid var(--hairline-soft);
     padding:10px 16px;
   }
   .headline{
-    display:flex; align-items:center; justify-content:space-between; gap:12px;
     max-width:1080px; margin:0 auto;
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
   }
   h1{
-    font-family:var(--font-display);
-    font-weight:700;
-    font-size:19px;
-    letter-spacing:0.01em;
-    margin:0;
+    margin:0; font-size:19px; font-weight:700; letter-spacing:-.02em;
+    display:flex; align-items:center; gap:8px;
   }
-  h1 .accent{color:var(--green);}
-  .header-actions{display:flex; align-items:center; gap:8px;}
-  .status-line{
-    font-size:11px;
-    color:var(--ink-faint);
-    font-family:var(--font-mono);
-    max-width:1080px; margin:4px auto 0 auto;
+  h1 .marca-ico{
+    width:26px; height:26px; border-radius:9px; flex:none;
+    display:grid; place-items:center; color:var(--brand-ink);
+    background:linear-gradient(120deg, var(--brand), var(--brand-2));
   }
-  .btn-refresh, .btn-icon{
-    font-family:var(--font-mono);
-    font-size:12px;
-    background:none;
-    border:1px solid var(--border);
-    border-radius:999px;
-    padding:6px 12px;
-    cursor:pointer;
-    color:var(--ink-soft);
-    white-space:nowrap;
-  }
-  .btn-refresh:hover, .btn-icon:hover{border-color:var(--green); color:var(--green-dark);}
+  h1 .marca-ico svg{width:16px; height:16px;}
+  .header-actions{display:flex; align-items:center; gap:6px;}
 
-  /* Navegación: barra inferior en móvil, superior en escritorio */
+  .status-line{
+    max-width:1080px; margin:6px auto 0;
+    font-size:12.5px; color:var(--text-mute);
+  }
+  .status-line:empty{display:none;}
+  .status-line.error{color:var(--coral); font-weight:600;}
+
+  main{max-width:1080px; margin:0 auto; padding:16px 16px 92px 16px;}
+  .screen{display:none;}
+  .screen.active{display:block; animation:entrada .28s cubic-bezier(.2,.9,.3,1);}
+  @keyframes entrada{from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:none;}}
+
+  footer{
+    max-width:1080px; margin:0 auto;
+    padding:0 16px 92px 16px;
+    font-size:11.5px; color:var(--text-mute); text-align:center;
+  }
+
+  /* ---------- Navegación inferior ---------- */
   .nav{
     position:fixed; bottom:0; left:0; right:0; z-index:60;
-    display:flex; justify-content:space-around; align-items:stretch;
-    background:var(--card);
-    border-top:1px solid var(--border);
+    display:flex; justify-content:space-around;
+    background:var(--chrome);
+    backdrop-filter:blur(18px) saturate(150%);
+    -webkit-backdrop-filter:blur(18px) saturate(150%);
+    border-top:1px solid var(--hairline);
     padding-bottom:env(safe-area-inset-bottom, 0);
   }
   .nav-btn{
-    flex:1;
-    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+    flex:1; position:relative;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
     background:none; border:none; cursor:pointer;
-    padding:9px 4px 8px 4px;
-    color:var(--ink-faint);
-    font-family:var(--font-body); font-size:10.5px; font-weight:600;
-    border-top:2px solid transparent;
-    min-height:52px;
+    padding:10px 4px 9px 4px; min-height:56px;
+    color:var(--text-mute);
+    font-family:inherit; font-size:11px; font-weight:600;
+    transition:color .18s;
   }
-  .nav-btn .nav-ico{font-size:18px; line-height:1;}
-  .nav-btn.active{color:var(--green-dark); border-top-color:var(--green);}
-
-  main{max-width:1080px; margin:0 auto; padding:16px 16px 76px 16px;}
-  .screen{display:none;}
-  .screen.active{display:block;}
-  /* Inicio ocupa todo el alto disponible: es una pantalla-mapa */
-  .screen-full{padding:0;}
-
-  @media (min-width:820px){
-    .nav{
-      position:sticky; top:0; bottom:auto;
-      justify-content:center; gap:6px;
-      border-top:none; border-bottom:1px solid var(--border);
-      background:var(--paper);
-      padding:0 16px;
-    }
-    .nav-btn{
-      flex:0 0 auto;
-      flex-direction:row; gap:7px;
-      font-size:13.5px;
-      padding:12px 16px;
-      border-top:none; border-bottom:2px solid transparent;
-      min-height:0;
-    }
-    .nav-btn.active{border-bottom-color:var(--green); border-top-color:transparent;}
-    .nav-btn .nav-ico{font-size:15px;}
-    main{padding:22px 20px 40px 20px;}
+  .nav-btn svg{width:22px; height:22px;}
+  .nav-btn.active{color:var(--brand);}
+  .nav-btn.active::before{
+    content:''; position:absolute; top:0; left:50%; transform:translateX(-50%);
+    width:28px; height:3px; border-radius:0 0 4px 4px;
+    background:linear-gradient(90deg, var(--brand), var(--brand-2));
   }
 
-  /* Drawer lateral de favoritos */
-  .drawer-overlay{
-    position:fixed; inset:0; background:rgba(16,21,26,0.5);
-    z-index:2000; display:none;
-  }
-  .drawer-overlay.open{display:block;}
-  .drawer{
-    position:fixed; top:0; right:0; bottom:0;
-    width:min(400px, 88vw);
-    background:var(--paper);
-    z-index:2010;
-    transform:translateX(100%);
-    transition:transform .22s ease;
-    overflow-y:auto;
-    padding:16px 16px 40px 16px;
-    box-shadow:-4px 0 20px rgba(0,0,0,0.18);
-  }
-  .drawer.open{transform:translateX(0);}
-  .drawer-head{
-    display:flex; align-items:center; justify-content:space-between;
-    margin-bottom:12px;
-  }
-  .drawer-title{font-family:var(--font-display); font-weight:700; font-size:17px; margin:0;}
-
-  .tab-panel{display:none;}
-  .tab-panel.active{display:block;}
-
+  /* ---------- Superficies ---------- */
   .card{
     background:var(--card);
-    border:1px solid var(--border);
+    border:1px solid var(--hairline-soft);
     border-radius:var(--radius);
+    box-shadow:var(--sombra-card);
     padding:18px;
-    margin-bottom:16px;
-  }
-  .field-label{
-    display:block;
-    font-size:11px;
-    text-transform:uppercase;
-    letter-spacing:0.06em;
-    color:var(--ink-faint);
-    margin:0 0 4px 0;
-    font-weight:600;
-  }
-  .field{margin-bottom:14px;}
-  .select, .input{
-    width:100%;
-    font-family:var(--font-body);
-    font-size:15px;
-    padding:10px 12px;
-    border-radius:8px;
-    border:1px solid var(--border);
-    background:var(--paper);
-    color:var(--ink);
-  }
-  .select:disabled{opacity:0.5;}
-  .field-row{display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;}
-  .field-row .field{flex:1; min-width:120px; margin-bottom:0;}
-
-  .btn{
-    font-family:var(--font-body);
-    font-weight:600;
-    font-size:14px;
-    padding:10px 16px;
-    border-radius:8px;
-    border:none;
-    cursor:pointer;
-    background:var(--green);
-    color:#fff;
-  }
-  .btn:hover{background:var(--green-dark);}
-  .btn-pdf{
-    display:inline-block;
-    text-decoration:none;
-    margin:10px 0 4px 0;
-  }
-  .btn-back{
-    font-family:var(--font-mono);
-    font-size:12px;
-    background:none;
-    border:1px solid var(--border);
-    border-radius:999px;
-    padding:6px 14px;
-    cursor:pointer;
-    color:var(--ink-soft);
     margin-bottom:14px;
   }
-  .btn-back:hover{border-color:var(--green); color:var(--green-dark);}
-
-  .pills{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;}
-  .pill{
-    font-family:var(--font-body);
-    font-size:13px;
-    font-weight:600;
-    padding:7px 12px;
-    border-radius:999px;
-    border:1px solid var(--border);
-    background:var(--paper);
-    color:var(--ink-soft);
-    cursor:pointer;
-  }
-  .pill.active{background:var(--green); border-color:var(--green); color:#fff;}
-
-  .detail-title{
-    font-family:var(--font-display);
-    font-size:19px;
-    margin:0 0 2px 0;
-  }
-  .detail-sub{font-size:14px; color:var(--ink-soft); margin-bottom:2px;}
-  .detail-meta{font-size:12px; color:var(--ink-faint); margin-bottom:14px; font-family:var(--font-mono);}
-
-  .board{
-    background:var(--board-bg);
-    border-radius:var(--radius);
-    padding:18px 20px;
-    margin:6px 0 4px 0;
-  }
-  .board-label{
-    font-family:var(--font-mono);
-    font-size:11px;
-    letter-spacing:0.12em;
-    color:#7c8880;
-    margin-bottom:6px;
-  }
-  .board-time{
-    font-family:var(--font-mono);
-    font-size:44px;
-    font-weight:600;
-    color:var(--amber);
-    letter-spacing:0.02em;
-    line-height:1;
-  }
-  .board-sub{
-    font-family:var(--font-mono);
-    font-size:13px;
-    color:#9fb0a6;
-    margin-top:6px;
-  }
-  .board-note{font-size:11px; color:var(--ink-faint); margin:6px 0 12px 0;}
-
-  .map-note{font-size:11px; color:var(--ink-faint); margin:10px 0 6px 0;}
-  .mapbox{
-    height:300px;
-    border-radius:var(--radius);
-    border:1px solid var(--border);
-    margin-bottom:16px;
-    background:var(--paper-2);
-  }
-
-  .stoprow{
-    border:1px solid var(--border);
-    border-radius:8px;
-    margin-bottom:6px;
-    overflow:hidden;
-    background:var(--paper);
-  }
-  .stoprow-head{
-    display:flex; align-items:center; gap:10px;
-    width:100%;
-    text-align:left;
-    background:none;
-    border:none;
-    cursor:pointer;
-    padding:10px 12px;
-    font-family:var(--font-body);
-  }
-  .stoprow-head:hover{background:var(--paper-2);}
-  .stoprow-order{
-    font-family:var(--font-mono);
-    font-size:11px;
-    color:var(--ink-faint);
-    min-width:20px;
-  }
-  .stoprow-name{flex:1; font-size:14px; font-weight:600; color:var(--ink);}
-  .stoprow-time{
-    font-family:var(--font-mono);
-    font-weight:600;
-    font-size:14px;
-    color:var(--green-dark);
-    text-align:right;
-    white-space:nowrap;
-  }
-  .stoprow-sub{display:block; font-size:10px; color:var(--ink-faint); font-weight:500;}
-  .stoprow-body{
-    padding:0 12px 14px 12px;
-    background:#fff;
-    border-top:1px solid var(--border);
-  }
-
   .section-title{
-    font-family:var(--font-display);
-    font-size:15px;
-    margin:18px 0 8px 0;
+    margin:0 0 12px 0; font-size:16px; font-weight:700; letter-spacing:-.015em;
+    display:flex; align-items:center; gap:8px;
   }
-  details{
-    border:1px solid var(--border);
-    border-radius:8px;
-    margin-bottom:8px;
-    padding:8px 12px;
-    background:var(--paper);
-  }
-  details[open]{background:#fff;}
-  summary{
-    cursor:pointer;
-    font-weight:600;
-    font-size:13px;
-    padding:4px 0;
-  }
-  .horagrid{display:flex; flex-direction:column; gap:6px; margin-top:8px;}
-  .horacell{display:flex; align-items:flex-start; gap:10px; border-top:1px dashed var(--border); padding-top:6px;}
-  .horacell:first-child{border-top:none; padding-top:0;}
-  .horalabel{
-    font-family:var(--font-mono);
-    font-weight:600;
-    font-size:13px;
-    color:var(--ink-soft);
-    min-width:28px;
-  }
-  .minchips{display:flex; flex-wrap:wrap; gap:5px;}
-  .chip{
-    font-family:var(--font-mono);
-    font-size:12px;
-    background:var(--paper-2);
-    border-radius:5px;
-    padding:2px 6px;
-    color:var(--ink);
-  }
+  .section-title svg{width:18px; height:18px; color:var(--brand);}
+  .empty{color:var(--text-mute); font-size:14px; margin:0;}
 
-  .empty{color:var(--ink-faint); font-size:14px;}
+  /* ---------- Botones ---------- */
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:7px;
+    padding:12px 20px; border-radius:999px;
+    font-family:inherit; font-size:15px; font-weight:700;
+    border:1px solid transparent; cursor:pointer;
+    background:linear-gradient(105deg, var(--brand), var(--brand-2));
+    color:var(--brand-ink); box-shadow:var(--glow);
+    transition:filter .18s, transform .12s;
+  }
+  .btn svg{width:18px; height:18px;}
+  .btn:hover{filter:brightness(1.06);}
+  .btn:active{transform:scale(.975);}
+  .btn:disabled{opacity:.45; cursor:not-allowed;}
 
-  .stoplist, .servicelist{list-style:none; margin:0; padding:0;}
-  .stopitem, .serviceitem{
-    display:flex; justify-content:space-between; align-items:center;
-    padding:12px 4px;
-    border-bottom:1px solid var(--border);
-    cursor:pointer;
-  }
-  .stopitem:hover, .serviceitem:hover{background:var(--paper-2);}
-  .stopname{font-weight:600; font-size:14px;}
-  .stopdist{
-    font-family:var(--font-mono);
-    font-size:12px;
-    color:var(--green-dark);
-    background:var(--paper-2);
-    border-radius:999px;
-    padding:3px 9px;
-  }
-  .serviceitem{flex-direction:row; align-items:center; gap:10px;}
-  .servicename{font-weight:700; font-size:14px;}
-  .servicevariant{font-size:12px; color:var(--ink-faint); flex:1;}
-  .servicetime{
-    font-family:var(--font-mono);
-    font-weight:600;
-    font-size:15px;
-    color:var(--green-dark);
-    text-align:right;
+  .btn-chip{
+    display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    padding:8px 13px; border-radius:999px;
+    font-family:inherit; font-size:13px; font-weight:600;
+    background:var(--surface); color:var(--text-soft);
+    border:1px solid var(--hairline); cursor:pointer;
+    transition:border-color .18s, color .18s, background .18s;
     white-space:nowrap;
   }
-  .servicesub{display:block; font-size:10px; color:var(--ink-faint); font-weight:500;}
+  .btn-chip svg{width:15px; height:15px;}
+  .btn-chip:hover{border-color:var(--brand); color:var(--brand);}
+  .btn-chip.armed{
+    background:linear-gradient(105deg, var(--brand), var(--brand-2));
+    color:var(--brand-ink); border-color:transparent;
+  }
+  .btn-icon{
+    display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    background:var(--surface); border:1px solid var(--hairline);
+    color:var(--text-soft); cursor:pointer;
+    border-radius:999px; padding:8px 12px;
+    font-family:inherit; font-size:13px; font-weight:600;
+    transition:border-color .18s, color .18s;
+  }
+  .btn-icon svg{width:17px; height:17px;}
+  .btn-icon:hover{border-color:var(--brand); color:var(--brand);}
+  .btn-icon.solo-ico{padding:8px; width:36px; height:36px;}
 
-  footer{
-    max-width:960px; margin:0 auto; padding:0 18px 40px 18px;
-    font-size:11px; color:var(--ink-faint);
-  }
-
-  .stop-popup{font-family:var(--font-body); min-width:200px;}
-  .stop-popup-title{
-    font-family:var(--font-display);
-    font-weight:700;
-    font-size:14px;
-    margin-bottom:6px;
-  }
-  .stop-popup-proximos{margin-bottom:10px;}
-  .stop-popup-line{
-    display:flex; justify-content:space-between; align-items:baseline; gap:8px;
-    font-size:12.5px;
-    padding:3px 0;
-  }
-  .stop-popup-time{
-    font-family:var(--font-mono);
-    font-weight:600;
-    color:var(--green-dark);
-    white-space:nowrap;
-  }
-  .stop-popup-sub{font-size:10.5px; color:var(--ink-faint); font-weight:500;}
-  .stop-popup-actions{display:flex; gap:6px; flex-wrap:wrap;}
-  .stop-popup-actions .btn-chip{font-size:12px; padding:6px 9px;}
   .btn-fav{
-    background:none; border:none; cursor:pointer;
-    font-size:18px; line-height:1; color:var(--amber);
-    padding:0 2px; vertical-align:middle;
+    background:none; border:none; cursor:pointer; padding:4px;
+    color:var(--text-mute); display:inline-flex; align-items:center;
+    transition:color .18s, transform .12s;
   }
-  .btn-fav:hover{transform:scale(1.15);}
+  .btn-fav svg{width:20px; height:20px;}
+  .btn-fav:hover{color:var(--amber);}
+  .btn-fav.es-fav{color:var(--amber);}
+  .btn-fav:active{transform:scale(.88);}
 
-  /* ---------- Pantalla Inicio ---------- */
-  /* El buscador iba flotando sobre el mapa y le tapaba el tercio de
-     abajo. Va antes que el mapa y como una tarjeta más: es la acción
-     principal de la pantalla, no un adorno encima de otra cosa. */
-  .home-map{
-    width:100%;
-    height:min(56vh, 460px);
-    min-height:260px;
-    background:var(--paper-2);
-    border-radius:var(--radius);
-    border:1px solid var(--border);
+  /* ---------- Formularios ---------- */
+  .field{margin-bottom:14px;}
+  .field:last-child{margin-bottom:0;}
+  .field-label{
+    display:block; font-size:12.5px; font-weight:600;
+    color:var(--text-soft); margin-bottom:6px;
   }
-  .home-search-title{
-    font-family:var(--font-display); font-weight:700; font-size:15px;
-    margin:0 0 8px 0;
+  .input, .select{
+    width:100%; padding:12px 14px; border-radius:var(--radius-sm);
+    background:var(--surface); border:1px solid var(--hairline);
+    color:var(--text); font-family:inherit; font-size:15px;
+    transition:border-color .18s, box-shadow .18s, background .18s;
   }
-  .home-origen-line{
-    font-size:11.5px; color:var(--ink-soft); margin-top:8px;
-    display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+  .input:focus, .select:focus{
+    outline:none; border-color:var(--brand);
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent);
+    background:var(--card);
   }
-  .home-quickfavs{display:flex; gap:6px; flex-wrap:wrap; margin-top:10px;}
-  .quickfav{
-    font-size:12px; font-weight:600;
-    border:1px solid var(--border); background:var(--paper);
-    border-radius:999px; padding:6px 11px; cursor:pointer;
-    color:var(--ink-soft);
-    max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  .input::placeholder{color:var(--text-mute);}
+  .select{
+    appearance:none; padding-right:38px;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%237A8D9B' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 14px center;
   }
-  .quickfav:hover{border-color:var(--green); color:var(--green-dark);}
+  .field-row{display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;}
+  .field-row .field{flex:1; min-width:150px;}
+  .endpoint-row{display:flex; gap:7px; align-items:center;}
+  .endpoint-row .input{flex:1; min-width:0;}
+  .endpoint-status{font-size:12.5px; color:var(--text-soft); margin-top:6px; min-height:16px;}
 
-  /* ---------- Pantalla Líneas ---------- */
-  .linea-chip-row{display:flex; gap:8px; flex-wrap:wrap;}
-  .linea-chip{
-    display:flex; align-items:stretch; gap:0;
-    border:1px solid var(--border); border-radius:10px;
-    background:var(--paper); cursor:pointer; overflow:hidden;
-    min-width:150px;
+  /* ---------- Píldoras ---------- */
+  .chip-row{display:flex; gap:7px; flex-wrap:wrap; margin:8px 0 12px;}
+  .muni-chip{
+    font-family:inherit; font-size:13px; font-weight:600;
+    padding:7px 13px; border-radius:999px;
+    border:1px solid var(--hairline); background:var(--surface);
+    color:var(--text-soft); cursor:pointer; transition:all .18s;
   }
-  .linea-chip:hover{border-color:var(--green);}
-  .linea-chip-code{
-    font-family:var(--font-display); font-weight:700; font-size:13px;
-    padding:8px 10px; display:flex; align-items:center;
-    background:var(--green); color:#fff; white-space:nowrap;
+  .muni-chip:hover{border-color:var(--brand);}
+  .muni-chip.active{
+    background:linear-gradient(105deg, var(--brand), var(--brand-2));
+    border-color:transparent; color:var(--brand-ink);
   }
-  .linea-chip-times{
-    display:flex; flex-direction:column; justify-content:center;
-    padding:5px 10px; font-family:var(--font-mono); font-size:12px; font-weight:600;
-    color:var(--green-dark); line-height:1.35;
+  .linea-badge{
+    display:inline-flex; align-items:center;
+    font-family:inherit; font-weight:700; font-size:12.5px; letter-spacing:-.01em;
+    padding:4px 9px; border-radius:8px;
+    background:linear-gradient(120deg, var(--brand), var(--brand-2));
+    color:var(--brand-ink); white-space:nowrap; flex-shrink:0;
   }
-  .linea-chip-times .muted{color:var(--ink-faint); font-weight:500; font-size:10.5px;}
+  .linea-badge.suave{
+    background:var(--surface-strong); color:var(--text-soft);
+  }
 
+  /* ---------- Listas ---------- */
   .linea-row{
-    display:flex; align-items:center; justify-content:space-between; gap:10px;
-    padding:11px 4px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:11px;
+    padding:11px 0; border-top:1px solid var(--hairline-soft);
     cursor:pointer;
   }
-  .linea-row:hover{background:var(--paper-2);}
-  .linea-row-name{font-size:13.5px; font-weight:600; flex:1; min-width:0;}
+  .linea-row:first-child{border-top:none;}
+  .linea-row:hover .linea-row-name{color:var(--brand);}
+  .linea-row-name{
+    font-size:14.5px; font-weight:600; flex:1; min-width:0; transition:color .18s;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  }
   .linea-row-muni{
-    font-size:11px; color:var(--ink-faint); display:block; font-weight:500;
+    display:block; font-size:12px; font-weight:500; color:var(--text-mute);
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
+  .servicelist{list-style:none; margin:0; padding:0;}
+  .serviceitem{
+    display:flex; align-items:center; gap:11px;
+    padding:12px 0; border-top:1px solid var(--hairline-soft); cursor:pointer;
+  }
+  .serviceitem:first-child{border-top:none;}
+  .servicename{font-size:14.5px; font-weight:600;}
+  .servicevariant{font-size:12px; color:var(--text-mute);}
+  .servicetime{
+    font-size:17px; font-weight:700; color:var(--brand); text-align:right; white-space:nowrap;
+    font-variant-numeric:tabular-nums;
+  }
+  .servicesub{display:block; font-size:11px; font-weight:500; color:var(--text-mute);}
+  .stoplist{list-style:none; margin:0; padding:0;}
+  .stopitem{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:12px 0; border-top:1px solid var(--hairline-soft); cursor:pointer;
+  }
+  .stopitem:first-child{border-top:none;}
+  .stopname{font-size:14.5px; font-weight:600; flex:1; min-width:0;}
+  .stopdist{
+    font-size:12.5px; font-weight:600; color:var(--brand); white-space:nowrap;
+    font-variant-numeric:tabular-nums;
+  }
 
-  /* ---------- Salidas de cabecera por sentido ---------- */
-  .cabecera-list{display:flex; flex-direction:column; gap:2px; margin:6px 0 4px 0; align-items:stretch;}
-  .cabecera-row{
-    display:flex; align-items:center; gap:9px;
-    padding:8px 8px;
-    border:1px solid var(--border); border-radius:9px;
-    background:var(--paper); cursor:pointer;
+  /* ---------- Mapas ---------- */
+  .mapbox, .home-map{
+    width:100%; border-radius:var(--radius);
+    border:1px solid var(--hairline); overflow:hidden;
+    background:var(--bg-2);
   }
-  .cabecera-row:hover{border-color:var(--green); background:var(--paper-2);}
-  .cabecera-ico{font-size:14px; flex-shrink:0;}
-  .cabecera-body{flex:1; min-width:0;}
-  .cabecera-nombre{
-    display:block; font-size:12.5px; font-weight:600; color:var(--ink);
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  .home-map{height:min(56vh, 460px); min-height:260px; margin-bottom:14px;}
+  .leaflet-container{z-index:1; background:var(--bg-2) !important; font-family:inherit !important;}
+  .leaflet-top, .leaflet-bottom{z-index:800;}
+  /* Las teselas de OSM son claras: de noche se invierten para no deslumbrar. */
+  :root[data-theme="dark"] .leaflet-tile{filter:invert(1) hue-rotate(180deg) brightness(.86) contrast(.92) saturate(.75);}
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]) .leaflet-tile{filter:invert(1) hue-rotate(180deg) brightness(.86) contrast(.92) saturate(.75);}
   }
-  .cabecera-meta{display:block; font-size:10px; color:var(--ink-faint);}
-  .cabecera-time{
-    font-family:var(--font-mono); font-weight:600; font-size:14px;
-    color:var(--green-dark); text-align:right; white-space:nowrap; flex-shrink:0;
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip{
+    background:var(--card) !important; color:var(--text) !important;
+    box-shadow:0 12px 40px -12px rgba(0,0,0,.45) !important;
   }
-  .cabecera-sub{display:block; font-size:9.5px; color:var(--ink-faint); font-weight:500;}
-  .cabecera-next{display:block; font-size:9.5px; color:var(--ink-faint); font-weight:500;}
+  .leaflet-popup-content-wrapper{border-radius:16px !important; border:1px solid var(--hairline);}
+  .leaflet-popup-content{margin:14px !important; font-family:inherit !important;}
+  .leaflet-bar a{background:var(--card) !important; color:var(--text) !important; border-color:var(--hairline) !important;}
+  .leaflet-control-attribution{
+    background:var(--chrome) !important; color:var(--text-mute) !important; font-size:10px !important;
+  }
+  .leaflet-control-attribution a{color:var(--text-soft) !important;}
 
-  /* Bloque destacado de salidas favoritas en Inicio */
-  .home-fav-card{margin-bottom:14px;}
+  /* ---------- Inicio ---------- */
+  .home-search-title{
+    margin:0 0 10px 0; font-size:17px; font-weight:700; letter-spacing:-.02em;
+  }
+  .home-origen-line{
+    font-size:12.5px; color:var(--text-soft); margin-top:10px;
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  }
+  .home-quickfavs{display:flex; gap:7px; flex-wrap:wrap; margin-top:12px;}
+  .quickfav{
+    display:inline-flex; align-items:center; gap:6px;
+    font-family:inherit; font-size:13px; font-weight:600;
+    border:1px solid var(--hairline); background:var(--surface);
+    color:var(--text-soft); border-radius:999px; padding:7px 13px; cursor:pointer;
+    transition:border-color .18s, color .18s;
+  }
+  .quickfav svg{width:14px; height:14px;}
+  .quickfav:hover{border-color:var(--brand); color:var(--brand);}
+
+  /* Bloque de próximas salidas: es lo primero que se mira al abrir. */
   .home-fav-title{
-    font-family:var(--font-display); font-weight:700; font-size:17px;
-    margin:0 0 10px 0;
+    margin:0 0 4px 0; font-size:21px; font-weight:700; letter-spacing:-.025em;
   }
   .home-fav-parada{
-    border-top:1px solid var(--border); padding:10px 0 6px 0; cursor:pointer;
+    padding:13px 0 9px 0; border-top:1px solid var(--hairline-soft); cursor:pointer;
   }
-  .home-fav-parada:first-of-type{border-top:none; padding-top:0;}
-  .home-fav-parada:hover{background:var(--paper-2);}
+  .home-fav-parada:first-of-type{border-top:none;}
   .home-fav-parada-nombre{
-    font-size:12px; font-weight:700; color:var(--ink-soft);
-    text-transform:uppercase; letter-spacing:0.04em; margin-bottom:6px;
+    display:flex; align-items:center; gap:6px;
+    font-size:12.5px; font-weight:700; color:var(--text-soft);
+    margin-bottom:8px; letter-spacing:.01em;
   }
-  .home-fav-muni{color:var(--ink-faint); font-weight:600;}
+  .home-fav-parada-nombre svg{width:14px; height:14px; color:var(--brand); flex:none;}
+  .home-fav-muni{color:var(--text-mute); font-weight:600;}
   .home-fav-muni::before{content:"· ";}
-  .home-fav-fila{
-    display:flex; align-items:center; gap:10px; padding:5px 0;
-  }
-  .home-fav-code{
-    font-family:var(--font-display); font-weight:700; font-size:12px;
-    padding:4px 8px; border-radius:6px;
-    background:var(--paper-2); color:var(--ink-soft); white-space:nowrap;
-  }
-  .home-fav-code.es-fav{background:var(--green); color:#fff;}
+  .home-fav-fila{display:flex; align-items:center; gap:11px; padding:6px 0;}
   .home-fav-dir{
-    flex:1; min-width:0; font-size:13.5px; font-weight:600; color:var(--ink);
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    flex:1; min-width:0; font-size:14.5px; font-weight:600; color:var(--text);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
   .home-fav-hora{
-    font-family:var(--font-mono); font-weight:600; font-size:20px;
-    color:var(--green-dark); text-align:right; white-space:nowrap; line-height:1.1;
+    font-size:23px; font-weight:700; color:var(--brand); text-align:right;
+    line-height:1.05; white-space:nowrap; font-variant-numeric:tabular-nums;
+    letter-spacing:-.02em;
   }
-  .home-fav-sub{display:block; font-size:10px; color:var(--ink-faint); font-weight:500;}
-  @media (min-width:820px){
-    .home-fav-title{font-size:20px;}
-    .home-fav-hora{font-size:24px;}
-    .home-fav-dir{font-size:15px;}
-  }
+  .home-fav-sub{display:block; font-size:11px; font-weight:600; color:var(--text-mute); letter-spacing:0;}
+  .fav-parada-mas{font-size:12px; color:var(--text-mute); padding-top:6px;}
 
-  /* Aviso de salida dentro de la app */
-  .aviso-salida{
-    position:fixed; left:12px; right:12px; bottom:70px;
-    background:var(--board-bg); color:#fff;
-    border-radius:14px; padding:14px 16px; z-index:4000;
-    box-shadow:0 6px 24px rgba(0,0,0,0.35);
-  }
-  @media (min-width:820px){
-    .aviso-salida{left:auto; right:20px; bottom:20px; width:360px;}
-  }
-  .aviso-titulo{font-family:var(--font-display); font-weight:700; font-size:15px; margin-bottom:5px;}
-  .aviso-cuerpo{font-size:13px; color:#d7e0d9; line-height:1.4;}
-  .aviso-nota{font-size:11px; color:#9fb0a6; margin-top:6px;}
-  .aviso-acciones{display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;}
-  .aviso-acciones .btn-chip{background:transparent; color:#fff; border-color:#3d4a42;}
-  .aviso-acciones .btn-chip:hover{border-color:var(--amber); color:var(--amber);}
-
+  /* ---------- Ficha de parada / favoritos ---------- */
   .fav-parada-card{
-    border:1px solid var(--border); border-radius:10px;
-    background:var(--card); padding:10px; margin-bottom:8px;
+    border:1px solid var(--hairline-soft); border-radius:var(--radius-sm);
+    padding:13px; margin-bottom:10px; background:var(--surface);
   }
-  .fav-parada-head{
-    display:flex; align-items:center; justify-content:space-between; gap:8px;
-    margin-bottom:6px;
-  }
-  .fav-parada-nombre{font-weight:700; font-size:13.5px;}
-  .fav-parada-linea{
-    display:flex; align-items:center; gap:8px;
-    padding:5px 0; border-top:1px dashed var(--border); cursor:pointer;
-  }
-  .fav-parada-linea:first-child{border-top:none;}
-  .fav-parada-linea-code{
-    font-family:var(--font-display); font-weight:700; font-size:11px;
-    padding:3px 7px; border-radius:6px;
-    background:var(--paper-2); color:var(--ink-soft); white-space:nowrap;
-  }
-  .fav-parada-linea-code.es-fav{background:var(--green); color:#fff;}
+  .fav-parada-head{display:flex; align-items:center; justify-content:space-between; gap:8px;}
+  .fav-parada-nombre{font-size:14.5px; font-weight:700;}
+  .fav-parada-linea{display:flex; align-items:center; gap:10px; padding:7px 0;}
+  .fav-parada-dir{font-size:13.5px; font-weight:600;}
   .fav-parada-linea-body{flex:1; min-width:0;}
-  .fav-parada-dir{
-    display:block; font-size:12px; font-weight:600; color:var(--ink);
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  }
-  .fav-parada-mas{
-    font-size:10.5px; color:var(--ink-faint); padding-top:6px; cursor:pointer;
-  }
 
-  .fav-linea-bloque{margin-bottom:14px;}
-  .fav-linea-bloque:last-child{margin-bottom:0;}
-  .fav-linea-header{
-    display:flex; align-items:center; gap:8px; width:100%;
-    background:none; border:none; cursor:pointer; text-align:left;
-    padding:2px 0 6px 0;
+  /* Renglón de sentido de una línea */
+  .cabecera-list{margin-top:8px;}
+  .cabecera-row{
+    display:flex; align-items:center; gap:11px;
+    padding:11px 0; border-top:1px solid var(--hairline-soft); cursor:pointer;
   }
-  .fav-linea-header:hover .fav-linea-titulo{text-decoration:underline;}
-  .fav-linea-titulo{
-    font-family:var(--font-body); font-weight:700; font-size:13px; color:var(--ink);
-    flex:1; min-width:0;
+  .cabecera-row:first-child{border-top:none;}
+  .cabecera-ico{
+    width:32px; height:32px; border-radius:11px; flex:none;
+    display:grid; place-items:center;
+    background:var(--surface-strong); color:var(--brand);
   }
-
-  .endpoint-row{display:flex; gap:6px;}
-  .endpoint-row .input{flex:1;}
-  .btn-chip{
-    font-size:16px;
-    padding:8px 11px;
-    border-radius:8px;
-    border:1px solid var(--border);
-    background:var(--paper);
-    cursor:pointer;
+  .cabecera-ico svg{width:17px; height:17px;}
+  .cabecera-body{flex:1; min-width:0;}
+  .cabecera-nombre{
+    display:block; font-size:14.5px; font-weight:700;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
-  .btn-chip.armed{background:var(--amber); border-color:var(--amber);}
-  .btn-chip:hover{border-color:var(--green);}
-  .endpoint-status{font-size:12px; color:var(--ink-soft); margin-top:5px; min-height:16px;}
+  .cabecera-meta{
+    display:block; font-size:12px; color:var(--text-mute);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .cabecera-time{
+    font-size:17px; font-weight:700; color:var(--brand); text-align:right;
+    white-space:nowrap; font-variant-numeric:tabular-nums; line-height:1.15;
+  }
+  .cabecera-sub{display:block; font-size:11px; font-weight:600; color:var(--text-mute);}
+  .cabecera-next{display:block; font-size:10.5px; color:var(--text-mute); font-weight:500;}
 
-  .leaflet-container{z-index:1;}
-  .leaflet-top, .leaflet-bottom{z-index:800;}
+  /* ---------- Horario ---------- */
+  .board{
+    background:linear-gradient(140deg, var(--brand), var(--brand-2));
+    color:var(--brand-ink); border-radius:var(--radius-sm);
+    padding:16px; text-align:center; box-shadow:var(--glow);
+  }
+  .board-label{font-size:11px; font-weight:700; letter-spacing:.14em; opacity:.8;}
+  .board-time{font-size:38px; font-weight:700; line-height:1.1; font-variant-numeric:tabular-nums; letter-spacing:-.03em;}
+  .board-sub{font-size:13px; font-weight:600; opacity:.85;}
+  .board-note{font-size:11.5px; color:var(--text-mute); margin-top:8px;}
+  .minchips{display:flex; flex-wrap:wrap; gap:5px;}
+  .chip{
+    font-size:12px; font-weight:600; font-variant-numeric:tabular-nums;
+    background:var(--surface-strong); border-radius:6px; padding:3px 7px; color:var(--text-soft);
+  }
+  .hora-fila{display:flex; align-items:baseline; gap:10px; padding:7px 0; border-top:1px solid var(--hairline-soft);}
+  .hora-fila:first-child{border-top:none;}
+  .hora-hora{font-weight:700; font-size:13.5px; color:var(--text-soft); min-width:30px; font-variant-numeric:tabular-nums;}
+  .detail-title{
+    margin:0; font-size:19px; font-weight:700; letter-spacing:-.02em;
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  }
+  .detail-meta{font-size:12.5px; color:var(--text-mute); margin-top:3px;}
 
-  /* Modal genérico */
+  /* ---------- Modal ---------- */
   .modal-overlay{
-    position:fixed; inset:0; background:rgba(16,21,26,0.55);
+    position:fixed; inset:0; z-index:3000;
+    background:rgba(4,10,16,.55); backdrop-filter:blur(5px);
     display:flex; align-items:flex-end; justify-content:center;
-    z-index:3000; padding:0;
+    animation:aparecer .18s ease;
   }
   .modal-box{
-    background:var(--paper); width:100%; max-width:640px;
+    background:var(--card); width:100%; max-width:640px;
     max-height:88vh; overflow-y:auto;
-    border-radius:16px 16px 0 0;
-    padding:16px 16px 24px 16px;
-    box-shadow:0 -6px 24px rgba(0,0,0,0.25);
+    border:1px solid var(--hairline); border-bottom:none;
+    border-radius:26px 26px 0 0; padding:18px 18px 26px 18px;
+    animation:subir .26s cubic-bezier(.2,.9,.3,1);
   }
   @media (min-width:680px){
-    .modal-overlay{align-items:center;}
-    .modal-box{border-radius:16px; max-height:82vh;}
+    .modal-overlay{align-items:center; padding:20px;}
+    .modal-box{border-radius:26px; border-bottom:1px solid var(--hairline); max-height:82vh; animation:asomar .22s cubic-bezier(.2,.9,.3,1);}
   }
+  @keyframes aparecer{from{opacity:0;} to{opacity:1;}}
+  @keyframes subir{from{transform:translateY(100%);} to{transform:none;}}
+  @keyframes asomar{from{transform:scale(.95); opacity:0;} to{transform:none; opacity:1;}}
   .modal-close{
-    float:right;
-    font-family:var(--font-mono);
-    font-size:13px;
-    background:none; border:1px solid var(--border); border-radius:999px;
-    padding:5px 12px; cursor:pointer; color:var(--ink-soft);
+    float:right; display:inline-flex; align-items:center; gap:6px;
+    font-family:inherit; font-size:13px; font-weight:600;
+    background:var(--surface); border:1px solid var(--hairline); border-radius:999px;
+    padding:7px 13px; cursor:pointer; color:var(--text-soft);
   }
-  .modal-close:hover{border-color:var(--green); color:var(--green-dark);}
+  .modal-close:hover{border-color:var(--brand); color:var(--brand);}
 
-  /* ---------------------------------------------------------------- */
-  /* Itinerario                                                        */
-  /* ---------------------------------------------------------------- */
-  /* Lo primero que se mira de una ruta son las dos horas: a qué hora
-     sales y a qué hora llegas. Van en grande y en la misma línea; lo
-     demás (duración, trasbordos, criterio) es contexto y va debajo. */
+  /* ---------- Cajón de favoritos ---------- */
+  .drawer-overlay{
+    position:fixed; inset:0; background:rgba(4,10,16,.5); backdrop-filter:blur(4px);
+    opacity:0; pointer-events:none; transition:opacity .2s; z-index:2000;
+  }
+  .drawer-overlay.open{opacity:1; pointer-events:auto;}
+  .drawer{
+    position:fixed; top:0; right:0; bottom:0; width:min(430px, 92vw);
+    background:var(--bg); border-left:1px solid var(--hairline);
+    z-index:2100; padding:16px 16px 30px 16px; overflow-y:auto;
+    transform:translateX(102%); transition:transform .26s cubic-bezier(.2,.9,.3,1);
+  }
+  .drawer.open{transform:none;}
+  .drawer-head{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:14px; padding-top:4px;
+  }
+  .drawer-title{
+    margin:0; font-size:19px; font-weight:700; letter-spacing:-.02em;
+    display:flex; align-items:center; gap:8px;
+  }
+  .drawer-title svg{width:19px; height:19px; color:var(--amber);}
+
+  /* ---------- Municipios en el mapa ---------- */
+  .muni-tri{overflow:visible;}
+  .muni-tri polygon{
+    fill:var(--brand); stroke:var(--card); stroke-width:7;
+    stroke-linejoin:round; paint-order:stroke;
+  }
+  .muni-tri.abierto polygon{fill:var(--card); stroke:var(--brand);}
+  .muni-tri.extremo{filter:drop-shadow(0 1px 3px rgba(0,0,0,.35));}
+  .muni-tri.extremo polygon{fill:none; stroke-width:11;}
+  .muni-tri.extremo.origen polygon{stroke:var(--amber);}
+  .muni-tri.extremo.destino polygon{stroke:var(--brand-2);}
+  .muni-marcador{display:flex; align-items:center; justify-content:center;}
+  .muni-tri-cuenta{
+    position:absolute; top:-4px; right:-8px;
+    font-size:10px; font-weight:700; line-height:1;
+    padding:2px 5px; border-radius:999px;
+    background:var(--amber); color:#1B1200; border:1.5px solid var(--card);
+  }
+  .muni-popup-title{
+    font-size:16px; font-weight:700; letter-spacing:-.02em;
+    display:flex; align-items:center; gap:7px; margin-bottom:2px;
+  }
+  .muni-popup-sub{font-size:12px; color:var(--text-mute); margin-bottom:10px;}
+  .muni-popup-volver{
+    background:none; border:none; padding:0 0 8px 0; cursor:pointer;
+    font-family:inherit; font-size:12.5px; font-weight:600; color:var(--brand);
+  }
+  .muni-popup-lineas{max-height:150px; overflow-y:auto; margin:10px 0 4px;}
+  .muni-popup-fila{
+    display:flex; align-items:center; gap:9px; width:100%; text-align:left;
+    padding:7px 0; background:none; border:none;
+    border-top:1px solid var(--hairline-soft); cursor:pointer;
+  }
+  .muni-popup-fila:first-child{border-top:none;}
+  .muni-popup-fila-name{font-size:13.5px; font-weight:600; color:var(--text); white-space:nowrap;}
+  .muni-popup-fila-sub{
+    flex:1; min-width:0; font-size:11.5px; color:var(--text-mute); text-align:right;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .selector-bloque{margin-top:16px;}
+  .selector-titulo{
+    font-size:12px; font-weight:700; text-transform:uppercase;
+    letter-spacing:.06em; color:var(--text-mute); margin-bottom:8px;
+  }
+
+  /* ---------- Globo de parada ---------- */
+  .stop-popup{min-width:210px;}
+  .stop-popup-title{font-size:15px; font-weight:700; margin-bottom:2px; letter-spacing:-.015em;}
+  .stop-popup-proximos{margin:8px 0;}
+  .stop-popup-line{
+    display:flex; align-items:center; justify-content:space-between; gap:9px;
+    font-size:12.5px; padding:5px 0; border-top:1px solid var(--hairline-soft);
+  }
+  .stop-popup-line:first-child{border-top:none;}
+  .stop-popup-time{font-weight:700; color:var(--brand); white-space:nowrap; font-variant-numeric:tabular-nums;}
+  .stop-popup-sub{font-size:11px; color:var(--text-mute); font-weight:500;}
+  .stop-popup-actions{display:flex; gap:7px; flex-wrap:wrap; margin-top:10px;}
+  .stop-popup-actions .btn-chip{font-size:12px; padding:6px 11px;}
+
+  /* ---------- Opciones de ruta ---------- */
+  .opciones-row{display:flex; gap:9px; flex-wrap:wrap;}
+  .opcion-pill{
+    display:flex; flex-direction:column; gap:4px; align-items:flex-start;
+    padding:11px 14px; border-radius:var(--radius-sm);
+    border:1px solid var(--hairline); background:var(--surface);
+    cursor:pointer; text-align:left; font-family:inherit;
+    transition:border-color .18s, background .18s;
+  }
+  .opcion-pill:hover{border-color:var(--brand);}
+  .opcion-pill.active{border-color:var(--brand); background:var(--card); box-shadow:var(--glow);}
+  .opcion-lineas{display:flex; align-items:center; gap:5px;}
+  .opcion-mas{font-size:11px; color:var(--text-mute);}
+  .opcion-meta{font-size:12px; color:var(--text-mute); font-variant-numeric:tabular-nums;}
+
+  /* ---------- Itinerario ---------- */
   .itin-horas{
-    font-family:var(--font-mono); font-weight:700;
-    font-size:clamp(22px, 7vw, 28px); line-height:1.1; color:var(--ink);
+    font-weight:700; font-size:clamp(26px, 8vw, 34px); line-height:1.05;
+    letter-spacing:-.035em; font-variant-numeric:tabular-nums;
     display:flex; align-items:center; gap:10px; flex-wrap:wrap;
   }
-  .itin-horas .flecha{color:var(--ink-faint); font-weight:400;}
-  .itin-horas .llegada{color:var(--green);}
-  .itin-dur{font-size:13px; color:var(--ink-soft); margin-top:6px;}
-  .itin-dur b{color:var(--ink);}
-  .itin-tags{display:flex; gap:6px; flex-wrap:wrap; margin-top:10px;}
-  .itin-tag{
-    font-size:11.5px; font-weight:600; padding:4px 9px; border-radius:999px;
-    background:var(--paper-2); color:var(--ink-soft); white-space:nowrap;
+  .itin-horas .flecha{color:var(--text-mute); font-weight:400; font-size:.7em;}
+  .itin-horas .llegada{
+    background:linear-gradient(100deg, var(--brand), var(--brand-2));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
   }
-  .itin-tag.ya{background:var(--amber); color:var(--ink);}
-  .itin-extremos{font-size:12.5px; color:var(--ink-soft); margin-top:10px;}
-  .itin-extremos b{color:var(--ink);}
-  .itin-leg-warn{color:var(--brick); font-weight:600; margin-top:4px;}
+  .itin-dur{font-size:13.5px; color:var(--text-soft); margin-top:7px;}
+  .itin-dur b{color:var(--text); font-weight:700;}
+  .itin-tags{display:flex; gap:7px; flex-wrap:wrap; margin-top:12px;}
+  .itin-tag{
+    font-size:12px; font-weight:600; padding:5px 11px; border-radius:999px;
+    background:var(--surface); border:1px solid var(--hairline);
+    color:var(--text-soft); white-space:nowrap;
+  }
+  .itin-tag.ya{
+    background:color-mix(in srgb, var(--amber) 16%, transparent);
+    border-color:color-mix(in srgb, var(--amber) 40%, transparent);
+    color:var(--amber);
+  }
+  .itin-extremos{font-size:12.5px; color:var(--text-soft); margin-top:12px;}
+  .itin-extremos b{color:var(--text);}
+  .itin-leg-warn{
+    display:flex; gap:8px; align-items:flex-start;
+    color:var(--coral); font-weight:600; font-size:12.5px; margin-top:12px;
+  }
+  .itin-leg-warn svg{width:16px; height:16px; flex:none; margin-top:1px;}
 
-  /* El itinerario es una espina vertical: un punto por sitio donde pasa
-     algo (subes, bajas, esperas) y entre punto y punto qué haces. Antes
-     era una fila horizontal de puntos con los nombres recortados a
-     "URB VILL…", que no se podían leer ni tocar. */
   .itin{margin-top:2px;}
-  .itin-fila{display:grid; grid-template-columns:46px 20px minmax(0,1fr); column-gap:10px;}
+  .itin-fila{display:grid; grid-template-columns:46px 20px minmax(0,1fr); column-gap:11px;}
   .itin-fila > .itin-espina{position:relative;}
   .itin-fila > .itin-espina::before{
     content:""; position:absolute; left:50%; top:0; bottom:0;
-    width:3px; margin-left:-1.5px; background:var(--green);
+    width:3px; margin-left:-1.5px;
+    background:linear-gradient(var(--brand), var(--brand-2));
   }
   .itin-fila.andando > .itin-espina::before{
-    background:repeating-linear-gradient(to bottom, var(--ink-faint) 0 4px, transparent 4px 9px);
+    background:repeating-linear-gradient(to bottom, var(--text-mute) 0 4px, transparent 4px 9px);
   }
   .itin-fila.primera > .itin-espina::before{top:9px;}
   .itin-fila.ultima > .itin-espina::before{bottom:calc(100% - 12px);}
   .itin-punto{
     position:relative; z-index:1; width:13px; height:13px; border-radius:50%;
-    margin:3px auto 0; background:#fff; border:3px solid var(--green);
+    margin:3px auto 0; background:var(--card); border:3px solid var(--brand);
   }
-  .itin-fila.extremo .itin-punto{background:var(--green); box-shadow:0 0 0 3px var(--paper);}
-
+  .itin-fila.extremo .itin-punto{background:var(--brand); box-shadow:0 0 0 3px var(--card);}
   .itin-hora{
-    font-family:var(--font-mono); font-size:13px; color:var(--ink);
-    text-align:right; padding-top:1px; line-height:1.5;
+    font-size:13px; color:var(--text); text-align:right; padding-top:1px;
+    line-height:1.55; font-variant-numeric:tabular-nums; font-weight:600;
   }
-  .itin-hora .segunda{display:block; color:var(--ink-faint);}
+  .itin-hora .segunda{display:block; color:var(--text-mute); font-weight:500;}
   .itin-hito{padding-bottom:2px;}
-  .itin-parada{font-size:14px; font-weight:700; color:var(--ink); line-height:1.3;}
+  .itin-parada{font-size:14.5px; font-weight:700; color:var(--text); line-height:1.3;}
   .itin-parada.pulsable{cursor:pointer;}
-  .itin-parada.pulsable:hover{color:var(--green-dark);}
-  .itin-muni{font-size:11.5px; font-weight:600; color:var(--ink-faint);}
+  .itin-parada.pulsable:hover{color:var(--brand);}
+  .itin-muni{font-size:12px; font-weight:600; color:var(--text-mute);}
   .itin-espera{
-    display:inline-block; margin-top:5px;
-    font-size:12px; font-weight:600; color:var(--ink);
-    background:var(--paper-2); border-radius:999px; padding:3px 9px;
+    display:inline-flex; align-items:center; gap:6px; margin-top:7px;
+    font-size:12.5px; font-weight:600; color:var(--amber);
+    background:color-mix(in srgb, var(--amber) 14%, transparent);
+    border:1px solid color-mix(in srgb, var(--amber) 34%, transparent);
+    border-radius:999px; padding:4px 11px;
   }
-  .itin-tramo{padding:9px 0 12px 0;}
+  .itin-espera svg{width:14px; height:14px;}
+  .itin-tramo{padding:10px 0 13px 0;}
   .itin-tramo-cab{
-    display:flex; align-items:center; gap:8px; width:100%;
+    display:flex; align-items:center; gap:9px; width:100%;
     background:none; border:none; padding:0; text-align:left; cursor:pointer;
-  }
-  .linea-badge{
-    font-family:var(--font-display); font-weight:700; font-size:12px;
-    padding:3px 8px; border-radius:6px; background:var(--green); color:#fff;
-    white-space:nowrap; flex-shrink:0;
+    font-family:inherit;
   }
   .itin-hacia{
-    font-size:13.5px; font-weight:600; color:var(--ink);
+    font-size:14px; font-weight:600; color:var(--text);
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
+  .itin-tramo-cab:hover .itin-hacia{color:var(--brand);}
   .itin-tramo-pie{
-    margin-top:5px; background:none; border:none; padding:0; cursor:pointer;
-    font-family:var(--font-body); font-size:12px; color:var(--ink-soft); text-align:left;
+    display:inline-flex; align-items:center; gap:5px; margin-top:6px;
+    background:none; border:none; padding:0; cursor:pointer;
+    font-family:inherit; font-size:12.5px; color:var(--text-mute); text-align:left;
   }
-  .itin-tramo-pie:hover{color:var(--green-dark);}
-  .itin-tramo-pie .flecha-abrir{display:inline-block; transition:transform .15s;}
-  .itin-tramo-pie[aria-expanded="true"] .flecha-abrir{transform:rotate(180deg);}
+  .itin-tramo-pie:hover{color:var(--brand);}
+  .itin-tramo-pie svg{width:13px; height:13px; transition:transform .18s;}
+  .itin-tramo-pie[aria-expanded="true"] svg{transform:rotate(180deg);}
   .itin-intermedias{
-    list-style:none; margin:8px 0 0 0; padding:0 0 0 12px;
-    border-left:2px solid var(--border);
+    list-style:none; margin:9px 0 0 0; padding:0 0 0 13px;
+    border-left:2px solid var(--hairline);
   }
-  .itin-intermedias li{font-size:12px; color:var(--ink-soft); padding:3px 0; cursor:pointer;}
-  .itin-intermedias li:hover{color:var(--green-dark);}
-  .itin-andando{font-size:12.5px; color:var(--ink-soft);}
+  .itin-intermedias li{font-size:12.5px; color:var(--text-soft); padding:4px 0; cursor:pointer;}
+  .itin-intermedias li:hover{color:var(--brand);}
+  .itin-andando{
+    display:flex; align-items:center; gap:7px;
+    font-size:13px; color:var(--text-soft);
+  }
+  .itin-andando svg{width:15px; height:15px; color:var(--text-mute);}
 
-  .criterio-row{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px;}
-  .criterio-pill{
-    font-family:var(--font-body); font-size:12.5px; font-weight:600;
-    padding:7px 12px; border-radius:999px; border:1px solid var(--border);
-    background:var(--paper); color:var(--ink-soft); cursor:pointer;
+  /* Chincheta y bandera de los extremos de la ruta sobre el mapa. */
+  .marca-extremo{
+    display:grid; place-items:center; width:26px; height:26px;
+    border-radius:50%; border:2px solid var(--card);
+    box-shadow:0 2px 8px rgba(0,0,0,.3);
   }
-  .criterio-pill.active{background:var(--green); border-color:var(--green); color:#fff;}
+  .marca-extremo svg{width:15px; height:15px;}
+  .marca-extremo.origen{background:var(--amber); color:#1B1200;}
+  .marca-extremo.destino{background:var(--brand-2); color:var(--brand-ink);}
 
-  /* Selectores de municipio: en la ruta, en los favoritos y al elegir
-     "mi parada" de una línea es siempre la misma fila de pastillas. */
-  .chip-row{display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 10px;}
-  .muni-chip{
-    font-family:var(--font-body); font-size:12.5px; font-weight:600;
-    padding:6px 11px; border-radius:999px; border:1px solid var(--border);
-    background:var(--paper); color:var(--ink-soft); cursor:pointer;
-  }
-  .muni-chip.active{background:var(--green); border-color:var(--green); color:#fff;}
-  .opciones-row{display:flex; gap:8px; flex-wrap:wrap;}
-  .opcion-pill{
-    display:flex; flex-direction:column; gap:2px; align-items:flex-start;
-    padding:8px 12px; border-radius:10px; border:1px solid var(--border);
-    background:var(--paper); cursor:pointer; text-align:left;
-  }
-  .opcion-pill.active{border-color:var(--green); background:var(--paper-2);}
-  .opcion-lineas{display:flex; align-items:center; gap:4px;}
-  .opcion-mas{font-size:11px; color:var(--ink-faint);}
-  .opcion-meta{font-family:var(--font-mono); font-size:11.5px; color:var(--ink-faint);}
+  .btn-chip.solo-ico{padding:9px; width:38px; height:38px; flex:none;}
+  .btn-chip.solo-ico svg{width:17px; height:17px;}
 
-  /* Municipios en el mapa: un triángulo apuntando arriba, hermano del
-     círculo de las paradas. Relleno cuando está plegado (es un bloque),
-     hueco cuando está desplegado (ya se ven sus paradas por debajo). */
-  .muni-tri{overflow:visible;}
-  .muni-tri polygon{
-    fill:var(--green); stroke:#ffffff; stroke-width:7;
-    stroke-linejoin:round; paint-order:stroke;
+
+  /* ---------- Piezas que faltaban por definir ---------- */
+  .home-fav-card{padding-bottom:14px;}
+  .home-fav-code, .fav-parada-linea-code, .linea-chip-code, .muni-popup-code{
+    display:inline-flex; align-items:center; flex-shrink:0;
+    font-weight:700; font-size:12.5px; letter-spacing:-.01em;
+    padding:4px 9px; border-radius:8px; white-space:nowrap;
+    background:var(--surface-strong); color:var(--text-soft);
   }
-  .muni-tri.abierto polygon{fill:#ffffff; stroke:var(--green);}
-  .muni-tri.extremo{filter:drop-shadow(0 0 2px rgba(255,255,255,.95));}
-  .muni-tri.extremo polygon{fill:none; stroke-width:11;}
-  .muni-tri.extremo.origen polygon{stroke:var(--amber);}
-  .muni-tri.extremo.destino polygon{stroke:var(--green-dark);}
-  .muni-popup-title{
-    font-family:var(--font-display); font-weight:700; font-size:15px;
-    color:var(--ink); display:flex; align-items:center; gap:6px; margin-bottom:2px;
+  .home-fav-code.es-fav, .fav-parada-linea-code.es-fav{
+    background:linear-gradient(120deg, var(--brand), var(--brand-2));
+    color:var(--brand-ink);
   }
-  .muni-popup-sub{font-size:12px; color:var(--ink-faint); margin-bottom:8px;}
-  .muni-marcador{display:flex; align-items:center; justify-content:center;}
-  .muni-tri-cuenta{
-    position:absolute; top:-4px; right:-8px;
-    font-family:var(--font-mono); font-size:9.5px; font-weight:700; line-height:1;
-    padding:2px 4px; border-radius:999px;
-    background:var(--amber); color:var(--ink); border:1.5px solid #ffffff;
+  .muni-popup{min-width:210px;}
+
+  /* Ficha de línea: cabecera, paradas y horario */
+  .btn-back{
+    display:inline-flex; align-items:center; gap:6px; margin-bottom:12px;
+    background:var(--surface); border:1px solid var(--hairline); border-radius:999px;
+    padding:7px 14px; cursor:pointer; color:var(--text-soft);
+    font-family:inherit; font-size:13px; font-weight:600;
   }
-  .muni-popup-volver{
-    background:none; border:none; padding:0 0 6px 0; cursor:pointer;
-    font-family:var(--font-body); font-size:12px; font-weight:600; color:var(--green);
+  .btn-back:hover{border-color:var(--brand); color:var(--brand);}
+  .map-note{font-size:11.5px; color:var(--text-mute); margin-top:8px;}
+  .stoprow{border-top:1px solid var(--hairline-soft);}
+  .stoprow:first-child{border-top:none;}
+  .stoprow-head{
+    display:flex; align-items:center; gap:11px; padding:12px 0; cursor:pointer;
   }
-  .muni-popup-lineas{max-height:150px; overflow-y:auto; margin:10px 0 4px;}
-  .muni-popup-fila{
-    display:flex; align-items:center; gap:8px; width:100%; text-align:left;
-    padding:6px 0; background:none; border:none; border-top:1px solid var(--border); cursor:pointer;
+  .stoprow-order{
+    width:26px; height:26px; border-radius:9px; flex:none;
+    display:grid; place-items:center;
+    background:var(--surface-strong); color:var(--text-mute);
+    font-size:11.5px; font-weight:700; font-variant-numeric:tabular-nums;
   }
-  .muni-popup-fila:first-child{border-top:none;}
-  .muni-popup-code{
-    font-family:var(--font-display); font-weight:700; font-size:11.5px;
-    padding:3px 7px; border-radius:5px; background:var(--paper-2); color:var(--ink-soft); white-space:nowrap;
+  .stoprow-name{flex:1; min-width:0; font-size:14px; font-weight:600;}
+  .stoprow-sub{display:block; font-size:11.5px; color:var(--text-mute); font-weight:500;}
+  .stoprow-time{
+    font-size:15px; font-weight:700; color:var(--brand);
+    white-space:nowrap; font-variant-numeric:tabular-nums;
   }
-  .muni-popup-fila-name{font-size:13px; font-weight:600; color:var(--ink); white-space:nowrap;}
-  .muni-popup-fila-sub{
-    flex:1; min-width:0; font-size:11.5px; color:var(--ink-faint); text-align:right;
-    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  .stoprow-body{padding:0 0 14px 37px;}
+  .stoprow-recorrido{font-size:12px; color:var(--text-mute); margin-bottom:8px;}
+  .btn-pdf{
+    display:inline-flex; align-items:center; gap:7px;
+    background:var(--surface); border:1px solid var(--hairline); border-radius:999px;
+    padding:8px 14px; color:var(--text-soft); text-decoration:none;
+    font-size:13px; font-weight:600;
   }
-  .selector-bloque{margin-top:14px;}
-  .selector-titulo{
-    font-size:12px; font-weight:700; text-transform:uppercase;
-    letter-spacing:.04em; color:var(--ink-faint); margin-bottom:6px;
+  .btn-pdf:hover{border-color:var(--brand); color:var(--brand);}
+  .horagrid{display:flex; flex-direction:column; gap:2px;}
+  .horalabel{
+    font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--text-mute); margin:10px 0 4px;
   }
-  .itin-leg-time{
-    font-family:var(--font-mono);
-    font-size:13px;
-    color:var(--green-dark);
-    white-space:nowrap;
-    font-weight:600;
+  .horacell{display:flex; align-items:baseline; gap:10px; padding:5px 0;}
+
+  /* Bloque de una línea favorita */
+  .fav-linea-bloque{
+    border:1px solid var(--hairline-soft); border-radius:var(--radius-sm);
+    padding:13px; margin-bottom:10px; background:var(--surface);
+  }
+  .fav-linea-header{display:flex; align-items:center; gap:10px; margin-bottom:4px;}
+  .fav-linea-titulo{
+    flex:1; min-width:0; font-size:14px; font-weight:700; line-height:1.3;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
   }
 
-  @media (max-width:600px){
-    .board-time{font-size:36px;}
-    .mapbox{height:240px;}
+  /* Aviso de salida inminente */
+  .aviso-cuerpo{
+    position:fixed; left:50%; transform:translateX(-50%);
+    bottom:calc(74px + env(safe-area-inset-bottom, 0px)); z-index:2500;
+    width:min(26rem, calc(100vw - 24px));
+    background:var(--card); border:1px solid var(--hairline);
+    border-radius:var(--radius); padding:15px;
+    box-shadow:0 18px 46px -18px rgba(0,0,0,.5);
+    animation:subirAviso .26s cubic-bezier(.2,.9,.3,1);
+  }
+  @keyframes subirAviso{from{transform:translate(-50%,16px); opacity:0;} to{transform:translate(-50%,0); opacity:1;}}
+  .aviso-titulo{font-size:15px; font-weight:700; letter-spacing:-.015em;}
+  .aviso-salida{font-size:13px; color:var(--text-soft); margin-top:3px;}
+  .aviso-nota{font-size:11.5px; color:var(--text-mute); margin-top:6px;}
+  .aviso-acciones{display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;}
+
+  @media (prefers-reduced-motion: reduce){
+    *, *::before, *::after{
+      animation-duration:.01ms !important; animation-iteration-count:1 !important;
+      transition-duration:.01ms !important;
+    }
   }
 </style>
 </head>
 <body>
 
+<div class="aurora" aria-hidden="true"></div>
+
 <header>
   <div class="headline">
-    <h1>Próxima <span class="accent">Salida</span></h1>
+    <h1><span class="marca-ico" id="marcaIco"></span>Próxima Salida</h1>
     <div class="header-actions">
-      <button class="btn-icon" id="btnAbrirFavoritos" type="button">★ Favoritos</button>
-      <button class="btn-refresh" id="btnRefresh" type="button">↻</button>
+      <button class="btn-icon solo-ico" id="btnTema" type="button" title="Cambiar tema"></button>
+      <button class="btn-icon" id="btnAbrirFavoritos" type="button">Favoritos</button>
     </div>
   </div>
-  <div class="status-line" id="dataStatus">Cargando…</div>
+  <div class="status-line" id="dataStatus"></div>
 </header>
 
 <nav class="nav" id="mainNav">
-  <button class="nav-btn active" data-screen="screenInicio" type="button"><span class="nav-ico">🌍</span>Inicio</button>
-  <button class="nav-btn" data-screen="screenLineas" type="button"><span class="nav-ico">🚌</span>Líneas</button>
-  <button class="nav-btn" data-screen="screenRuta" type="button"><span class="nav-ico">🧭</span>Ruta</button>
+  <button class="nav-btn active" data-screen="screenInicio" type="button" data-ico="mapa">Inicio</button>
+  <button class="nav-btn" data-screen="screenLineas" type="button" data-ico="bus">Líneas</button>
+  <button class="nav-btn" data-screen="screenRuta" type="button" data-ico="brujula">Ruta</button>
 </nav>
 
 <main>
@@ -862,26 +859,26 @@
       <input type="text" class="input" id="homeDestinoInput" list="listaParadas" placeholder="Parada o municipio de destino…">
       <div class="home-origen-line" id="homeOrigenLine">
         <span id="homeOrigenTexto">Localizando…</span>
-        <button class="btn-chip" id="homeBtnUbicacion" type="button" style="font-size:12px; padding:4px 8px;">📍 Usar mi ubicación</button>
+        <button class="btn-chip" id="homeBtnUbicacion" type="button">Usar mi ubicación</button>
       </div>
       <div class="home-quickfavs" id="homeQuickFavs"></div>
     </div>
+    <div id="homeCercanas"></div>
     <div id="homeMap" class="home-map"></div>
   </section>
 
   <section id="screenLineas" class="screen">
     <div class="card" id="lineasFavCard">
-      <h3 class="section-title" style="margin-top:0;">★ Líneas favoritas</h3>
+      <h3 class="section-title" data-ico="estrella">Líneas favoritas</h3>
       <div id="lineasFavChips"></div>
     </div>
     <div class="card">
-      <h3 class="section-title" style="margin-top:0;">Todas las líneas</h3>
+      <h3 class="section-title" data-ico="bus">Todas las líneas</h3>
       <div class="field">
-        <input type="text" class="input" id="lineaBuscador" placeholder="Buscar línea por nombre o municipio…">
+        <input type="text" class="input" id="lineaBuscador" placeholder="Buscar línea o municipio…">
       </div>
-      <div class="field" style="margin-bottom:6px;">
-        <label class="field-label">Filtrar por municipio</label>
-        <select class="select" id="selMunicipio"></select>
+      <div class="field">
+        <select class="select" id="selMunicipio" aria-label="Filtrar por municipio"></select>
       </div>
       <div id="lineasListado"></div>
     </div>
@@ -897,9 +894,9 @@
         <label class="field-label">Origen</label>
         <div class="endpoint-row">
           <input type="text" class="input" id="origenInput" list="listaParadas" placeholder="Parada o municipio…">
-          <button class="btn-chip" id="origenMuni" type="button" title="Elegir un municipio entero">▲</button>
-          <button class="btn-chip" id="origenGeo" type="button" title="Usar mi ubicación">📍</button>
-          <button class="btn-chip" id="origenPin" type="button" title="Marcar en el mapa">🖊</button>
+          <button class="btn-chip solo-ico" id="origenMuni" type="button" data-ico="triangulo" title="Elegir un municipio entero"></button>
+          <button class="btn-chip solo-ico" id="origenGeo" type="button" data-ico="cerca" title="Usar mi ubicación"></button>
+          <button class="btn-chip solo-ico" id="origenPin" type="button" data-ico="lapiz" title="Marcar en el mapa"></button>
         </div>
         <div class="endpoint-status" id="origenStatus"></div>
       </div>
@@ -907,28 +904,20 @@
         <label class="field-label">Destino</label>
         <div class="endpoint-row">
           <input type="text" class="input" id="destinoInput" list="listaParadas" placeholder="Parada o municipio…">
-          <button class="btn-chip" id="destinoMuni" type="button" title="Elegir un municipio entero">▲</button>
-          <button class="btn-chip" id="destinoGeo" type="button" title="Usar mi ubicación">📍</button>
-          <button class="btn-chip" id="destinoPin" type="button" title="Marcar en el mapa">🏁</button>
+          <button class="btn-chip solo-ico" id="destinoMuni" type="button" data-ico="triangulo" title="Elegir un municipio entero"></button>
+          <button class="btn-chip solo-ico" id="destinoGeo" type="button" data-ico="cerca" title="Usar mi ubicación"></button>
+          <button class="btn-chip solo-ico" id="destinoPin" type="button" data-ico="bandera" title="Marcar en el mapa"></button>
         </div>
         <div class="endpoint-status" id="destinoStatus"></div>
       </div>
       <datalist id="listaParadas"></datalist>
-      <div class="field">
-        <label class="field-label">Mejor ruta por</label>
-        <div class="criterio-row" id="criterioRow">
-          <button type="button" class="criterio-pill active" data-criterio="trasbordos">🔀 Menos trasbordos</button>
-          <button type="button" class="criterio-pill" data-criterio="tiempo">🏁 Llegar antes</button>
-          <button type="button" class="criterio-pill" data-criterio="viaje">⚡ Viaje más corto</button>
-          <button type="button" class="criterio-pill" data-criterio="caminar">🚶 Menos caminar</button>
-        </div>
-      </div>
       <div class="field-row">
-        <div class="field">
-          <label class="field-label">Salir a las</label>
-          <input type="datetime-local" class="input" id="horaSalida">
-        </div>
-        <button class="btn" id="btnCalcularRuta" type="button">🧭 Calcular ruta</button>
+        <button class="btn" id="btnCalcularRuta" type="button">Ver cómo llegar</button>
+        <button class="btn-chip" id="btnOtraHora" type="button">Salgo a otra hora</button>
+      </div>
+      <div class="field" id="campoHora" hidden style="margin-top:12px;">
+        <label class="field-label" for="horaSalida">Salir a las</label>
+        <input type="datetime-local" class="input" id="horaSalida">
       </div>
       <div class="board-note" id="rutaClickHint" style="display:none;"></div>
     </div>
@@ -936,44 +925,28 @@
     <div id="rutaResultado"></div>
   </section>
 
-  <!-- Pantalla auxiliar: paradas cercanas (se abre desde Inicio) -->
-  <section id="screenGeo" class="screen">
-    <div class="card">
-      <div class="field-row">
-        <div class="field">
-          <label class="field-label">Radio de búsqueda (km)</label>
-          <input type="number" class="input" id="geoRadius" value="1" min="0.1" max="10" step="0.1">
-        </div>
-        <button class="btn" id="btnGeo" type="button">📍 Buscar cerca de mí</button>
-      </div>
-      <div class="status-line" id="geoStatus" style="margin-top:10px;"></div>
-    </div>
-    <div id="geoResults"></div>
-  </section>
-
 </main>
 
 <div class="drawer-overlay" id="drawerOverlay"></div>
 <aside class="drawer" id="favDrawer">
   <div class="drawer-head">
-    <h2 class="drawer-title">★ Mis favoritos</h2>
-    <button class="btn-icon" id="btnCerrarFavoritos" type="button">✕</button>
+    <h2 class="drawer-title" data-ico="estrella">Mis favoritos</h2>
+    <button class="btn-icon solo-ico" id="btnCerrarFavoritos" type="button" data-ico="cerrar"></button>
   </div>
   <div class="card">
-    <h3 class="section-title" style="margin-top:0;">📍 Paradas</h3>
+    <h3 class="section-title" data-ico="parada">Paradas</h3>
     <div id="favParadasList"></div>
   </div>
   <div class="card">
-    <h3 class="section-title" style="margin-top:0;">🚌 Líneas</h3>
+    <h3 class="section-title" data-ico="bus">Líneas</h3>
     <div id="favLineasList"></div>
   </div>
   <div id="favRutasList"></div>
 </aside>
 
 <footer>
-  Herramienta personal, sin relación con el Consorcio de Transportes de Sevilla. Datos extraídos de ctas.es
-  en fecha de generación del archivo (ver arriba); los horarios son los programados, no posición en tiempo real.
-  El trazo entre paradas en el mapa une paradas consecutivas en línea recta, no el recorrido real por calle.
+  Horarios programados del Consorcio de Transportes de Sevilla, no posición en tiempo real.
+  Herramienta personal, sin relación con el Consorcio.
 </footer>
 
 <div id="modalRoot"></div>
@@ -988,6 +961,118 @@
 const DATA_URL = "ctas_data_app.json";
 const LS_KEY = "ctasAppDataV2"; // v2: cada parada trae su municipio
 const APP = { data: null };
+
+/* ------------------------------------------------------------------ */
+/* Iconos                                                              */
+/* ------------------------------------------------------------------ */
+/** Los emoji dependían de la fuente del sistema: cambiaban de forma y de
+ * color en cada móvil y no se podían teñir con el tema. Estos son trazos
+ * de 24×24 que heredan el color del texto, así que valen igual en claro
+ * que en oscuro y encajan con el peso de la tipografía. */
+const TRAZO = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"';
+const ICONOS = {
+  mapa:      `<path d="M9 4 3 6.5v13L9 17l6 2.5 6-2.5v-13L15 6.5 9 4Z"/><path d="M9 4v13M15 6.5v13"/>`,
+  bus:       `<path d="M4 16V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10"/><path d="M4 11h16"/><path d="M3 16h18"/><circle cx="7.5" cy="18.5" r="1.5"/><circle cx="16.5" cy="18.5" r="1.5"/><path d="M7 7h4"/>`,
+  brujula:   `<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5.5-5.5 2 2-5.5 5.5-2Z"/>`,
+  parada:    `<path d="M6 3h12"/><path d="M12 3v6"/><rect x="5" y="9" width="14" height="9" rx="2"/><path d="M8 21v-3M16 21v-3"/>`,
+  pin:       `<path d="M20 10c0 5-8 12-8 12s-8-7-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>`,
+  bandera:   `<path d="M4 21V4"/><path d="M4 5h11l-1.5 3L15 11H4"/>`,
+  estrella:  `<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"/>`,
+  reloj:     `<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>`,
+  campana:   `<path d="M18 8a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7Z"/><path d="M13.7 20a2 2 0 0 1-3.4 0"/>`,
+  cerrar:    `<path d="M18 6 6 18M6 6l12 12"/>`,
+  buscar:    `<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>`,
+  lapiz:     `<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"/>`,
+  refrescar: `<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/>`,
+  andar:     `<circle cx="13" cy="4" r="1.6"/><path d="m10 21 2-5-2.5-2.5.5-4.5 3 1.5 2 2.5"/><path d="M8.5 9 12 8"/><path d="m15 21-1.5-4"/>`,
+  abajo:     `<path d="m6 9 6 6 6-6"/>`,
+  triangulo: `<path d="M12 4 3 20h18L12 4Z"/>`,
+  sol:       `<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>`,
+  luna:      `<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/>`,
+  cerca:     `<circle cx="12" cy="12" r="2.5"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4"/><path d="M5 19a10 10 0 0 1 0-14M19 5a10 10 0 0 1 0 14"/>`,
+  aviso:     `<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/>`,
+  lista:     `<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>`
+};
+
+/** Color real de un token del tema. Leaflet no entiende `var(--brand)`:
+ * necesita un color resuelto, y además hay que volver a pintar cuando se
+ * cambia de claro a noche. */
+function colorTema(nombre) {
+  return getComputedStyle(document.documentElement).getPropertyValue("--" + nombre).trim() || "#0E9F6E";
+}
+
+/** Marca o desmarca una estrella de favorito. */
+function pintarEstrella(boton, activa) {
+  boton.innerHTML = icono("estrella");
+  boton.classList.toggle("es-fav", !!activa);
+}
+
+/** Rellena de un golpe todo lo que en el HTML pide un icono con
+ * `data-ico`, para no repetir el SVG en el marcado. */
+function pintarIconosDeclarados() {
+  document.querySelectorAll("[data-ico]").forEach(el => {
+    el.insertAdjacentHTML("afterbegin", icono(el.dataset.ico));
+  });
+  const marca = document.getElementById("marcaIco");
+  if (marca) marca.innerHTML = icono("bus");
+}
+
+/** Devuelve el SVG de un icono. `clase` permite dimensionarlo desde CSS. */
+function icono(nombre, clase) {
+  const trazos = ICONOS[nombre];
+  if (!trazos) return "";
+  return `<svg ${TRAZO}${clase ? ` class="${clase}"` : ""} aria-hidden="true">${trazos}</svg>`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tema claro / noche                                                  */
+/* ------------------------------------------------------------------ */
+/** Tres estados: claro, noche y "el que diga el móvil". Se recuerda la
+ * elección; sin elección, manda el sistema. */
+const LS_TEMA_KEY = "ctasTemaV1";
+const TEMAS = ["auto", "light", "dark"];
+
+function temaGuardado() {
+  try { return localStorage.getItem(LS_TEMA_KEY) || "auto"; } catch (e) { return "auto"; }
+}
+
+function aplicarTema(tema) {
+  if (tema === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", tema);
+  try { localStorage.setItem(LS_TEMA_KEY, tema); } catch (e) { /* modo privado */ }
+  const btn = document.getElementById("btnTema");
+  if (!btn) return;
+  const oscuro = tema === "dark" || (tema === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  btn.innerHTML = icono(oscuro ? "luna" : "sol");
+  btn.title = { auto: "Tema: automático", light: "Tema: claro", dark: "Tema: noche" }[tema];
+  // El color de la barra del navegador acompaña al fondo de la app.
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", oscuro ? "#070D14" : "#F4F7FA");
+  repintarMapas();
+}
+
+/** Los círculos de parada llevan el color quemado dentro del objeto de
+ * Leaflet, así que al cambiar de tema hay que decírselo uno a uno. */
+function repintarMapas() {
+  const estilo = { color: colorTema("card"), fillColor: colorTema("brand") };
+  [typeof HOME_CAPA !== "undefined" ? HOME_CAPA : null,
+   typeof ROUTE_CAPA !== "undefined" ? ROUTE_CAPA : null].forEach(capa => {
+    if (!capa) return;
+    Object.values(capa.marcadores).forEach(m => m.setStyle(estilo));
+    capa.refrescar();
+  });
+}
+
+function wireTema() {
+  aplicarTema(temaGuardado());
+  document.getElementById("btnTema").addEventListener("click", () => {
+    const actual = temaGuardado();
+    aplicarTema(TEMAS[(TEMAS.indexOf(actual) + 1) % TEMAS.length]);
+  });
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (temaGuardado() === "auto") aplicarTema("auto");
+  });
+}
 
 /* ------------------------------------------------------------------ */
 /* Favoritos                                                           */
@@ -1181,8 +1266,8 @@ function mostrarAvisoEnApp(titulo, cuerpo, onSnooze, yaLanzadaFuera) {
     <div class="aviso-cuerpo">${escapeHtml(cuerpo)}</div>
     ${yaLanzadaFuera ? "" : '<div class="aviso-nota">Tu navegador no permite notificaciones del sistema aquí; te aviso dentro de la app.</div>'}
     <div class="aviso-acciones">
-      <button type="button" class="btn-chip" id="avisoSnooze">⏰ Posponer ${SNOOZE_MIN} min</button>
-      <button type="button" class="btn-chip" id="avisoCerrar">✕ Cerrar</button>
+      <button type="button" class="btn-chip" id="avisoSnooze">${icono("reloj")}Posponer ${SNOOZE_MIN} min</button>
+      <button type="button" class="btn-chip" id="avisoCerrar">${icono("cerrar")}Cerrar</button>
     </div>`;
   document.body.appendChild(box);
   box.querySelector("#avisoSnooze").addEventListener("click", () => { if (onSnooze) onSnooze(); box.remove(); });
@@ -1228,7 +1313,7 @@ function revisarNotificaciones() {
     if (!info) return;
     if (info.minutosRestantes < 0 || info.minutosRestantes > notif.antelacionMin) return;
 
-    const titulo = "🚌 Tu autobús está al salir";
+    const titulo = "Tu autobús está al salir";
     const cuerpo = `Quedan ${info.minutosRestantes} minuto${info.minutosRestantes === 1 ? "" : "s"} para que el autobús de la línea ${info.lineaTitulo}` +
       (info.direccion ? ` salga en dirección ${info.direccion}` : " salga") +
       ` de ${info.paradaNombre}.`;
@@ -1266,8 +1351,8 @@ function abrirDialogoNotificacion(paradaId, lineaSlug, onCambio) {
         <input type="number" class="input" id="notifMin" min="1" max="120" step="1" value="${existente ? existente.antelacionMin : 10}">
       </div>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button type="button" class="btn" id="notifGuardar">🔔 Activar aviso</button>
-        ${existente ? '<button type="button" class="btn-chip" id="notifQuitar">✕ Quitar aviso</button>' : ""}
+        <button type="button" class="btn" id="notifGuardar">${icono("campana")}Activar aviso</button>
+        ${existente ? '<button type="button" class="btn-chip" id="notifQuitar">${icono("cerrar")}Quitar aviso</button>' : ""}
       </div>
       <p class="board-note" style="margin-top:10px;">Se avisa una sola vez y el aviso se desactiva solo; si lo pospones, vuelve a sonar ${SNOOZE_MIN} minutos después. La app debe estar abierta en una pestaña para poder avisarte.</p>
       <div class="board-note" id="notifEstado"></div>`;
@@ -1721,8 +1806,13 @@ function formatDeparture(dep) {
   return { main: `${hh}:${mm}`, sub };
 }
 
-function setStatus(msg) {
-  document.getElementById("dataStatus").textContent = msg;
+/** La línea bajo la cabecera sólo habla cuando hay algo que decir: al
+ * ciudadano no le sirve saber cuántas líneas se han cargado ni cuándo se
+ * generó el fichero. */
+function setStatus(msg, esError) {
+  const el = document.getElementById("dataStatus");
+  el.textContent = msg || "";
+  el.classList.toggle("error", !!esError);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1753,8 +1843,8 @@ async function loadData(force) {
 /* ------------------------------------------------------------------ */
 function setMarkerStyle(marker, selected) {
   marker.setStyle(selected
-    ? { radius: 9, color: "#FFB100", fillColor: "#FFB100", fillOpacity: 1, weight: 2 }
-    : { radius: 6, color: "#2F6F4F", fillColor: "#ffffff", fillOpacity: 1, weight: 2 });
+    ? { radius: 9, color: colorTema("amber"), fillColor: colorTema("amber"), fillOpacity: 1, weight: 2 }
+    : { radius: 6, color: colorTema("brand"), fillColor: colorTema("card"), fillOpacity: 1, weight: 2 });
 }
 
 function renderMap(containerEl, paradaIds, onMarkerClick, mapRef) {
@@ -1777,14 +1867,14 @@ function renderMap(containerEl, paradaIds, onMarkerClick, mapRef) {
     if (p && p.lat != null && p.lng != null) {
       latlngs.push([p.lat, p.lng]);
       const marker = L.circleMarker([p.lat, p.lng], {
-        radius: 6, weight: 2, color: "#2F6F4F", fillColor: "#ffffff", fillOpacity: 1
+        radius: 6, weight: 2, color: colorTema("brand"), fillColor: colorTema("card"), fillOpacity: 1
       }).addTo(map).bindTooltip(p.nombre, { direction: "top" });
       marker.on("click", () => onMarkerClick && onMarkerClick(id));
       markers[id] = marker;
     }
   });
   if (latlngs.length > 1) {
-    L.polyline(latlngs, { color: "#2F6F4F", weight: 3, opacity: 0.55, dashArray: "1 8" }).addTo(map);
+    L.polyline(latlngs, { color: colorTema("brand"), weight: 3, opacity: 0.55, dashArray: "1 8" }).addTo(map);
   }
   if (latlngs.length) {
     map.fitBounds(latlngs, { padding: [24, 24] });
@@ -1876,7 +1966,7 @@ function agruparMunicipiosEnPantalla(map, municipios) {
  */
 function crearCapaRed(map, opciones) {
   opciones = opciones || {};
-  const estilo = opciones.estilo || { radius: 5, weight: 1.5, color: "#ffffff", fillColor: "#2F6F4F", fillOpacity: 0.95 };
+  const estilo = opciones.estilo || { radius: 5, weight: 1.5, color: colorTema("card"), fillColor: colorTema("brand"), fillOpacity: 0.95 };
 
   const marcadores = {};          // paradaId -> circleMarker
   const grupoDeParadas = new Map(); // municipio -> layerGroup con sus paradas
@@ -2026,8 +2116,8 @@ function buildMunicipioPopupContent(municipio, capa, modo, marca, volver) {
   btnDesplegar.className = "btn-chip";
   const pintarBoton = () => {
     btnDesplegar.textContent = capa.estaExpandido(municipio)
-      ? "▾ Condensar sus paradas"
-      : `▸ Ver sus ${nodo ? nodo.paradas.length : 0} paradas`;
+      ? "Condensar sus paradas"
+      : `Ver sus ${nodo ? nodo.paradas.length : 0} paradas`;
   };
   pintarBoton();
   btnDesplegar.addEventListener("click", () => { capa.alternar(municipio, marca); pintarBoton(); });
@@ -2069,7 +2159,7 @@ function accionesDeMunicipio(municipio, modo) {
     const btnOrigen = document.createElement("button");
     btnOrigen.type = "button";
     btnOrigen.className = "btn-chip" + (esOrigen ? " armed" : "");
-    btnOrigen.textContent = esOrigen ? "✕ Quitar origen" : "📍 Salgo de aquí";
+    btnOrigen.innerHTML = esOrigen ? icono("cerrar") + "Quitar origen" : icono("pin") + "Salgo de aquí";
     btnOrigen.addEventListener("click", () => {
       if (esOrigen) clearEndpoint("origen"); else setEndpoint("origen", punto);
       cerrar();
@@ -2079,7 +2169,7 @@ function accionesDeMunicipio(municipio, modo) {
     const btnDestino = document.createElement("button");
     btnDestino.type = "button";
     btnDestino.className = "btn-chip" + (esDestino ? " armed" : "");
-    btnDestino.textContent = esDestino ? "✕ Quitar destino" : "🏁 Voy aquí";
+    btnDestino.innerHTML = esDestino ? icono("cerrar") + "Quitar destino" : icono("bandera") + "Voy aquí";
     btnDestino.addEventListener("click", () => {
       if (esDestino) clearEndpoint("destino"); else setEndpoint("destino", punto);
       cerrar();
@@ -2089,7 +2179,7 @@ function accionesDeMunicipio(municipio, modo) {
     const btnIr = document.createElement("button");
     btnIr.type = "button";
     btnIr.className = "btn-chip";
-    btnIr.textContent = "🧭 Ir a este municipio";
+    btnIr.innerHTML = icono("brujula") + "Ir a este municipio";
     btnIr.addEventListener("click", () => {
       cerrar();
       irAPantalla("screenRuta");
@@ -2159,7 +2249,7 @@ function renderBoard(container, servicio) {
       <div class="board-time">${fmt.main}</div>
       <div class="board-sub">${escapeHtml(fmt.sub)}</div>
     </div>
-    <div class="board-note">Calculado sobre el horario programado, no es posición GPS en tiempo real.</div>`;
+`;
 }
 
 function renderPdfBtn(container, servicio) {
@@ -2170,7 +2260,7 @@ function renderPdfBtn(container, servicio) {
     a.target = "_blank";
     a.rel = "noopener";
     a.className = "btn btn-pdf";
-    a.textContent = "⭳ Descargar PDF de esta parada";
+    a.textContent = "Descargar el PDF oficial";
     container.appendChild(a);
   } else {
     container.innerHTML = '<p class="empty">PDF no disponible para esta parada.</p>';
@@ -2231,14 +2321,14 @@ function renderLineDetail(container, linea, defaultStopId, onBack, mapRef) {
   mapRef = mapRef || CURRENT_MAP_REF;
   container.innerHTML = `
     ${onBack ? '<button class="btn-back" id="btnBack">← Volver</button>' : ""}
-    <h3 class="detail-title">${escapeHtml(linea.titulo)} <button type="button" class="btn-fav" id="btnFavLinea">${esFavoritoLinea(linea.slug) ? "★" : "☆"}</button></h3>
-    <div class="detail-meta">${linea.variantes.length} recorrido${linea.variantes.length === 1 ? "" : "s"} combinados</div>
+    <h3 class="detail-title"><span class="linea-badge">${escapeHtml(codigoLinea(linea.titulo))}</span> ${escapeHtml(nombreSinCodigo(linea.titulo))} <button type="button" class="btn-fav${esFavoritoLinea(linea.slug) ? " es-fav" : ""}" id="btnFavLinea" title="Guardar esta línea">${icono("estrella")}</button></h3>
+
     <h4 class="section-title" style="margin-top:14px;">Salidas por sentido</h4>
     <div class="cabecera-list" id="cabecerasBox"></div>
-    <div class="map-note">El trazo entre paradas une paradas consecutivas en línea recta, fusionando todos los recorridos de la línea (no es el trazado real por calle).</div>
+
     <div id="mapBox" class="mapbox"></div>
     <h4 class="section-title">Paradas y próxima salida</h4>
-    <div class="board-note" style="margin-bottom:10px;">Cuenta cualquier autobús de esta línea que pase por cada parada, sea cual sea su recorrido concreto.</div>
+
     <div id="stopsList"></div>
   `;
   if (onBack) container.querySelector("#btnBack").addEventListener("click", onBack);
@@ -2247,7 +2337,7 @@ function renderLineDetail(container, linea, defaultStopId, onBack, mapRef) {
   repintarCabeceras();
   container.querySelector("#btnFavLinea").addEventListener("click", e => {
     toggleFavoritoLinea(linea.slug);
-    e.target.textContent = esFavoritoLinea(linea.slug) ? "★" : "☆";
+    pintarEstrella(e.currentTarget, esFavoritoLinea(linea.slug));
     repintarCabeceras();
   });
 
@@ -2336,7 +2426,7 @@ function renderPdfMultiBtn(container, serviciosArray) {
     a.className = "btn btn-pdf";
     a.style.marginRight = "8px";
     a.style.marginBottom = "6px";
-    a.textContent = `⭳ PDF (${s.variante_nombre})`;
+    a.textContent = `PDF · ${s.variante_nombre}`;
     wrap.appendChild(a);
   });
   container.appendChild(wrap);
@@ -2356,7 +2446,7 @@ function openModal(buildContentFn) {
   root.innerHTML = `
     <div class="modal-overlay" id="modalOverlay">
       <div class="modal-box">
-        <button class="modal-close" id="modalCloseBtn" type="button">✕ Cerrar</button>
+        <button class="modal-close" id="modalCloseBtn" type="button">${icono("cerrar")}Cerrar</button>
         <div style="clear:both;"></div>
         <div id="modalContent"></div>
       </div>
@@ -2391,13 +2481,13 @@ function buildStopScheduleModalContent(container, stopId) {
   const municipio = municipioDeParada(stopId);
 
   container.innerHTML = `
-    <h3 class="detail-title">${escapeHtml(p.nombre)} <button type="button" class="btn-fav" id="btnFavParadaModal">${esFavoritoParada(stopId) ? "★" : "☆"}</button></h3>
-    <div class="detail-meta">${municipio ? escapeHtml(municipio) + " · " : ""}${escapeHtml(p.zona || "")} · ${grupos.length} salida${grupos.length === 1 ? "" : "s"} por esta parada</div>
+    <h3 class="detail-title">${escapeHtml(p.nombre)} <button type="button" class="btn-fav" id="btnFavParadaModal" title="Guardar esta parada">${icono("estrella")}</button></h3>
+    <div class="detail-meta">${municipio ? escapeHtml(municipio) : ""}</div>
     <ul class="servicelist" id="stopScheduleList" style="margin-top:10px;"></ul>
   `;
   container.querySelector("#btnFavParadaModal").addEventListener("click", e => {
     toggleFavoritoParada(stopId);
-    e.target.textContent = esFavoritoParada(stopId) ? "★" : "☆";
+    pintarEstrella(e.currentTarget, esFavoritoParada(stopId));
     renderHomeFavSalidas();
   });
   const notifParada = getNotificacion(stopId, null);
@@ -2405,7 +2495,7 @@ function buildStopScheduleModalContent(container, stopId) {
   btnNotif.type = "button";
   btnNotif.className = "btn-chip";
   btnNotif.style.margin = "8px 0 4px 0";
-  btnNotif.textContent = notifParada ? `🔔 Aviso activo (${notifParada.antelacionMin} min) · editar` : "🔔 Notifícame antes de la salida";
+  btnNotif.innerHTML = icono("campana") + (notifParada ? `Aviso ${notifParada.antelacionMin} min antes` : "Avísame antes de la salida");
   btnNotif.addEventListener("click", () => abrirDialogoNotificacion(stopId, null, () => {
     buildStopScheduleModalContent(container, stopId);
     renderHomeFavSalidas();
@@ -2429,7 +2519,7 @@ function buildStopScheduleModalContent(container, stopId) {
     li.innerHTML = `
       <div style="flex:1;">
         <div class="servicename">${escapeHtml(g.lineaTitulo)}</div>
-        <div class="servicevariant">hacia ${escapeHtml(g.etiqueta)}${g.servicios.length > 1 ? ` · ${g.servicios.length} recorridos por aquí` : ""}</div>
+        <div class="servicevariant">hacia ${escapeHtml(g.etiqueta)}</div>
       </div>
       <div class="servicetime">${fmt.main}<span class="servicesub">${escapeHtml(fmt.sub)}</span></div>
     `;
@@ -2627,7 +2717,7 @@ function abrirSelectorReferencias(linea, onCambio) {
           const quitar = document.createElement("button");
           quitar.type = "button";
           quitar.className = "btn-fav";
-          quitar.textContent = "✕";
+          quitar.innerHTML = icono("cerrar");
           quitar.title = "Quitar esta parada";
           quitar.addEventListener("click", e => {
             e.stopPropagation();
@@ -2665,7 +2755,7 @@ function abrirSelectorReferencias(linea, onCambio) {
               <span class="linea-row-muni">hacia ${escapeHtml(s.etiqueta)}</span>
             </span>
             <span class="cabecera-time">${escapeHtml(fmt.main)}<span class="cabecera-sub">${escapeHtml(fmt.sub)}</span></span>
-            <span class="btn-fav">${ya ? "★" : "☆"}</span>`;
+            <span class="btn-fav${ya ? " es-fav" : ""}">${icono("estrella")}</span>`;
           row.addEventListener("click", () => {
             if (ya) quitarReferencia(linea.slug, { paradaId: pid, sentidoClave: s.sentidoClave });
             else anadirReferencia(linea.slug, pid, s.sentidoClave);
@@ -2691,18 +2781,18 @@ function abrirMenuReferencia(linea, ref, onCambio) {
       <h3 class="detail-title">Hacia ${escapeHtml(ref.etiqueta)}</h3>
       <div class="detail-meta">${escapeHtml(linea.titulo)}</div>
       <div class="cabecera-row" style="margin-top:10px; cursor:default;">
-        <span class="cabecera-ico">🚏</span>
+        <span class="cabecera-ico">${icono("parada")}</span>
         <span class="cabecera-body">
-          <span class="cabecera-nombre">${ref.propia ? "★ " : ""}${escapeHtml(ref.paradaNombre)}</span>
+          <span class="cabecera-nombre">${escapeHtml(ref.paradaNombre)}</span>
           <span class="cabecera-meta">${escapeHtml(ref.municipio || "")}${ref.propia ? " · tu parada" : " · cabecera de la línea"}</span>
         </span>
         <span class="cabecera-time">${escapeHtml(fmt.main)}<span class="cabecera-sub">${escapeHtml(fmt.sub)}</span></span>
       </div>
       <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:14px;">
-        ${esFav ? '<button type="button" class="btn-chip" id="menuElegirParada">▲ Elegir mis paradas</button>' : ""}
-        <button type="button" class="btn-chip" id="menuNotificar">${notif ? "🔔 Aviso activo · editar" : "🔔 Notifícame"}</button>
-        <button type="button" class="btn-chip" id="menuVerHorario">🕑 Ver horario completo</button>
-        <button type="button" class="btn-chip" id="menuVerLinea">🚌 Ver la línea</button>
+        ${esFav ? '<button type="button" class="btn-chip" id="menuElegirParada">${icono("triangulo")}Elegir mis paradas</button>' : ""}
+        <button type="button" class="btn-chip" id="menuNotificar">${icono("campana")}${notif ? "Aviso activo" : "Avísame"}</button>
+        <button type="button" class="btn-chip" id="menuVerHorario">${icono("reloj")}Ver horario completo</button>
+        <button type="button" class="btn-chip" id="menuVerLinea">${icono("bus")}Ver la línea</button>
       </div>`;
 
     const btnElegir = container.querySelector("#menuElegirParada");
@@ -2736,10 +2826,10 @@ function renderSalidasDeLineaEn(contenedor, linea, onCambio) {
     const row = document.createElement("div");
     row.className = "cabecera-row";
     row.innerHTML = `
-      <span class="cabecera-ico">🚏</span>
+      <span class="cabecera-ico">${icono("parada")}</span>
       <span class="cabecera-body">
         <span class="cabecera-nombre">hacia ${escapeHtml(ref.etiqueta)}</span>
-        <span class="cabecera-meta">${notif ? "🔔 " : ""}${ref.propia ? "★ " : ""}${escapeHtml(ref.paradaNombre)}${ref.municipio ? " · " + escapeHtml(ref.municipio) : ""}</span>
+        <span class="cabecera-meta">${escapeHtml(ref.paradaNombre)}${ref.municipio ? " · " + escapeHtml(ref.municipio) : ""}</span>
       </span>
       <span class="cabecera-time">${escapeHtml(fmt.main)}<span class="cabecera-sub">${escapeHtml(fmt.sub)}</span>${extra}</span>`;
     row.addEventListener("click", () => abrirMenuReferencia(linea, ref, onCambio));
@@ -2766,8 +2856,8 @@ function renderLineasFavoritas() {
     const header = document.createElement("button");
     header.type = "button";
     header.className = "fav-linea-header";
-    header.innerHTML = `<span class="linea-chip-code">${escapeHtml(codigoLinea(linea.titulo))}</span>
-      <span class="fav-linea-titulo">${escapeHtml(linea.titulo)}</span>`;
+    header.innerHTML = `<span class="linea-badge">${escapeHtml(codigoLinea(linea.titulo))}</span>
+      <span class="fav-linea-titulo">${escapeHtml(nombreSinCodigo(linea.titulo))}</span>`;
     header.addEventListener("click", () => mostrarDetalleLinea(linea.slug));
     bloque.appendChild(header);
 
@@ -2816,11 +2906,11 @@ function renderListadoLineas() {
     const btnFav = document.createElement("button");
     btnFav.type = "button";
     btnFav.className = "btn-fav";
-    btnFav.textContent = esFavoritoLinea(l.slug) ? "★" : "☆";
+    pintarEstrella(btnFav, esFavoritoLinea(l.slug));
     btnFav.addEventListener("click", e => {
       e.stopPropagation();
       toggleFavoritoLinea(l.slug);
-      btnFav.textContent = esFavoritoLinea(l.slug) ? "★" : "☆";
+      pintarEstrella(btnFav, esFavoritoLinea(l.slug));
       renderLineasFavoritas();
     });
     row.addEventListener("click", () => mostrarDetalleLinea(l.slug));
@@ -2849,117 +2939,37 @@ function wireLineSearch() {
 /* ------------------------------------------------------------------ */
 /* Pestaña "Geolocalización"                                           */
 /* ------------------------------------------------------------------ */
-function renderNearbyStops(lat, lng) {
-  const radiusKm = parseFloat(document.getElementById("geoRadius").value) || 1;
-  const radiusM = radiusKm * 1000;
-  const items = [];
-  for (const [id, p] of Object.entries(APP.data.paradas)) {
-    if (p.lat == null) continue;
-    const d = haversine(lat, lng, p.lat, p.lng);
-    if (d <= radiusM) items.push({ id, p, d });
-  }
-  items.sort((a, b) => a.d - b.d);
+const CERCANAS_CUANTAS = 4;
 
-  const box = document.getElementById("geoResults");
-  if (!items.length) {
-    box.innerHTML = `<div class="card"><p class="empty">No hay paradas conocidas en un radio de ${radiusKm} km. Prueba a ampliarlo.</p></div>`;
-    return;
-  }
-  box.innerHTML = `<div class="card"><ul class="stoplist">` +
-    items.map(it => `
-      <li class="stopitem" data-id="${escapeHtml(it.id)}">
-        <span class="stopname">${escapeHtml(it.p.nombre)}${it.p.municipio ? ` <span class="home-fav-muni">${escapeHtml(it.p.municipio)}</span>` : ""}</span>
-        <span class="stopdist">${formatDistance(it.d)}</span>
-      </li>`).join("") +
-    `</ul></div>`;
+function renderParadasCercanas(lat, lng) {
+  const box = document.getElementById("homeCercanas");
+  if (!box) return;
+  const cerca = Object.entries(APP.data.paradas)
+    .filter(([, p]) => p.lat != null)
+    .map(([id, p]) => ({ id, p, dist: haversine(lat, lng, p.lat, p.lng) }))
+    .sort((a, b) => a.dist - b.dist)
+    .slice(0, CERCANAS_CUANTAS);
+  if (!cerca.length) { box.innerHTML = ""; return; }
 
-  box.querySelectorAll(".stopitem").forEach(li => {
-    li.addEventListener("click", () => renderStopServices(li.dataset.id, () => renderNearbyStops(lat, lng)));
-  });
-}
-
-function renderStopServices(stopId, onBack) {
-  const p = APP.data.paradas[stopId];
-  const box = document.getElementById("geoResults");
-  const now = new Date();
-
-  // Agrupamos por línea: si varias sub-rutas de la misma línea pasan por
-  // aquí (caso M-177), se funden en una sola entrada con la salida más
-  // próxima de cualquiera de ellas, en vez de repetir la línea 5 veces.
-  const porLinea = {};
-  p.servicios.forEach(s => {
-    if (!porLinea[s.linea_slug]) {
-      porLinea[s.linea_slug] = { linea_slug: s.linea_slug, linea_titulo: s.linea_titulo, servicios: [] };
-    }
-    porLinea[s.linea_slug].servicios.push(s);
-  });
-  const grupos = Object.values(porLinea).map(g => {
-    const merged = mergeHorarios(g.servicios);
-    return { ...g, dep: nextDeparture(merged, now) };
-  });
-  grupos.sort((a, b) => {
-    const av = a.dep ? a.dep.dias * 1440 + a.dep.h * 60 + a.dep.m : Infinity;
-    const bv = b.dep ? b.dep.dias * 1440 + b.dep.h * 60 + b.dep.m : Infinity;
-    return av - bv;
-  });
-
-  box.innerHTML = `
-    <div class="card">
-      <button class="btn-back" id="btnBackStops">← Volver a paradas cercanas</button>
-      <h3 class="detail-title">${escapeHtml(p.nombre)}</h3>
-      <div class="detail-meta">${escapeHtml(p.zona || "")}</div>
-      <ul class="servicelist" id="serviceList"></ul>
-    </div>`;
-  box.querySelector("#btnBackStops").addEventListener("click", onBack);
-
-  const list = box.querySelector("#serviceList");
-  grupos.forEach(g => {
-    const fmt = formatDeparture(g.dep);
-    const li = document.createElement("li");
-    li.className = "serviceitem";
-    const subLabel = g.servicios.length > 1 ? `${g.servicios.length} recorridos por esta parada` : g.servicios[0].variante_nombre;
-    li.innerHTML = `
-      <div style="flex:1;">
-        <div class="servicename">${escapeHtml(g.linea_titulo)}</div>
-        <div class="servicevariant">${escapeHtml(subLabel)}</div>
-      </div>
-      <div class="servicetime">${fmt.main}<span class="servicesub">${escapeHtml(fmt.sub)}</span></div>
-    `;
-    li.addEventListener("click", () => {
-      const linea = APP.data.lineas.find(l => l.slug === g.linea_slug);
-      const detailContainer = document.createElement("div");
-      detailContainer.className = "card";
-      box.innerHTML = "";
-      box.appendChild(detailContainer);
-      renderLineDetail(detailContainer, linea, stopId, () => renderStopServices(stopId, onBack));
-    });
-    list.appendChild(li);
-  });
-}
-
-function wireGeo() {
-  document.getElementById("btnGeo").addEventListener("click", () => {
-    const statusEl = document.getElementById("geoStatus");
-    if (!navigator.geolocation) {
-      statusEl.textContent = "Tu navegador no soporta geolocalización.";
-      return;
-    }
-    statusEl.textContent = "Obteniendo tu posición…";
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        const { latitude, longitude, accuracy } = pos.coords;
-        statusEl.textContent = `Posición obtenida (±${Math.round(accuracy)} m)`;
-        renderNearbyStops(latitude, longitude);
-      },
-      err => {
-        let extra = "";
-        if (location.protocol === "file:") {
-          extra = " La geolocalización no funciona abriendo el archivo con doble clic: sírvelo con un servidor local (p.ej. `python3 -m http.server`) y ábrelo en http://localhost:8000/";
-        }
-        statusEl.textContent = "No se pudo obtener tu posición: " + err.message + extra;
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+  box.innerHTML = `<div class="card">
+    <h3 class="section-title">${icono("cerca")}Paradas cerca de ti</h3>
+    <div id="cercanasLista"></div>
+  </div>`;
+  const lista = box.querySelector("#cercanasLista");
+  cerca.forEach(({ id, p, dist }) => {
+    const salidas = sentidosEnParada(id, null).slice(0, 2);
+    const fila = document.createElement("div");
+    fila.className = "cabecera-row";
+    const fmt = salidas.length ? formatDeparture(salidas[0].dep) : null;
+    fila.innerHTML = `
+      <span class="cabecera-ico">${icono("parada")}</span>
+      <span class="cabecera-body">
+        <span class="cabecera-nombre">${escapeHtml(p.nombre)}</span>
+        <span class="cabecera-meta">${formatDistance(dist)}${salidas.length ? " · " + escapeHtml(salidas.map(s => codigoLinea(s.lineaTitulo)).join(" · ")) : " · sin salidas"}</span>
+      </span>
+      ${fmt ? `<span class="cabecera-time">${escapeHtml(fmt.main)}<span class="cabecera-sub">${escapeHtml(fmt.sub)}</span></span>` : ""}`;
+    fila.addEventListener("click", () => openModal(cont => buildStopScheduleModalContent(cont, id)));
+    lista.appendChild(fila);
   });
 }
 
@@ -2979,7 +2989,10 @@ let ROUTE_ORIGIN_MARKER = null;
 let ROUTE_DESTINO_MARKER = null;
 let ROUTE_PATH_LAYERS = [];
 let PARADA_POR_NOMBRE = null;
-let CRITERIO_ACTUAL = "trasbordos"; // RNF-1: previsibilidad > velocidad marginal
+// Menos trasbordos manda siempre: es lo que pide quien no se sabe la red.
+// Las alternativas más rápidas se ofrecen igual en la lista de opciones,
+// así que no hace falta que nadie elija un criterio de optimización.
+const CRITERIO = "trasbordos";
 let RUTA_OPCIONES = [];      // combinaciones de líneas calculadas para la última consulta
 let RUTA_OPCION_ACTIVA = 0;  // cuál se está enseñando (0 = la de menos trasbordos)
 
@@ -3429,62 +3442,6 @@ function calcularOpcionesRuta(appData, routing, origin, destino, salida, criteri
   return buenas.slice(0, MAX_OPCIONES);
 }
 
-/** Recopila horas reales de salida (de cualquier línea) desde alguna de
- * las paradas indicadas, dentro de una ventana de minutos a partir de
- * startMin. Se usa para generar "candidatos de salida" para el criterio
- * "viaje más corto". */
-function candidatosSalidaInicial(routing, freqKey, stopIdsSet, startMin, ventanaMin) {
-  const cands = new Set();
-  const conexiones = routing.conexiones[freqKey] || [];
-  for (const c of conexiones) {
-    if (c[2] < startMin) continue;
-    if (c[2] > startMin + ventanaMin) break; // conexiones ya vienen ordenadas por hora de salida
-    if (stopIdsSet.has(c[0])) cands.add(c[2]);
-  }
-  return [...cands].sort((a, b) => a - b);
-}
-
-/** "Viaje más corto": en vez de minimizar la hora de llegada (eso es
- * "Llegar antes"), busca entre varias posibles horas de salida reales
- * cuál da lugar al TRAYECTO más corto una vez montado — aunque eso
- * implique esperar más al autobús adecuado. Prueba cada candidato de
- * salida real (de esta parada o de alguna vecina a pie) dentro de una
- * ventana de unas horas, relanzando la búsqueda normal de "llegar
- * antes" desde ese instante, y se queda con la que menos tiempo total
- * de viaje (llegada − salida real elegida) tenga. */
-function computeRouteViajeCorto(appData, routing, origin, destino, startDate, opciones) {
-  const VENTANA_MIN = 240;
-  const MAX_CANDIDATOS = 15;
-
-  const o = resolverExtremo(appData, origin);
-  if (!o) return null;
-  const freqKey = frecuenciaKeyForDate(startDate);
-  const startMin = startDate.getHours() * 60 + startDate.getMinutes();
-
-  const stopIdsSet = new Set(o.stopIds);
-  if (o.tipo !== "municipio") {
-    o.seeds.forEach(seed => (routing.vecinos[seed.stopId] || []).forEach(([vid]) => stopIdsSet.add(vid)));
-  }
-
-  let candidatos = candidatosSalidaInicial(routing, freqKey, stopIdsSet, startMin, VENTANA_MIN);
-  if (!candidatos.length) candidatos = [startMin];
-  candidatos = candidatos.slice(0, MAX_CANDIDATOS);
-
-  let mejor = null, mejorDuracion = Infinity;
-  for (const cand of candidatos) {
-    const fechaCand = new Date(startDate);
-    fechaCand.setHours(0, 0, 0, 0);
-    fechaCand.setMinutes(cand);
-    const res = computeRoute(appData, routing, origin, destino, fechaCand, "tiempo", opciones);
-    if (!res) continue;
-    const tFinalAbs = res.diasSalida * 1440 + res.llegadaMin;
-    const duracionViaje = tFinalAbs - cand;
-    if (duracionViaje < mejorDuracion) { mejorDuracion = duracionViaje; mejor = res; }
-  }
-  if (mejor) mejor.criterio = "viaje";
-  return mejor;
-}
-
 function fmtHoraAbs(minAbs) {
   const dias = Math.floor(minAbs / 1440);
   const m = ((minAbs % 1440) + 1440) % 1440;
@@ -3640,12 +3597,12 @@ function buildStopPopupContent(id) {
   const btnFav = document.createElement("button");
   btnFav.type = "button";
   btnFav.className = "btn-fav";
-  btnFav.textContent = esFavoritoParada(id) ? "★" : "☆";
+  pintarEstrella(btnFav, esFavoritoParada(id));
   btnFav.title = "Marcar/quitar de favoritos";
   btnFav.addEventListener("click", e => {
     e.stopPropagation();
     toggleFavoritoParada(id);
-    btnFav.textContent = esFavoritoParada(id) ? "★" : "☆";
+    pintarEstrella(btnFav, esFavoritoParada(id));
   });
   titulo.appendChild(btnFav);
   wrap.appendChild(titulo);
@@ -3692,7 +3649,7 @@ function buildStopPopupContent(id) {
     btnTodas.type = "button";
     btnTodas.className = "btn-chip";
     btnTodas.style.marginBottom = "8px";
-    btnTodas.textContent = `☰ Ver las ${grupos.length} salidas`;
+    btnTodas.innerHTML = icono("lista") + `Ver las ${grupos.length} salidas`;
     btnTodas.addEventListener("click", () => {
       if (CURRENT_ROUTE_MAP) CURRENT_ROUTE_MAP.closePopup();
       openModal(container => buildStopScheduleModalContent(container, id));
@@ -3708,7 +3665,7 @@ function buildStopPopupContent(id) {
   const btnOrigen = document.createElement("button");
   btnOrigen.type = "button";
   btnOrigen.className = "btn-chip" + (esOrigen ? " armed" : "");
-  btnOrigen.textContent = esOrigen ? "✕ Quitar origen" : "📍 Marcar origen";
+  btnOrigen.innerHTML = esOrigen ? icono("cerrar") + "Quitar origen" : icono("pin") + "Marcar origen";
   btnOrigen.addEventListener("click", () => {
     if (esOrigen) clearEndpoint("origen"); else setEndpoint("origen", { type: "stop", id });
     CURRENT_ROUTE_MAP.closePopup();
@@ -3718,7 +3675,7 @@ function buildStopPopupContent(id) {
   const btnDestino = document.createElement("button");
   btnDestino.type = "button";
   btnDestino.className = "btn-chip" + (esDestino ? " armed" : "");
-  btnDestino.textContent = esDestino ? "✕ Quitar destino" : "🏁 Marcar destino";
+  btnDestino.innerHTML = esDestino ? icono("cerrar") + "Quitar destino" : icono("bandera") + "Marcar destino";
   btnDestino.addEventListener("click", () => {
     if (esDestino) clearEndpoint("destino"); else setEndpoint("destino", { type: "stop", id });
     CURRENT_ROUTE_MAP.closePopup();
@@ -3803,7 +3760,7 @@ function placeEndpointMarker(which, point) {
   } else {
     icon = L.divIcon({
       className: "",
-      html: `<div style="font-size:22px; line-height:1;">${which === "origen" ? "📍" : "🏁"}</div>`,
+      html: `<span class="marca-extremo ${which}">${icono(which === "origen" ? "pin" : "bandera")}</span>`,
       iconSize: [22, 22], iconAnchor: [11, 20]
     });
   }
@@ -3881,7 +3838,7 @@ function drawRouteOnMap(res) {
         .filter(p => p && p.lat != null)
         .map(p => [p.lat, p.lng]);
       if (puntos.length < 2) return;
-      const line = L.polyline(puntos, { color: "#2F6F4F", weight: 5, opacity: 0.85 }).addTo(CURRENT_ROUTE_MAP);
+      const line = L.polyline(puntos, { color: colorTema("brand"), weight: 5, opacity: 0.95 }).addTo(CURRENT_ROUTE_MAP);
       ROUTE_PATH_LAYERS.push(line);
       puntos.forEach(pt => bounds.push(pt));
       return;
@@ -3903,7 +3860,7 @@ function drawRouteOnMap(res) {
     }
     if (!latlngA || !latlngB) return;
     const line = L.polyline([latlngA, latlngB], {
-      color: "#C1443B", weight: 3, opacity: 0.85, dashArray: "2 8"
+      color: colorTema("coral"), weight: 3, opacity: 0.9, dashArray: "2 8"
     }).addTo(CURRENT_ROUTE_MAP);
     ROUTE_PATH_LAYERS.push(line);
     bounds.push(latlngA, latlngB);
@@ -4036,7 +3993,7 @@ function itinerarioHtml(res) {
         <div class="itin-hito">
           <div class="itin-parada${fila.paradaId ? " pulsable" : ""}"${fila.paradaId ? ` data-stop-id="${escapeHtml(fila.paradaId)}"` : ""}>${escapeHtml(nombre)}</div>
           ${municipio ? `<div class="itin-muni">${escapeHtml(municipio)}</div>` : ""}
-          ${esperaMin > 0 ? `<div class="itin-espera">⏱ ${esperaMin} min de espera</div>` : ""}
+          ${esperaMin > 0 ? `<div class="itin-espera">${icono("reloj")}${esperaMin} min de espera</div>` : ""}
         </div>
       </div>`;
     }
@@ -4053,7 +4010,7 @@ function itinerarioHtml(res) {
       return `<div class="${clases.join(" ")}">
         <div class="itin-hora"></div>
         <div class="itin-espina"></div>
-        <div class="itin-tramo"><div class="itin-andando">🚶 Camina${distM != null ? ` ${distM} m` : ""} · ${leg.llegada - leg.salida} min</div></div>
+        <div class="itin-tramo"><div class="itin-andando">${icono("andar")}Camina${distM != null ? ` ${distM} m` : ""} · ${leg.llegada - leg.salida} min</div></div>
       </div>`;
     }
 
@@ -4076,7 +4033,7 @@ function itinerarioHtml(res) {
           <span class="itin-hacia">hacia ${escapeHtml(haciaDondeVaTramo(leg))}</span>
         </button>
         <button type="button" class="itin-tramo-pie"${intermedias.length ? ' aria-expanded="false"' : ""}>
-          ${nParadas} parada${nParadas === 1 ? "" : "s"} · ${leg.llegada - leg.salida} min${intermedias.length ? ' <span class="flecha-abrir">▾</span>' : ""}
+          ${nParadas} parada${nParadas === 1 ? "" : "s"} · ${leg.llegada - leg.salida} min${intermedias.length ? ' ' + icono("abajo") : ""}
         </button>
         ${listaHtml}
       </div>
@@ -4109,14 +4066,12 @@ function renderRutaResultado(res, salidaDate, directo, opciones) {
   const esperaInicialMin = primerBus ? primerBus.salida - Math.max(salidaMin, salidaRealMin) : 0;
   const totalTransporteMin = tFinalAbs - salidaMin;
 
-  const criterioLabel = { tiempo: "llegar antes", viaje: "viaje más corto", trasbordos: "menos trasbordos", caminar: "menos caminar" }[res.criterio] || "";
   const tags = [];
   const enCuanto = salidaRealMin - salidaMin;
   if (enCuanto > 0) tags.push(`<span class="itin-tag${enCuanto <= 10 ? " ya" : ""}">Sal en ${fmtDur(enCuanto)}</span>`);
   else tags.push(`<span class="itin-tag ya">Sal ya</span>`);
   tags.push(`<span class="itin-tag">${res.numTrasbordos} trasbordo${res.numTrasbordos === 1 ? "" : "s"}</span>`);
   if (res.totalCaminandoMin > 0) tags.push(`<span class="itin-tag">${Math.round(res.totalCaminandoMin)} min a pie</span>`);
-  tags.push(`<span class="itin-tag">Por ${escapeHtml(criterioLabel)}</span>`);
 
   // Con un municipio como extremo, la parada concreta la elige el
   // buscador: hay que decir cuál, o el itinerario no se puede seguir.
@@ -4128,12 +4083,12 @@ function renderRutaResultado(res, salidaDate, directo, opciones) {
 
   let avisoCaminar = "";
   if (directo && directo.minutos < totalTransporteMin) {
-    avisoCaminar = `<div class="itin-leg-warn">🚶 Ir caminando en línea recta (${Math.round(directo.distMetros)} m) tardaría solo ${fmtDur(directo.minutos)} — menos que esta ruta, que incluye ${fmtDur(esperaInicialMin)} de espera.</div>`;
+    avisoCaminar = `<div class="itin-leg-warn">${icono("aviso")}<span>Ir caminando en línea recta (${Math.round(directo.distMetros)} m) tardaría solo ${fmtDur(directo.minutos)} — menos que esta ruta, que incluye ${fmtDur(esperaInicialMin)} de espera.</span></div>`;
   }
 
   const puedeGuardar = ROUTE_ORIGIN && ROUTE_DESTINO && ROUTE_ORIGIN.type === "stop" && ROUTE_DESTINO.type === "stop";
   const favBtnHtml = puedeGuardar
-    ? `<button type="button" class="btn-chip" id="btnFavRuta" style="margin-top:10px;">${esFavoritoRuta(ROUTE_ORIGIN.id, ROUTE_DESTINO.id) ? "★ Quitar de favoritos" : "☆ Guardar ruta como favorita"}</button>`
+    ? `<button type="button" class="btn-chip${esFavoritoRuta(ROUTE_ORIGIN.id, ROUTE_DESTINO.id) ? " armed" : ""}" id="btnFavRuta" style="margin-top:12px;">${icono("estrella")}${esFavoritoRuta(ROUTE_ORIGIN.id, ROUTE_DESTINO.id) ? "Guardada" : "Guardar esta ruta"}</button>`
     : "";
 
   box.innerHTML = `
@@ -4166,7 +4121,9 @@ function renderRutaResultado(res, salidaDate, directo, opciones) {
   if (puedeGuardar) {
     box.querySelector("#btnFavRuta").addEventListener("click", e => {
       toggleFavoritoRuta(ROUTE_ORIGIN.id, ROUTE_DESTINO.id, res.criterio);
-      e.target.textContent = esFavoritoRuta(ROUTE_ORIGIN.id, ROUTE_DESTINO.id) ? "★ Quitar de favoritos" : "☆ Guardar ruta como favorita";
+      const guardada = esFavoritoRuta(ROUTE_ORIGIN.id, ROUTE_DESTINO.id);
+      e.currentTarget.innerHTML = icono("estrella") + (guardada ? "Guardada" : "Guardar esta ruta");
+      e.currentTarget.classList.toggle("armed", guardada);
     });
   }
 
@@ -4209,16 +4166,7 @@ async function onCalcularRuta() {
   const salida = horaInput ? new Date(horaInput) : new Date();
   const directo = distanciaDirecta(APP.data, ROUTE_ORIGIN, ROUTE_DESTINO);
 
-  // "Viaje más corto" es una búsqueda sobre horas de salida, no una
-  // combinación de líneas, así que ahí no hay opciones que ofrecer.
-  if (CRITERIO_ACTUAL === "viaje") {
-    RUTA_OPCIONES = [];
-    RUTA_OPCION_ACTIVA = 0;
-    renderRutaResultado(computeRouteViajeCorto(APP.data, ROUTING, ROUTE_ORIGIN, ROUTE_DESTINO, salida), salida, directo, []);
-    return;
-  }
-
-  RUTA_OPCIONES = calcularOpcionesRuta(APP.data, ROUTING, ROUTE_ORIGIN, ROUTE_DESTINO, salida, CRITERIO_ACTUAL);
+  RUTA_OPCIONES = calcularOpcionesRuta(APP.data, ROUTING, ROUTE_ORIGIN, ROUTE_DESTINO, salida, CRITERIO);
   RUTA_OPCION_ACTIVA = 0;
   renderRutaResultado(RUTA_OPCIONES[0] || null, salida, directo, RUTA_OPCIONES);
 }
@@ -4240,13 +4188,12 @@ function wireRuta() {
   document.getElementById("destinoPin").addEventListener("click", () => armClickMode("destino"));
   document.getElementById("btnCalcularRuta").addEventListener("click", onCalcularRuta);
   document.getElementById("horaSalida").value = nowForDatetimeLocal();
-  document.querySelectorAll("#criterioRow .criterio-pill").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll("#criterioRow .criterio-pill").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      CRITERIO_ACTUAL = btn.dataset.criterio;
-      if (ROUTE_ORIGIN && ROUTE_DESTINO) onCalcularRuta();
-    });
+  // La hora sólo aparece si de verdad la vas a cambiar: por defecto es
+  // "ahora", que es lo que quiere el 95% de las veces quien va a la parada.
+  document.getElementById("btnOtraHora").addEventListener("click", () => {
+    const campo = document.getElementById("campoHora");
+    campo.hidden = !campo.hidden;
+    if (!campo.hidden) document.getElementById("horaSalida").focus();
   });
 }
 
@@ -4287,7 +4234,7 @@ function lineasEnParadaPriorizadas(paradaId, limite) {
 function renderFavParadas() {
   const box = document.getElementById("favParadasList");
   if (!FAVORITOS.paradas.length) {
-    box.innerHTML = '<p class="empty">Aún no tienes paradas favoritas. Márcalas con la ☆ desde el mapa o desde la ficha de cualquier parada.</p>';
+    box.innerHTML = '<p class="empty">Toca una parada en el mapa y guárdala con la estrella: aparecerá aquí con sus próximas salidas.</p>';
     return;
   }
   box.innerHTML = "";
@@ -4319,7 +4266,7 @@ function renderFavParadas() {
     const btnFav = document.createElement("button");
     btnFav.type = "button";
     btnFav.className = "btn-fav";
-    btnFav.textContent = "★";
+    pintarEstrella(btnFav, true);
     btnFav.addEventListener("click", e => { e.stopPropagation(); toggleFavoritoParada(fav.id); renderFavParadas(); });
     head.appendChild(btnFav);
     card.appendChild(head);
@@ -4356,7 +4303,7 @@ function renderFavParadas() {
 function renderFavLineas() {
   const box = document.getElementById("favLineasList");
   if (!FAVORITOS.lineas.length) {
-    box.innerHTML = '<p class="empty">Aún no tienes líneas favoritas. Márcalas con la ☆ desde la ficha de cualquier línea.</p>';
+    box.innerHTML = '<p class="empty">Guarda una línea con la estrella para tenerla siempre a mano.</p>';
     return;
   }
   box.innerHTML = "";
@@ -4387,7 +4334,7 @@ function renderFavLineas() {
     const btnFav = document.createElement("button");
     btnFav.type = "button";
     btnFav.className = "btn-fav";
-    btnFav.textContent = "★";
+    pintarEstrella(btnFav, true);
     btnFav.addEventListener("click", e => { e.stopPropagation(); toggleFavoritoLinea(fav.slug); renderFavLineas(); });
     li.appendChild(btnFav);
     ul.appendChild(li);
@@ -4424,15 +4371,15 @@ function getOrRecalcularFavoritoRuta(fav) {
 async function renderFavRutas() {
   const box = document.getElementById("favRutasList");
   if (!FAVORITOS.rutas.length) {
-    box.innerHTML = '<div class="card"><h3 class="section-title" style="margin-top:0;">🗺️ Rutas favoritas</h3><p class="empty">Aún no tienes rutas favoritas. Calcula una ruta en la pestaña anterior y pulsa "Guardar ruta como favorita".</p></div>';
+    box.innerHTML = '<div class="card"><h3 class="section-title">' + icono("brujula") + 'Rutas guardadas</h3><p class="empty">Aún no tienes rutas favoritas. Calcula una ruta en la pestaña anterior y pulsa "Guardar ruta como favorita".</p></div>';
     return;
   }
-  box.innerHTML = '<div class="card"><h3 class="section-title" style="margin-top:0;">🗺️ Rutas favoritas</h3><p class="empty">Calculando…</p></div>';
+  box.innerHTML = '<div class="card"><h3 class="section-title">' + icono("brujula") + 'Rutas guardadas</h3><p class="empty">Calculando…</p></div>';
   if (!ROUTING) {
     try {
       ROUTING = await loadRoutingData(false);
     } catch (e) {
-      box.innerHTML = `<div class="card"><h3 class="section-title" style="margin-top:0;">🗺️ Rutas favoritas</h3><p class="empty">No se pudo cargar el motor de rutas: ${escapeHtml(e.message)}</p></div>`;
+      box.innerHTML = `<div class="card"><h3 class="section-title">${icono("brujula")}Rutas guardadas</h3><p class="empty">No se pudo cargar el motor de rutas: ${escapeHtml(e.message)}</p></div>`;
       return;
     }
   }
@@ -4441,7 +4388,7 @@ async function renderFavRutas() {
   const titulo = document.createElement("h3");
   titulo.className = "section-title";
   titulo.style.margin = "0 4px 8px 4px";
-  titulo.textContent = "🗺️ Rutas favoritas";
+  titulo.innerHTML = icono("brujula") + "Rutas guardadas";
   box.appendChild(titulo);
 
   FAVORITOS.rutas.forEach(fav => {
@@ -4458,7 +4405,7 @@ async function renderFavRutas() {
     const btnFav = document.createElement("button");
     btnFav.type = "button";
     btnFav.className = "btn-fav";
-    btnFav.textContent = "★";
+    pintarEstrella(btnFav, true);
     btnFav.addEventListener("click", () => { toggleFavoritoRuta(fav.origenId, fav.destinoId); renderFavRutas(); });
     header.appendChild(btnFav);
     card.appendChild(header);
@@ -4503,7 +4450,7 @@ async function renderFavRutas() {
       btnVerMapa.type = "button";
       btnVerMapa.className = "btn-chip";
       btnVerMapa.style.marginTop = "8px";
-      btnVerMapa.textContent = "🧭 Abrir en Ruta, con mapa";
+      btnVerMapa.innerHTML = icono("brujula") + "Abrir en Ruta";
       btnVerMapa.addEventListener("click", () => {
         ROUTE_ORIGIN = { type: "stop", id: fav.origenId };
         ROUTE_DESTINO = { type: "stop", id: fav.destinoId };
@@ -4562,7 +4509,7 @@ function setHomeOrigen(point, textoDescriptivo) {
     : [point.lat, point.lng];
   if (HOME_ORIGEN_MARKER) HOME_MAP.removeLayer(HOME_ORIGEN_MARKER);
   HOME_ORIGEN_MARKER = L.marker(latlng, {
-    icon: L.divIcon({ className: "", html: '<div style="font-size:24px; line-height:1;">📍</div>', iconSize: [24, 24], iconAnchor: [12, 22] })
+    icon: L.divIcon({ className: "", html: `<span class="marca-extremo origen">${icono("pin")}</span>`, iconSize: [26, 26], iconAnchor: [13, 24] })
   }).addTo(HOME_MAP);
   HOME_MAP.setView(latlng, 14);
 }
@@ -4570,22 +4517,23 @@ function setHomeOrigen(point, textoDescriptivo) {
 function pedirUbicacionInicio() {
   const texto = document.getElementById("homeOrigenTexto");
   if (!navigator.geolocation) {
-    texto.textContent = "Tu navegador no permite geolocalización — elige un origen en la pantalla Ruta.";
+    texto.textContent = "Tu navegador no comparte la ubicación. Elige de dónde sales en la pestaña Ruta.";
     return;
   }
-  texto.textContent = "Localizando…";
+  texto.textContent = "Buscando dónde estás…";
   navigator.geolocation.getCurrentPosition(
     pos => {
       const near = nearestStop(APP.data, pos.coords.latitude, pos.coords.longitude);
       setHomeOrigen({ type: "point", lat: pos.coords.latitude, lng: pos.coords.longitude },
-        near ? `Saliendo desde cerca de ${APP.data.paradas[near.id].nombre} (${formatDistance(near.dist)})` : "Saliendo desde tu ubicación");
+        near ? `Sales desde ${APP.data.paradas[near.id].nombre}` : "Sales desde tu ubicación");
+      renderParadasCercanas(pos.coords.latitude, pos.coords.longitude);
     },
     () => {
       // Requisito del boceto: si no se puede geolocalizar, pedir punto de
       // partida explícito en vez de dejar la pantalla en un estado muerto.
-      texto.textContent = "No se pudo localizar. Elige un punto de partida:";
+      texto.textContent = "No hemos podido localizarte. Marca de dónde sales:";
       const btn = document.getElementById("homeBtnUbicacion");
-      btn.textContent = "🖊 Marcar origen en el mapa";
+      btn.innerHTML = icono("lapiz") + "Marcar en el mapa";
       btn.onclick = () => {
         texto.textContent = "Toca el mapa para fijar tu punto de partida.";
         if (HOME_MAP) HOME_MAP.once("click", e => {
@@ -4696,13 +4644,13 @@ function renderHomeFavSalidas() {
     if (!mostradas.length) return;
     hayAlgo = true;
     html += `<div class="home-fav-parada" data-stop-id="${escapeHtml(entrada.paradaId)}">
-      <div class="home-fav-parada-nombre">📍 ${escapeHtml(p.nombre)}${entrada.municipio ? ` <span class="home-fav-muni">${escapeHtml(entrada.municipio)}</span>` : ""}</div>`;
+      <div class="home-fav-parada-nombre">${icono("parada")}${escapeHtml(p.nombre)}${entrada.municipio ? ` <span class="home-fav-muni">${escapeHtml(entrada.municipio)}</span>` : ""}</div>`;
     mostradas.forEach(g => {
       const fmt = formatDeparture(g.dep);
       const notif = getNotificacion(entrada.paradaId, g.linea_slug) || getNotificacion(entrada.paradaId, null);
       html += `<div class="home-fav-fila">
         <span class="home-fav-code${g.favorita ? " es-fav" : ""}">${escapeHtml(codigoLinea(g.linea_titulo))}</span>
-        <span class="home-fav-dir">${notif ? "🔔 " : ""}${escapeHtml(g.direccion || g.linea_titulo)}</span>
+        <span class="home-fav-dir">${escapeHtml(g.direccion || g.linea_titulo)}</span>
         <span class="home-fav-hora">${escapeHtml(fmt.main)}<span class="home-fav-sub">${escapeHtml(fmt.sub)}</span></span>
       </div>`;
     });
@@ -4734,8 +4682,8 @@ function renderQuickFavs() {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "quickfav";
-    b.textContent = `→ ${fav.destinoNombre}`;
-    b.title = `${fav.origenNombre} → ${fav.destinoNombre}`;
+    b.innerHTML = icono("brujula") + escapeHtml(fav.destinoNombre);
+    b.title = `${fav.origenNombre} ${icono("brujula")}${escapeHtml(fav.destinoNombre)}`;
     b.addEventListener("click", () => {
       ROUTE_ORIGIN = { type: "stop", id: fav.origenId };
       ROUTE_DESTINO = { type: "stop", id: fav.destinoId };
@@ -4755,7 +4703,7 @@ function renderQuickFavs() {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "quickfav";
-    b.textContent = `📍 ${fav.nombre}`;
+    b.innerHTML = icono("parada") + escapeHtml(fav.nombre);
     b.addEventListener("click", () => openModal(container => buildStopScheduleModalContent(container, fav.id)));
     box.appendChild(b);
   });
@@ -4836,26 +4784,21 @@ function registrarServiceWorker() {
 
 async function init() {
   cargarFavoritos();
+  pintarIconosDeclarados();
+  wireTema();
   registrarServiceWorker();
   setStatus("Cargando datos…");
   try {
     APP.data = await loadData(false);
     construirGrafo();
-    const fecha = APP.data.generado ? new Date(APP.data.generado).toLocaleString("es-ES") : "?";
-    setStatus(`${APP.data.lineas.length} líneas · datos generados ${fecha}`);
+    setStatus("");
   } catch (err) {
-    setStatus("Error cargando datos: " + err.message);
-    document.getElementById("lineasListado").innerHTML =
-      `<p class="empty">No se pudo cargar <code>${DATA_URL}</code>. Si has abierto este archivo con doble clic,
-      muchos navegadores bloquean esa carga por CORS: sirve la carpeta con un servidor local, por ejemplo
-      <code>python3 -m http.server</code> desde la carpeta donde estén los dos ficheros, y abre
-      <code>http://localhost:8000/proxima_salida.html</code>.</p>`;
+    setStatus("No se han podido cargar los horarios. Comprueba la conexión y vuelve a entrar.", true);
     return;
   }
   buildMunicipioOptions();
   wireTabs();
   wireLineSearch();
-  wireGeo();
   wireRuta();
   wireInicio();
   renderQuickFavs();
@@ -4863,20 +4806,6 @@ async function init() {
   initHomeMap();
   arrancarVigilanteNotificaciones();
   pedirUbicacionInicio();
-
-  document.getElementById("btnRefresh").addEventListener("click", async () => {
-    setStatus("Actualizando datos…");
-    try {
-      APP.data = await loadData(true);
-      construirGrafo();
-      const fecha = APP.data.generado ? new Date(APP.data.generado).toLocaleString("es-ES") : "?";
-      setStatus(`${APP.data.lineas.length} líneas · datos generados ${fecha}`);
-      buildMunicipioOptions();
-      renderListadoLineas();
-    } catch (err) {
-      setStatus("Error actualizando: " + err.message);
-    }
-  });
 }
 
 document.addEventListener("DOMContentLoaded", init);

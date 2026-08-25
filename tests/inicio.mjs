@@ -165,6 +165,22 @@ const preferencia = await page.evaluate(({ aqui, m177 }) => {
     .map(n => ({ id: idPor(n), nombre: n }));
   casos.paradasFavoritas = resumen();
 
+  // Lo que tiene el usuario de verdad: la línea 177 y su parada del
+  // Arroyo. Estando en Guillena manda su parada; en Sevilla, la que
+  // tenga delante — pero siempre la 177 y nada más.
+  FAVORITOS.lineas = [{ slug: m177 }];
+  FAVORITOS.paradas = [{ id: idPor('AV ANDALUCIA (ARROYO)'), nombre: 'AV ANDALUCIA (ARROYO)' }];
+  casos.lineaYParadaEnGuillena = resumen();
+  UBICACION = { lat: 37.3921, lng: -6.0330 };   // junto a Chapina
+  casos.lineaYParadaEnChapina = resumen();
+
+  // Una parada favorita por la que no pasa ninguna línea que sigo: ahí sí
+  // valen sus próximas salidas, sea de quien sea la línea.
+  UBICACION = { lat: 37.3921, lng: -6.0042 };
+  FAVORITOS.lineas = [];
+  FAVORITOS.paradas = [{ id: idPor('PLAZA DE ARMAS'), nombre: 'PLAZA DE ARMAS' }];
+  casos.paradaSinLineaFavorita = resumen();
+
   FAVORITOS.lineas = []; FAVORITOS.paradas = [];
   return casos;
 }, { aqui: AQUI, m177: M177 });
@@ -193,6 +209,25 @@ ok(unaParadaPorLineaYSentido(preferencia.paradasFavoritas),
 ok(m177Favoritas.every(f => f.parada !== 'PLAZA DE ARMAS'),
   'y no la que está a diecisiete kilómetros',
   JSON.stringify(m177Favoritas.map(f => f.parada + ' ' + f.metros + ' m')));
+
+// La combinación real: línea favorita + una parada favorita suya.
+const guillena = preferencia.lineaYParadaEnGuillena;
+const chapina = preferencia.lineaYParadaEnChapina;
+ok(guillena.length > 0 && guillena.every(f => f.parada === 'AV ANDALUCIA (ARROYO)' && f.linea === 'M-177'),
+  'en Guillena, sólo mi parada del Arroyo y sólo la 177',
+  JSON.stringify(guillena.map(f => f.linea + ' · ' + f.parada)));
+ok(chapina.length > 0 && chapina.every(f => f.linea === 'M-177') && chapina.every(f => f.metros < 500),
+  'junto a Chapina, la 177 en la parada que tengo delante',
+  JSON.stringify(chapina.map(f => f.linea + ' · ' + f.parada + ' ' + f.metros + ' m')));
+ok(chapina.every(f => f.parada !== 'AV ANDALUCIA (ARROYO)'),
+  'y no mi parada de Guillena, que está a diecisiete kilómetros');
+
+const sinFav = preferencia.paradaSinLineaFavorita;
+ok(sinFav.length === 3 && sinFav.every(f => f.parada === 'PLAZA DE ARMAS'),
+  'una parada favorita sin líneas que siga trae sus 3 próximas salidas',
+  JSON.stringify(sinFav.map(f => f.linea)));
+ok(new Set(sinFav.map(f => f.linea)).size > 1,
+  'de las líneas que sean, no sólo de una');
 
 ok(errores.length === 0, 'sin errores en consola', JSON.stringify(errores));
 console.log(fallos ? `\n${fallos} comprobaciones fallidas` : '\nTodo correcto');

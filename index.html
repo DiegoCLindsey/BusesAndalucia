@@ -817,8 +817,12 @@
   .map-note{font-size:11.5px; color:var(--text-mute); margin-top:8px;}
   .stoprow{border-top:1px solid var(--hairline-soft);}
   .stoprow:first-child{border-top:none;}
+  /* Es un <button>, y un botón no encoge por debajo de su contenido a no
+     ser que se le diga: sin esto, en una pantalla de 320 px la fila se
+     salía y arrastraba a la página entera al desplazamiento lateral. */
   .stoprow-head{
     display:flex; align-items:center; gap:11px; padding:12px 0; cursor:pointer;
+    width:100%; min-width:0; text-align:left;
   }
   .stoprow-order{
     width:26px; height:26px; border-radius:9px; flex:none;
@@ -826,14 +830,24 @@
     background:var(--surface-strong); color:var(--text-mute);
     font-size:11.5px; font-weight:700; font-variant-numeric:tabular-nums;
   }
-  .stoprow-name{flex:1; min-width:0; font-size:14px; font-weight:600;}
-  .stoprow-sub{display:block; font-size:11.5px; color:var(--text-mute); font-weight:500;}
+  .stoprow-name{
+    flex:1; min-width:0; font-size:14px; font-weight:600;
+    overflow:hidden; text-overflow:ellipsis;
+  }
+  .stoprow-sub{
+    display:block; font-size:11.5px; color:var(--text-mute); font-weight:500;
+    white-space:normal;   /* el rótulo largo parte de línea en vez de empujar */
+  }
   .stoprow-time{
+    flex:none; max-width:38%; text-align:right;
     font-size:15px; font-weight:700; color:var(--brand);
     white-space:nowrap; font-variant-numeric:tabular-nums;
   }
   .stoprow-body{padding:0 0 14px 37px;}
-  .stoprow-recorrido{font-size:12px; color:var(--text-mute); margin-bottom:8px;}
+  .stoprow-recorrido{
+    display:block; font-size:12px; color:var(--text-mute); font-weight:500;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
   .btn-pdf{
     display:inline-flex; align-items:center; gap:7px;
     background:var(--surface); border:1px solid var(--hairline); border-radius:999px;
@@ -924,7 +938,7 @@
       <h3 class="section-title" data-ico="estrella">Líneas favoritas</h3>
       <div id="lineasFavChips"></div>
     </div>
-    <div class="card">
+    <div class="card" id="lineasListadoCard">
       <h3 class="section-title" data-ico="bus">Todas las líneas</h3>
       <div class="field">
         <input type="text" class="input" id="lineaBuscador" placeholder="Buscar línea o municipio…">
@@ -2042,7 +2056,7 @@ function nextDeparture(horarios, now) {
 }
 
 function formatDeparture(dep) {
-  if (!dep) return { main: "—", sub: "Sin servicios programados" };
+  if (!dep) return { main: "—", sub: "sin servicio" };
   const hh = String(dep.h).padStart(2, "0");
   const mm = String(dep.m).padStart(2, "0");
   let sub;
@@ -2686,7 +2700,12 @@ function renderLineDetail(container, linea, defaultStopId, onBack, mapRef) {
     const serviciosLinea = serviciosDeLineaEnParada(id, linea.slug);
     const dep = nextDepartureConOrigen(serviciosLinea);
     const fmt = formatDeparture(dep);
-    const recorridoLabel = dep && dep.variantes ? (dep.variantes.length > 1 ? `${dep.variantes.length} recorridos posibles` : dep.variantes[0]) : "";
+    // Bajo el nombre de la parada va su municipio, no el nombre de la
+    // variante. "M-101A Circular Bormujos - Castilleja - Tomares - S Juan
+    // A - Mairena (sent A)" ocupaba seis renglones en un móvil estrecho
+    // —ciento cuarenta píxeles por parada, ocho mil de lista— para repetir
+    // en cada fila algo que ya dice el título de la ficha.
+    const recorridoLabel = municipioDeParada(id) || "";
 
     const row = document.createElement("div");
     row.className = "stoprow";
@@ -3279,6 +3298,14 @@ function renderListadoLineas() {
   });
 }
 
+/** Abrir una línea SUSTITUYE al listado, no se le añade debajo.
+ *
+ * Antes la ficha se pintaba a continuación de las cincuenta y cinco filas
+ * del listado y de las líneas favoritas, así que la página se iba a más
+ * de doce mil píxeles: para volver a la lista —o a cualquier otra cosa—
+ * había que arrastrar la pantalla un buen rato. Con la ficha sola, la
+ * página vuelve a medir lo que mide una ficha, y "‹ Volver" devuelve el
+ * listado donde estaba. */
 function mostrarDetalleLinea(slug) {
   const linea = APP.data.lineas.find(l => l.slug === slug);
   const detailBox = document.getElementById("lineDetail");
@@ -3286,9 +3313,22 @@ function mostrarDetalleLinea(slug) {
     detailBox.innerHTML = '<div class="card"><p class="empty">Esta línea no tiene paradas con datos disponibles.</p></div>';
     return;
   }
+  const listado = document.getElementById("lineasListadoCard");
+  const favoritas = document.getElementById("lineasFavCard");
+  const scrollPrevio = window.scrollY;
+  if (listado) listado.hidden = true;
+  if (favoritas) favoritas.hidden = true;
+
   detailBox.className = "card";
-  renderLineDetail(detailBox, linea, linea.orden_unificado[0], null);
-  detailBox.scrollIntoView({ behavior: "smooth", block: "start" });
+  renderLineDetail(detailBox, linea, linea.orden_unificado[0], () => {
+    detailBox.innerHTML = "";
+    detailBox.className = "";
+    if (listado) listado.hidden = false;
+    if (favoritas) favoritas.hidden = false;
+    renderLineasFavoritas();
+    window.scrollTo({ top: scrollPrevio });
+  });
+  window.scrollTo({ top: 0 });
 }
 
 function wireLineSearch() {
@@ -4857,6 +4897,8 @@ function distanciaA(paradaId) {
  * esconder justo la mitad que hace falta. */
 const CANDIDATAS_CERCA = 8;    // paradas del entorno cuando no hay favoritos
 const RADIO_MISMA_ESQUINA = 250; // metros: la parada de enfrente sigue siendo "aquí"
+const RADIO_MI_PARADA = 1000;   // metros: hasta aquí, "mi parada" sigue siendo la mía
+const SALIDAS_SIN_LINEA_FAV = 3; // salidas de una parada cuyas líneas no sigo
 
 /** Por dónde coger una línea favorita cuando no se han elegido paradas:
  * la más cercana y las que están a su lado.
@@ -4879,6 +4921,12 @@ function paradasCercanasDeLinea(lineaSlug) {
   return conDistancia.filter(c => c.dist <= corte).map(c => c.id);
 }
 
+function lineasFavoritasValidas() {
+  return new Set(FAVORITOS.lineas
+    .filter(fl => APP.data.lineas.some(l => l.slug === fl.slug))
+    .map(fl => fl.slug));
+}
+
 function candidatasDeSeguimiento() {
   const candidatas = [];   // {paradaId, lineaSlug|null}
   const vistas = new Set();
@@ -4888,23 +4936,44 @@ function candidatasDeSeguimiento() {
     vistas.add(clave);
     candidatas.push({ paradaId, lineaSlug });
   };
+  const favoritas = lineasFavoritasValidas();
+  const misParadas = FAVORITOS.paradas.map(f => f.id).filter(id => APP.data.paradas[id]);
 
   FAVORITOS.lineas.forEach(fl => {
     const linea = APP.data.lineas.find(l => l.slug === fl.slug);
     if (!linea) return;
+    const nodo = GRAFO.lineas.get(fl.slug);
     const elegidas = (Array.isArray(fl.referencias) ? fl.referencias : [])
       .map(r => r.paradaId)
       .filter(id => APP.data.paradas[id]);
-    // Mandan las paradas que se hayan elegido a mano; si no hay, la que
-    // se tenga más cerca; y sin ubicación, por donde empieza cada
-    // trayecto, que es lo único que se puede saber a ciegas.
+
+    // Mis paradas en esta línea, pero sólo mientras estén a mano: la
+    // parada de casa es la mía en el pueblo, no cuando ando por Sevilla a
+    // diecisiete kilómetros de ella. Allí manda la que tenga delante.
+    const miasEnLinea = nodo ? misParadas.filter(id => nodo.paradas.has(id)) : [];
+    const miasCerca = UBICACION
+      ? miasEnLinea.filter(id => { const d = distanciaA(id); return d != null && d <= RADIO_MI_PARADA; })
+      : miasEnLinea;
+
+    // Mandan las paradas elegidas a mano; luego las mías si las tengo
+    // cerca; luego la que pille más cerca del recorrido; y a ciegas, por
+    // donde empieza cada trayecto, que es lo único que se puede saber.
     const deLaLinea = elegidas.length ? elegidas
+      : miasCerca.length ? miasCerca
       : (UBICACION ? paradasCercanasDeLinea(fl.slug)
                    : referenciasDeLinea(linea).map(r => r.paradaId));
     deLaLinea.forEach(id => anotar(id, fl.slug));
   });
 
-  FAVORITOS.paradas.forEach(f => anotar(f.id, null));
+  // Una parada favorita por la que pasa una línea que sigo ya está
+  // contada arriba, y con la línea que me importa: sacarla otra vez con
+  // todo lo que para en ella llenaría la pantalla de autobuses que no
+  // pienso coger. Las demás sí traen lo suyo, sea de quien sea.
+  misParadas.forEach(id => {
+    const nodo = GRAFO.paradas.get(id);
+    const laCubreUnaFavorita = nodo && [...nodo.lineas].some(slug => favoritas.has(slug));
+    if (!laCubreUnaFavorita) anotar(id, null);
+  });
 
   if (!candidatas.length && UBICACION) {
     Object.entries(APP.data.paradas)
@@ -5003,11 +5072,22 @@ function salidasVigiladas() {
     });
   });
 
-  return [...mejores.values()].sort((a, b) => a.espera.orden - b.espera.orden);
+  // De una parada cuyas líneas no sigo no hacen falta las quince que
+  // pasan: con las tres primeras se sabe si hay que salir corriendo.
+  const favoritas = lineasFavoritasValidas();
+  const cuenta = new Map();
+  return [...mejores.values()]
+    .sort((a, b) => a.espera.orden - b.espera.orden)
+    .filter(sal => {
+      if (favoritas.has(sal.lineaSlug)) return true;
+      const n = (cuenta.get(sal.paradaId) || 0) + 1;
+      cuenta.set(sal.paradaId, n);
+      return n <= SALIDAS_SIN_LINEA_FAV;
+    });
 }
 
 const SALIDAS_VISIBLES = 5;   // lo que cabe de un vistazo sin bajar
-const SALIDAS_POR_PARADA = 2; // en el resumen, para que asomen todas
+const SALIDAS_POR_PARADA = 3; // en el resumen, para que asomen todas
 let VER_TODAS_SALIDAS = false;
 
 /** El resumen no es la cabeza de la cola, es un resumen: si una parada

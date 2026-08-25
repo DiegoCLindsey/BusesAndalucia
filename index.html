@@ -438,10 +438,25 @@
     display:block; font-size:12px; font-weight:600;
     color:var(--text-mute); letter-spacing:0;
   }
-  .salida-luego{
-    display:block; font-size:11px; font-weight:600;
-    color:var(--text-mute); letter-spacing:0; opacity:.8; margin-top:1px;
+  /* La fila de "el siguiente" cuelga de la de arriba: sin línea que las
+     separe, algo metida y en gris, para que se lea como su continuación
+     y no como otro autobús cualquiera. */
+  .salida-fila.seguimiento{
+    border-top:none; padding:0 0 10px 0; margin-top:-6px;
+    cursor:pointer;
   }
+  .salida-fila.seguimiento .salida-hacia{
+    font-size:13px; font-weight:600; color:var(--text-mute);
+  }
+  .salida-fila.seguimiento .salida-cuando{
+    font-size:15px; font-weight:700; color:var(--text-mute);
+  }
+  .salida-fila.seguimiento .salida-reloj{font-size:11px;}
+  .salida-flecha{
+    flex:none; width:34px; display:flex; justify-content:center;
+    color:var(--text-mute); opacity:.55;
+  }
+  .salida-flecha svg{width:15px; height:15px;}
   .salida-mas{
     display:block; width:100%; margin-top:10px; padding:8px 0;
     background:none; border:none; cursor:pointer;
@@ -2060,8 +2075,11 @@ function formatEspera(dep) {
   const faltan = (dep.h * 60 + dep.m) - (ahora.getHours() * 60 + ahora.getMinutes());
   if (faltan <= 0) return { cuando: "ahora", reloj, urgente: true, orden };
   if (faltan < 60) return { cuando: `${faltan} min`, reloj, urgente: faltan <= 10, orden };
-  const h = Math.floor(faltan / 60), m = faltan % 60;
-  return { cuando: m ? `${h} h ${m}` : `${h} h`, reloj, urgente: false, orden };
+  // Pasada la hora, nadie cuenta los minutos: la respuesta es el reloj, y
+  // lo que falta pasa a ser el apunte. Además "2 h 1" se lee como si se
+  // hubiera cortado la palabra.
+  const h = Math.round(faltan / 60);
+  return { cuando: reloj, reloj: `en ${h} h`, urgente: false, orden };
 }
 
 /** La línea bajo la cabecera sólo habla cuando hay algo que decir: al
@@ -2948,14 +2966,14 @@ function quitarReferencia(lineaSlug, referencia) {
  * convertía el listado en un horario disfrazado; aquí decide si echas a
  * correr, y saber que el siguiente es dentro de diez minutos —o que ya no
  * hay otro— cambia lo que haces. */
-function pistaSiguienteSalida(servicios, dep) {
-  if (!dep || dep.dias !== 0 || !servicios || !servicios.length) return "";
+function salidaDespuesDe(servicios, dep) {
+  if (!dep || dep.dias !== 0 || !servicios || !servicios.length) return { dep: null, ultimo: false };
   const bucket = mergeDeparturesConOrigen(servicios)[frecuenciaKeyForDate(new Date())];
-  if (!bucket || !bucket.slots.length) return "";
+  if (!bucket || !bucket.slots.length) return { dep: null, ultimo: false };
   const tDep = dep.h * 60 + dep.m;
   const slot = bucket.slots.find(sl => sl.h * 60 + sl.m > tDep);
-  if (!slot) return "último de hoy";
-  return `luego ${String(slot.h).padStart(2, "0")}:${String(slot.m).padStart(2, "0")}`;
+  return slot ? { dep: { h: slot.h, m: slot.m, dias: 0 }, ultimo: false }
+              : { dep: null, ultimo: true };
 }
 
 /** Próximas salidas de una línea en un punto de referencia: se fusionan
@@ -3156,7 +3174,12 @@ function renderSalidasDeLineaEn(contenedor, linea, onCambio) {
   // el horario completo ya está a un toque.
   refs.forEach(ref => {
     const espera = formatEspera(ref.dep);
-    const siguiente = espera.urgente ? pistaSiguienteSalida(ref.servicios, ref.dep) : "";
+    const tras = espera.urgente ? salidaDespuesDe(ref.servicios, ref.dep) : { dep: null, ultimo: false };
+    const seguimiento = filaSiguiente({
+      paradaId: ref.paradaId,
+      siguiente: tras.dep ? formatEspera(tras.dep) : null,
+      ultimoDeHoy: tras.ultimo
+    });
     const row = document.createElement("div");
     row.className = "salida-fila";
     row.innerHTML = `
@@ -3167,10 +3190,10 @@ function renderSalidasDeLineaEn(contenedor, linea, onCambio) {
       </span>
       <span class="salida-cuando${espera.urgente ? " ya" : ""}">${escapeHtml(espera.cuando)}
         <span class="salida-reloj">${escapeHtml(espera.reloj)}</span>
-        ${siguiente ? `<span class="salida-luego">${escapeHtml(siguiente)}</span>` : ""}
       </span>`;
     row.addEventListener("click", () => abrirMenuReferencia(linea, ref, onCambio));
     contenedor.appendChild(row);
+    if (seguimiento) contenedor.insertAdjacentHTML("beforeend", seguimiento);
   });
 }
 
@@ -4969,7 +4992,13 @@ function salidasVigiladas() {
         codigo: codigoLinea(g.lineaTitulo),
         hacia: g.etiqueta,
         espera,
-        siguiente: espera.urgente ? pistaSiguienteSalida(g.servicios, g.dep) : ""
+        // A menos de diez minutos ya no se pregunta "¿cuándo pasa?" sino
+        // "¿me da tiempo o espero al otro?", así que el otro entra en la
+        // lista con su propia fila, colgando de esta.
+        ...(espera.urgente ? (() => {
+          const tras = salidaDespuesDe(g.servicios, g.dep);
+          return { siguiente: tras.dep ? formatEspera(tras.dep) : null, ultimoDeHoy: tras.ultimo };
+        })() : { siguiente: null, ultimoDeHoy: false })
       });
     });
   });
@@ -4993,6 +5022,27 @@ function resumirSalidas(salidas) {
     cuenta.set(sal.paradaId, n);
     return n <= SALIDAS_POR_PARADA;
   }).slice(0, SALIDAS_VISIBLES);
+}
+
+/** La fila que cuelga de una salida inminente: el mismo autobús, el de
+ * después. Va pegada a la suya y no en su sitio por hora, porque lo que
+ * dice sólo se entiende junto a la de arriba: cinco filas más abajo,
+ * "16:53" ya no es "el siguiente de este". */
+function filaSiguiente(sal) {
+  if (sal.ultimoDeHoy) {
+    return `<div class="salida-fila seguimiento">
+      <span class="salida-flecha">${icono("abajo")}</span>
+      <span class="salida-cuerpo"><span class="salida-hacia">no hay otro hoy</span></span>
+    </div>`;
+  }
+  if (!sal.siguiente) return "";
+  return `<div class="salida-fila seguimiento" data-stop-id="${escapeHtml(sal.paradaId)}">
+    <span class="salida-flecha">${icono("abajo")}</span>
+    <span class="salida-cuerpo"><span class="salida-hacia">el siguiente</span></span>
+    <span class="salida-cuando">${escapeHtml(sal.siguiente.cuando)}
+      <span class="salida-reloj">${escapeHtml(sal.siguiente.reloj)}</span>
+    </span>
+  </div>`;
 }
 
 /** Bloque destacado en Inicio: lo primero que se ve al abrir la app.
@@ -5026,9 +5076,8 @@ function renderHomeFavSalidas() {
       </span>
       <span class="salida-cuando${sal.espera.urgente ? " ya" : ""}">${escapeHtml(sal.espera.cuando)}
         <span class="salida-reloj">${escapeHtml(sal.espera.reloj)}</span>
-        ${sal.siguiente ? `<span class="salida-luego">${escapeHtml(sal.siguiente)}</span>` : ""}
       </span>
-    </div>`).join("");
+    </div>${filaSiguiente(sal)}`).join("");
 
   const vacio = FILTRO_MUNICIPIO
     ? `<p class="empty">No sigues ninguna parada en ${escapeHtml(FILTRO_MUNICIPIO)}.</p>`
@@ -5052,7 +5101,7 @@ function renderHomeFavSalidas() {
     renderHomeFavSalidas();
   });
 
-  box.querySelectorAll(".salida-fila").forEach(el => {
+  box.querySelectorAll(".salida-fila[data-stop-id]").forEach(el => {
     el.addEventListener("click", () => openModal(cont => buildStopScheduleModalContent(cont, el.dataset.stopId)));
   });
 }

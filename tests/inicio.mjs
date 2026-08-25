@@ -31,7 +31,8 @@ function servirLeafletLocal(page) {
 const AQUI = { latitude: 37.5443, longitude: -6.0567 };
 const M177 = 'M-177';   // se resuelve a slug dentro de la página
 
-const browser = await chromium.launch();
+// CHROMIUM_PATH apunta a un Chromium ya instalado cuando el del paquete no está.
+const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const page = await browser.newPage({ viewport: { width: 412, height: 900 } });
 const errores = [];
 page.on('pageerror', e => errores.push('PAGEERROR: ' + e.message));

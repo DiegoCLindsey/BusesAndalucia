@@ -32,7 +32,8 @@ const ok = (cond, txt, extra) => {
   if (!cond) fallos++;
 };
 
-const browser = await chromium.launch();
+// CHROMIUM_PATH apunta a un Chromium ya instalado cuando el del paquete no está.
+const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const errores = [];
 
 for (const width of ANCHOS) {

@@ -30,7 +30,8 @@ function servirLeafletLocal(page) {
 
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:8765';
 
-const browser = await chromium.launch();
+// CHROMIUM_PATH apunta a un Chromium ya instalado cuando el del paquete no está.
+const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const page = await browser.newPage({ viewport: { width: 430, height: 950 } });
 const errores = [];
 page.on('pageerror', e => errores.push('PAGEERROR: ' + e.message));
@@ -56,7 +57,7 @@ const ok = (cond, txt, extra) => {
 };
 
 const r = await page.evaluate(async () => {
-  const routing = await loadRoutingData(true);
+  const routing = ROUTING;   // el grafo a pie viene con los datos del área
   const resumen = o => ({
     trasbordos: o.numTrasbordos,
     linea: o.lineas[0],

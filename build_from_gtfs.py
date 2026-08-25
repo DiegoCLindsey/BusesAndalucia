@@ -46,6 +46,15 @@ DIAS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sun
 TOLERANCIA_SHAPE_M = 10       # simplificación del trazado
 DECIMALES = 5                 # ~1 m, de sobra para dibujar un autobús
 
+# Grafo a pie: qué paradas están lo bastante cerca como para ir andando de una
+# a otra en un trasbordo. 600 m son doce minutos a 3 km/h, que es el techo que
+# ya tenía el grafo de Sevilla; se recorta a los diez vecinos más próximos
+# porque en el centro de Granada o Málaga hay paradas con cuarenta alrededor y
+# las lejanas nunca se usan.
+RADIO_A_PIE_M = 600
+MAX_VECINOS = 10
+VELOCIDAD_A_PIE_KMH = 3
+
 
 # ---------------------------------------------------------------- utilidades
 
@@ -69,6 +78,58 @@ def prefijo(ident):
 
 def sin_prefijo(ident):
     return ident.split("_", 1)[1]
+
+
+def metros(a, b):
+    """Distancia aproximada entre dos (lat, lng). A escala de una provincia
+    la proyección plana con el coseno de la latitud se equivoca en centímetros,
+    y aquí se está midiendo si dos paradas están en la misma esquina."""
+    dy = (a[0] - b[0]) * 111320.0
+    dx = (a[1] - b[1]) * 111320.0 * math.cos(math.radians((a[0] + b[0]) / 2))
+    return math.hypot(dx, dy)
+
+
+def minutos_andando(distancia_m):
+    return max(1, round(distancia_m / 1000 / VELOCIDAD_A_PIE_KMH * 60))
+
+
+def grafo_a_pie(coords):
+    """Vecinos andando de cada parada: {parada: [[vecina, minutos], …]}.
+
+    Antes esto venía de ctas_routing.json, un fichero suelto que sólo tenía
+    Sevilla (1.013 paradas de 1.105) y Málaga a medias (74 de 1.296); las otras
+    siete áreas se quedaban sin un solo trasbordo a pie, así que el buscador no
+    podía enlazar dos líneas que paran en la misma plaza pero en aceras
+    distintas. Ahora se calcula de las coordenadas del propio GTFS, que las
+    trae para las nueve.
+
+    Se indexa en una rejilla del tamaño del radio para no comparar cinco mil
+    paradas contra cinco mil."""
+    alto = RADIO_A_PIE_M / 111320.0        # el radio, en grados de latitud
+    ancho = alto / 0.75                    # y en longitud: Andalucía va de 36° a
+                                           # 38,5°, donde el coseno no baja de 0,78
+    celda = lambda lat, lng: (int(lat / alto), int(lng / ancho))
+    rejilla = collections.defaultdict(list)
+    for pid, (lat, lng) in coords.items():
+        rejilla[celda(lat, lng)].append(pid)
+
+    vecinos = {}
+    for pid, punto in coords.items():
+        cx, cy = celda(*punto)
+        cerca = []
+        for i in (-1, 0, 1):
+            for j in (-1, 0, 1):
+                for otro in rejilla.get((cx + i, cy + j), ()):
+                    if otro == pid:
+                        continue
+                    d = metros(punto, coords[otro])
+                    if d <= RADIO_A_PIE_M:
+                        cerca.append((d, otro))
+        if not cerca:
+            continue
+        cerca.sort()
+        vecinos[pid] = [[otro, minutos_andando(d)] for d, otro in cerca[:MAX_VECINOS]]
+    return vecinos
 
 
 PARTICULAS = {"de", "del", "la", "las", "el", "los", "y", "a", "al", "en"}
@@ -241,6 +302,20 @@ def construir():
         clave = "mas" if x["exception_type"] == "1" else "menos"
         excepciones[x["date"]][clave].append(x["service_id"])
 
+    # El grafo a pie se calcula sobre TODAS las paradas de Andalucía de una vez,
+    # no consorcio a consorcio, por si dos áreas llegasen a tocarse: al llevar
+    # los identificadores el prefijo del consorcio, un vecino de fuera se puede
+    # nombrar sin ambigüedad. Hoy no hay ninguno —las nueve redes no se acercan
+    # a menos de 600 m entre sí—, y la línea de resumen lo dice para que se note
+    # el día que cambie.
+    print("calculando el grafo a pie…")
+    coords = {s_["stop_id"]: (float(s_["stop_lat"]), float(s_["stop_lon"])) for s_ in stops}
+    vecinos = grafo_a_pie(coords)
+    fuera = sum(1 for pid, vs in vecinos.items()
+                for v, _ in vs if prefijo(v) != prefijo(pid))
+    print(f"  {len(vecinos)} de {len(coords)} paradas con vecino a menos de "
+          f"{RADIO_A_PIE_M} m ({fuera} enlaces cruzan de área)")
+
     hoy = datetime.date.today().isoformat()
     os.makedirs(SALIDA, exist_ok=True)
     indice = []
@@ -249,7 +324,7 @@ def construir():
         nombre, codigo = CONSORCIOS[idc]
         indice.append(procesar_consorcio(
             idc, nombre, codigo, stops, routes, trips, por_viaje,
-            calend, excepciones, trazados, hoy))
+            calend, excepciones, trazados, vecinos, hoy))
 
     with open(os.path.join(SALIDA, "consorcios.json"), "w", encoding="utf-8") as f:
         json.dump({
@@ -272,7 +347,7 @@ def construir():
 
 
 def procesar_consorcio(idc, nombre, codigo, stops, routes, trips, por_viaje,
-                       calend, excepciones, trazados, hoy):
+                       calend, excepciones, trazados, vecinos, hoy):
     mios_stop = {s["stop_id"]: s for s in stops if prefijo(s["stop_id"]) == idc}
     mias_route = {r["route_id"]: r for r in routes if prefijo(r["route_id"]) == idc}
     mios_trip = [t for t in trips if t["route_id"] in mias_route]
@@ -319,7 +394,6 @@ def procesar_consorcio(idc, nombre, codigo, stops, routes, trips, por_viaje,
         agrupados[(t["route_id"], t["direction_id"], secuencia)].append((t, pasos))
 
     bloques = []
-    usadas = set()
     for (rid, direccion, secuencia), viajes in sorted(agrupados.items(), key=lambda kv: kv[0][:2]):
         ruta = mias_route[rid]
         # Cada viaje son las horas de paso; se guardan en minutos desde la
@@ -332,8 +406,7 @@ def procesar_consorcio(idc, nombre, codigo, stops, routes, trips, por_viaje,
             filas.append((horas, t["service_id"], t["shape_id"]))
         filas.sort(key=lambda f: f[0][0])
 
-        paradas = [sin_prefijo(s) for s in secuencia]
-        usadas.update(secuencia)
+        paradas = list(secuencia)
         shape = filas[0][2]
         bloques.append({
             "l": slug_linea[rid],
@@ -350,9 +423,14 @@ def procesar_consorcio(idc, nombre, codigo, stops, routes, trips, por_viaje,
     # "nombre"/"lat"/"lng" mil veces cuesta más que los propios datos.
     paradas = {}
     for sid, s in mios_stop.items():
-        corto = sin_prefijo(sid)
-        m, n, zona = muni.get(corto, (None, None, None))
-        paradas[corto] = [
+        # El identificador conserva el prefijo del consorcio, tal cual viene del
+        # GTFS («1_3287»). Recortarlo hacía que 1.075 de 3.146 paradas
+        # compartieran número con otra de otra área — la 2112 es «C Atilano de
+        # Acevedo» en Sevilla y «Hotel Las Pedrizas» en Málaga — y con eso no se
+        # pueden tener dos áreas cargadas a la vez. La API de municipios sí usa
+        # el número pelado, así que se consulta con él.
+        m, n, zona = muni.get(sin_prefijo(sid), (None, None, None))
+        paradas[sid] = [
             s["stop_name"].strip(),
             round(float(s["stop_lat"]), DECIMALES),
             round(float(s["stop_lon"]), DECIMALES),
@@ -365,6 +443,7 @@ def procesar_consorcio(idc, nombre, codigo, stops, routes, trips, por_viaje,
         r0 = mias_route[rids[0]]
         lineas.append({
             "slug": slug(titulo_linea[cod]),
+            "idc": idc,
             "codigo": cod,
             "titulo": titulo_linea[cod],
             "color": (r0.get("route_color") or "").upper() or None,
@@ -423,6 +502,11 @@ def procesar_consorcio(idc, nombre, codigo, stops, routes, trips, por_viaje,
 
     municipios = sorted({p[4] for p in paradas.values() if p[4]})
 
+    # Vecinos a pie de las paradas de este área. Si alguno cayera fuera del
+    # área, se deja igual: no estorba mientras la vecina no esté cargada, y
+    # enlaza las dos en cuanto lo esté.
+    mis_vecinos = {pid: vecinos[pid] for pid in paradas if pid in vecinos}
+
     lats = [p[1] for p in paradas.values()]
     lngs = [p[2] for p in paradas.values()]
     bbox = [min(lats), min(lngs), max(lats), max(lngs)] if lats else None
@@ -438,6 +522,7 @@ def procesar_consorcio(idc, nombre, codigo, stops, routes, trips, por_viaje,
         "lineas": lineas,
         "municipios": municipios,
         "calendario": {"servicios": servicios, "excepciones": exc},
+        "vecinos": mis_vecinos,
     })
     trazados_usados = {b["g"]: trazados[b["g"]] for b in bloques if b["g"]}
     escribir(os.path.join(carpeta, "rutas.json"), {
@@ -448,13 +533,15 @@ def procesar_consorcio(idc, nombre, codigo, stops, routes, trips, por_viaje,
 
     kb = sum(os.path.getsize(os.path.join(carpeta, f)) for f in ("lineas.json", "rutas.json")) / 1024
     sin_muni = sum(1 for p in paradas.values() if not p[4])
+    con_vecinos = len(mis_vecinos)
     detalle = origen_muni
     if heredados:
         detalle += f", {heredados} heredados"
     if sin_muni:
         detalle += f", {sin_muni} SIN"
     print(f"  {idc} {nombre:<22} {len(paradas):>5} paradas {len(lineas):>4} líneas "
-          f"{len(bloques):>4} bloques  {kb:>7.0f} KB   municipios: {detalle}")
+          f"{len(bloques):>4} bloques  {kb:>7.0f} KB   municipios: {detalle}   "
+          f"a pie: {con_vecinos}")
 
     return {"id": idc, "nombre": nombre, "codigo": codigo, "bbox": bbox,
             "paradas": len(paradas), "lineas": len(lineas), "kb": round(kb)}

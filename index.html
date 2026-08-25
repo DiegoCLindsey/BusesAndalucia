@@ -1066,7 +1066,7 @@
 /* ------------------------------------------------------------------ */
 const INDICE_URL = "./data/consorcios.json";
 const LS_CONSORCIO = "ctanConsorcioV1";
-const LS_DATOS = "ctanDatosV1";        // v1: formato derivado del GTFS oficial
+const LS_DATOS = "ctanDatosV2";        // v2: identificadores de parada con prefijo de área
 const APP = { data: null };
 
 /* ------------------------------------------------------------------ */
@@ -1101,6 +1101,7 @@ const CTAN = {
   porParada: new Map(),   // paradaId -> [{bloque, pos}]
   calendario: { servicios: {}, excepciones: {} },
   trazados: {},
+  vecinos: {},        // paradaId -> [[vecinoId, minutos andando], …]
   cargado: false
 };
 
@@ -1298,15 +1299,18 @@ function wireTema() {
 /* ------------------------------------------------------------------ */
 /* Favoritos                                                           */
 /* ------------------------------------------------------------------ */
-/** Los favoritos van por área metropolitana: la parada 3287 de Sevilla y
- * la 3287 de Málaga no tienen nada que ver, y mezclarlas enseñaría horas
- * de otra provincia. Lo que hubiera guardado antes de que existieran las
- * nueve áreas era de Sevilla, así que se le pone su etiqueta. */
+/** Una sola caja de favoritos para toda Andalucía. Antes iban por área
+ * porque los identificadores se repetían —la 2112 era «C Atilano de
+ * Acevedo» en Sevilla y «Hotel Las Pedrizas» en Málaga—, así que mezclarlos
+ * habría enseñado horas de otra provincia. Ahora la parada se llama
+ * «1_2112» o «4_2112» y no hay confusión posible: se guardan juntos, que es
+ * lo que espera quien tiene la casa en un área y el trabajo en otra. */
 const LS_FAVORITOS_VIEJO = "ctasFavoritosV1";
+const LS_FAVORITOS = "ctanFavoritosV3";
 const CONSORCIO_ORIGINAL = 1;   // hasta ahora la app era sólo del Área de Sevilla
 
 function claveFavoritos() {
-  return `ctanFavoritosV2:${CTAN.id || consorcioGuardado() || CONSORCIO_ORIGINAL}`;
+  return LS_FAVORITOS;
 }
 
 let FAVORITOS = { paradas: [], lineas: [], rutas: [], notificaciones: [] };
@@ -1323,13 +1327,50 @@ function setFiltroMunicipio(municipio) {
   try { localStorage.setItem(LS_FILTRO_MUNI_KEY, FILTRO_MUNICIPIO); } catch (e) { /* modo privado */ }
 }
 
+/** Trae lo guardado por las dos formas anteriores y le pone a cada parada
+ * el prefijo de su área. La V1 era de cuando la aplicación sólo cubría
+ * Sevilla; la V2 tenía una caja por área, con el número pelado. */
 function migrarFavoritosViejos() {
   try {
-    const viejo = localStorage.getItem(LS_FAVORITOS_VIEJO);
-    if (!viejo) return;
-    const destino = `ctanFavoritosV2:${CONSORCIO_ORIGINAL}`;
-    if (!localStorage.getItem(destino)) localStorage.setItem(destino, viejo);
+    if (localStorage.getItem(LS_FAVORITOS)) return;   // ya migrado
+
+    const cajas = [];
+    const v1 = localStorage.getItem(LS_FAVORITOS_VIEJO);
+    if (v1) cajas.push([CONSORCIO_ORIGINAL, v1]);
+    for (let i = 0; i < localStorage.length; i++) {
+      const clave = localStorage.key(i);
+      const m = clave && clave.match(/^ctanFavoritosV2:(\d+)$/);
+      if (m) cajas.push([Number(m[1]), localStorage.getItem(clave)]);
+    }
+    if (!cajas.length) return;
+
+    const unidos = { paradas: [], lineas: [], rutas: [], notificaciones: [] };
+    cajas.forEach(([idc, crudo]) => {
+      let caja;
+      try { caja = JSON.parse(crudo); } catch (e) { return; }
+      if (!caja) return;
+      // Si ya viene con prefijo (por si se migró a medias), se respeta.
+      const con = id => (id == null ? id : (/^\d+_/.test(String(id)) ? String(id) : `${idc}_${id}`));
+      (caja.paradas || []).forEach(p => unidos.paradas.push({ ...p, id: con(p.id) }));
+      (caja.lineas || []).forEach(l => unidos.lineas.push({
+        ...l,
+        referencias: (l.referencias || []).map(r => ({ ...r, paradaId: con(r.paradaId) })),
+        paradasPorSentido: l.paradasPorSentido
+          ? Object.fromEntries(Object.entries(l.paradasPorSentido).map(([k, v]) => [k, con(v)]))
+          : undefined
+      }));
+      (caja.rutas || []).forEach(r => unidos.rutas.push({
+        ...r, origenId: con(r.origenId), destinoId: con(r.destinoId), cache: null
+      }));
+      (caja.notificaciones || []).forEach(n => {
+        const paradaId = con(n.paradaId);
+        unidos.notificaciones.push({ ...n, paradaId, clave: claveNotificacion(paradaId, n.lineaSlug) });
+      });
+    });
+
+    localStorage.setItem(LS_FAVORITOS, JSON.stringify(unidos));
     localStorage.removeItem(LS_FAVORITOS_VIEJO);
+    cajas.forEach(([idc]) => localStorage.removeItem(`ctanFavoritosV2:${idc}`));
   } catch (e) { /* modo privado */ }
 }
 
@@ -1993,6 +2034,21 @@ async function cargarIndice() {
   }
 }
 
+/** Tira lo que guardaron versiones anteriores. Importa: el área de Sevilla
+ * ocupa millón y medio de caracteres en localStorage, y dejar ahí una copia
+ * con el formato viejo se come la cuota que necesita la nueva. */
+function limpiarCachesViejas() {
+  try {
+    const sobran = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const clave = localStorage.key(i);
+      if (!clave) continue;
+      if (clave.startsWith("ctanDatosV1:") || clave === "ctasRoutingV4") sobran.push(clave);
+    }
+    sobran.forEach(c => localStorage.removeItem(c));
+  } catch (e) { /* modo privado */ }
+}
+
 function leerCache(clave) {
   try {
     const crudo = localStorage.getItem(clave);
@@ -2043,6 +2099,8 @@ function montarModelo(lineas, rutas) {
   CTAN.municipios = lineas.municipios || [];
   CTAN.calendario = lineas.calendario || { servicios: {}, excepciones: {} };
   CTAN.trazados = rutas.trazados || {};
+  CTAN.vecinos = lineas.vecinos || {};
+  ROUTING = { vecinos: CTAN.vecinos };
   CACHE_SERVICIOS.clear();
 
   CTAN.paradas = {};
@@ -3325,9 +3383,13 @@ function wireLineSearch() {
 /* ------------------------------------------------------------------ */
 /* Pestaña "Calculadora de ruta"                                       */
 /* ------------------------------------------------------------------ */
-const ROUTING_URL = "ctas_routing.json";
-const LS_ROUTING_KEY = "ctasRoutingV4"; // v4: solo el grafo a pie (los viajes se reconstruyen en el cliente)
-let ROUTING = null;
+/** Grafo a pie: qué paradas están lo bastante cerca como para cambiar de
+ * autobús andando. Viene con los datos del área (`vecinos` en lineas.json),
+ * calculado de las coordenadas del GTFS. Antes era un fichero suelto,
+ * ctas_routing.json, que sólo tenía Sevilla: en las otras ocho áreas el
+ * buscador no podía enlazar dos líneas que paran en la misma plaza pero en
+ * aceras distintas, y por eso perdía viajes que existen. */
+let ROUTING = { vecinos: {} };
 let CURRENT_ROUTE_MAP = null;
 let ROUTE_MARKERS = {};
 let ROUTE_CAPA = null;   // capa de red del mapa de rutas (municipios + paradas)
@@ -3417,33 +3479,6 @@ function coordenadasDeExtremo(appData, punto) {
     return m && m.lat != null ? [m.lat, m.lng] : null;
   }
   return [punto.lat, punto.lng];
-}
-
-async function loadRoutingData(force) {
-  if (!force) {
-    try {
-      const cached = localStorage.getItem(LS_ROUTING_KEY);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        // Comprobación de forma: si la caché es de un formato antiguo o
-        // está corrupta, la descartamos en vez de dejar que la app pete
-        // más adelante al intentar usarla.
-        if (parsed && parsed.vecinos) return parsed;
-        console.warn("Caché de rutas con formato inesperado, se descarta y se vuelve a pedir.");
-      }
-    } catch (e) {
-      console.warn("No se pudo leer la caché de rutas", e);
-    }
-  }
-  const resp = await fetch(ROUTING_URL, { cache: "no-store" });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} al pedir ${ROUTING_URL}`);
-  const json = await resp.json();
-  try {
-    localStorage.setItem(LS_ROUTING_KEY, JSON.stringify(json));
-  } catch (e) {
-    console.warn("No se pudo cachear el motor de rutas (¿cuota llena?)", e);
-  }
-  return json;
 }
 
 /* ------------------------------------------------------------------ */
@@ -4536,14 +4571,6 @@ async function onCalcularRuta() {
     return;
   }
   resultBox.innerHTML = '<div class="card"><p class="empty">Calculando ruta…</p></div>';
-  if (!ROUTING) {
-    try {
-      ROUTING = await loadRoutingData(false);
-    } catch (e) {
-      resultBox.innerHTML = `<div class="card"><p class="empty">No se pudo cargar el motor de rutas: ${escapeHtml(e.message)}</p></div>`;
-      return;
-    }
-  }
   const horaInput = document.getElementById("horaSalida").value;
   const salida = horaInput ? new Date(horaInput) : new Date();
   const directo = distanciaDirecta(APP.data, ROUTE_ORIGIN, ROUTE_DESTINO);
@@ -4735,7 +4762,6 @@ function getOrRecalcularFavoritoRuta(fav) {
   if (fav.cache && typeof fav.cache.proximaSalidaTs === "number" && ahora.getTime() < fav.cache.proximaSalidaTs + 60000) {
     return fav.cache.resultado;
   }
-  if (!ROUTING) return fav.cache ? fav.cache.resultado : null;
   const res = computeRoute(APP.data, ROUTING, { type: "stop", id: fav.origenId }, { type: "stop", id: fav.destinoId }, ahora);
   if (res) {
     const primerBus = res.legs.find(l => l.tipo === "bus");
@@ -4757,14 +4783,6 @@ async function renderFavRutas() {
     return;
   }
   box.innerHTML = '<div class="card"><h3 class="section-title">' + icono("brujula") + 'Rutas guardadas</h3><p class="empty">Calculando…</p></div>';
-  if (!ROUTING) {
-    try {
-      ROUTING = await loadRoutingData(false);
-    } catch (e) {
-      box.innerHTML = `<div class="card"><h3 class="section-title">${icono("brujula")}Rutas guardadas</h3><p class="empty">No se pudo cargar el motor de rutas: ${escapeHtml(e.message)}</p></div>`;
-      return;
-    }
-  }
 
   box.innerHTML = "";
   const titulo = document.createElement("h3");
@@ -5605,6 +5623,7 @@ function registrarServiceWorker() {
 }
 
 async function init() {
+  limpiarCachesViejas();
   migrarFavoritosViejos();
   cargarFavoritos();
   pintarIconosDeclarados();

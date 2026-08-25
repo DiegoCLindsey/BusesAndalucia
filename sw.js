@@ -10,10 +10,11 @@
  *     GitHub Pages (HTTPS) ya podemos registrar uno de verdad.
  */
 
-// v2: el fichero de datos cambia de forma (cada parada trae ya su
-// municipio), así que hay que invalidar lo cacheado o las instalaciones
-// existentes seguirían sirviendo la versión vieja.
-const CACHE = "proxima-salida-v4";
+// Al cambiar de versión se tira lo cacheado: si no, una instalación ya
+// hecha seguiría sirviendo ficheros con la forma antigua. La v5 es la del
+// grafo a pie dentro de los datos del área y los identificadores de parada
+// con el prefijo del consorcio.
+const CACHE = "proxima-salida-v5";
 
 // Ficheros propios de la app. Rutas relativas para que funcione igual en
 // https://usuario.github.io/BusesAndalucia/ que en un servidor local.
@@ -23,7 +24,6 @@ const CACHE = "proxima-salida-v4";
 const RECURSOS = [
   "./",
   "./index.html",
-  "./ctas_routing.json",
   "./data/consorcios.json",
   "./manifest.json"
 ];

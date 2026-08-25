@@ -49,16 +49,14 @@ como aplicación en el móvil.
 |---|---|
 | `index.html` | La aplicación entera (HTML + CSS + JS en un solo fichero) |
 | `data/consorcios.json` | Índice de las nueve áreas: nombre, código, bbox y fecha |
-| `data/{1..9}/lineas.json` | Paradas, líneas, municipios y calendario de un área |
+| `data/{1..9}/lineas.json` | Paradas, líneas, municipios, calendario y grafo a pie de un área |
 | `data/{1..9}/rutas.json` | Bloques con sus viajes y el trazado del recorrido |
-| `ctas_routing.json` | Distancias a pie entre paradas cercanas (~70 KB) |
 | `fuentes/paradas_*.json` | Respuesta de `/paradas` de la API, para regenerar sin red |
 | `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas) |
 | `sw.js` | Service Worker: caché offline y notificaciones |
 | `manifest.json`, `icon.svg` | Instalación como PWA |
 | `build_from_gtfs.py` | Genera todo `data/` a partir del GTFS oficial |
 | `verificar_datos.py` | Comprueba que lo generado es publicable |
-| `build_routing_data.py` | Genera `ctas_routing.json` (grafo a pie) |
 
 ## Desarrollo local
 
@@ -106,6 +104,21 @@ no pasan por aquí.
 
 ## Notas técnicas
 
+- **Identificador de parada.** Es el del GTFS, con el prefijo del área:
+  `1_2112` es «C Atilano de Acevedo» en Sevilla y `4_2112` es el «Hotel Las
+  Pedrizas» en Málaga. El prefijo estuvo un tiempo recortado y con eso
+  1.075 de 3.146 números chocaban entre áreas — bastaba para que una
+  parada guardada enseñase los horarios de otra provincia. Al ser únicos,
+  los favoritos son de toda Andalucía y no hay una caja por área.
+- **Trasbordos a pie.** Qué paradas están lo bastante cerca como para
+  cambiar de autobús andando (600 m, doce minutos a 3 km/h, como mucho
+  diez vecinas por parada) se calcula de las coordenadas del GTFS y viaja
+  en `vecinos`, dentro de los datos del área. Antes venía de un fichero
+  suelto que sólo tenía Sevilla: en las otras ocho áreas el buscador no
+  podía enlazar dos líneas que paran en la misma plaza pero en aceras
+  distintas, y perdía viajes que existen. Sobre 59 pares de paradas al
+  azar, Granada pasa de encontrar 19 itinerarios a encontrar 50, y Málaga
+  de 43 a 59.
 - **Municipio de cada parada.** No está en el GTFS, lo da el endpoint
   `/paradas` de la API. Antes se deducía a ojo —zona A para anclar la
   capital, núcleo urbano más cercano de un catálogo escrito a mano,

@@ -1,7 +1,7 @@
 {
   "name": "Próxima Salida · Buses Andalucía",
   "short_name": "Próxima Salida",
-  "description": "Horarios y rutas del Consorcio de Transportes del Área de Sevilla. Herramienta personal, no oficial.",
+  "description": "Horarios y rutas de las nueve áreas metropolitanas de Andalucía. Herramienta personal, no oficial.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

@@ -319,12 +319,20 @@ def construir():
     hoy = datetime.date.today().isoformat()
     os.makedirs(SALIDA, exist_ok=True)
     indice = []
+    catalogo = {"generado": hoy, "paradas": {}, "lineas": [], "municipios": []}
 
     for idc in sorted(CONSORCIOS):
         nombre, codigo = CONSORCIOS[idc]
         indice.append(procesar_consorcio(
             idc, nombre, codigo, stops, routes, trips, por_viaje,
-            calend, excepciones, trazados, vecinos, hoy))
+            calend, excepciones, trazados, vecinos, hoy, catalogo))
+
+    catalogo["municipios"] = sorted(catalogo["municipios"])
+    escribir(os.path.join(SALIDA, "catalogo.json"), catalogo)
+    kb_cat = os.path.getsize(os.path.join(SALIDA, "catalogo.json")) / 1024
+    print(f"\ncatálogo de toda Andalucía: {len(catalogo['paradas'])} paradas, "
+          f"{len(catalogo['lineas'])} líneas, {len(catalogo['municipios'])} municipios "
+          f"({kb_cat:.0f} KB)")
 
     with open(os.path.join(SALIDA, "consorcios.json"), "w", encoding="utf-8") as f:
         json.dump({
@@ -347,7 +355,7 @@ def construir():
 
 
 def procesar_consorcio(idc, nombre, codigo, stops, routes, trips, por_viaje,
-                       calend, excepciones, trazados, vecinos, hoy):
+                       calend, excepciones, trazados, vecinos, hoy, catalogo):
     mios_stop = {s["stop_id"]: s for s in stops if prefijo(s["stop_id"]) == idc}
     mias_route = {r["route_id"]: r for r in routes if prefijo(r["route_id"]) == idc}
     mios_trip = [t for t in trips if t["route_id"] in mias_route]
@@ -515,23 +523,26 @@ def procesar_consorcio(idc, nombre, codigo, stops, routes, trips, por_viaje,
     carpeta = os.path.join(SALIDA, str(idc))
     os.makedirs(carpeta, exist_ok=True)
 
+    # Lo ligero —dónde está cada parada, qué líneas hay, cómo se llaman los
+    # municipios— va al catálogo común: es lo que la aplicación necesita para
+    # buscar, pintar el mapa y reconocer un favorito de cualquier punto de
+    # Andalucía, y junta no llega al megabyte. Lo pesado —los horarios— se
+    # queda por área y se baja cuando de verdad hace falta.
+    catalogo["paradas"].update(paradas)
+    catalogo["lineas"].extend(lineas)
+    catalogo["municipios"].extend(municipios)
+
     cabecera = {"id": idc, "nombre": nombre, "codigo": codigo, "generado": hoy}
-    escribir(os.path.join(carpeta, "lineas.json"), {
-        **cabecera,
-        "paradas": paradas,
-        "lineas": lineas,
-        "municipios": municipios,
-        "calendario": {"servicios": servicios, "excepciones": exc},
-        "vecinos": mis_vecinos,
-    })
     trazados_usados = {b["g"]: trazados[b["g"]] for b in bloques if b["g"]}
-    escribir(os.path.join(carpeta, "rutas.json"), {
+    escribir(os.path.join(carpeta, "horarios.json"), {
         **cabecera,
         "bloques": bloques,
         "trazados": trazados_usados,
+        "calendario": {"servicios": servicios, "excepciones": exc},
+        "vecinos": mis_vecinos,
     })
 
-    kb = sum(os.path.getsize(os.path.join(carpeta, f)) for f in ("lineas.json", "rutas.json")) / 1024
+    kb = os.path.getsize(os.path.join(carpeta, "horarios.json")) / 1024
     sin_muni = sum(1 for p in paradas.values() if not p[4])
     con_vecinos = len(mis_vecinos)
     detalle = origen_muni

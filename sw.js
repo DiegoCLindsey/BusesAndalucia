@@ -11,20 +11,22 @@
  */
 
 // Al cambiar de versión se tira lo cacheado: si no, una instalación ya
-// hecha seguiría sirviendo ficheros con la forma antigua. La v5 es la del
-// grafo a pie dentro de los datos del área y los identificadores de parada
-// con el prefijo del consorcio.
-const CACHE = "proxima-salida-v5";
+// hecha seguiría sirviendo ficheros con la forma antigua. La v6 parte los
+// datos en dos: el catálogo de toda Andalucía, que se precachea porque hace
+// falta siempre, y los horarios de cada área, que se cachean al pedirlos.
+const CACHE = "proxima-salida-v6";
 
 // Ficheros propios de la app. Rutas relativas para que funcione igual en
 // https://usuario.github.io/BusesAndalucia/ que en un servidor local.
-// Los datos de cada área metropolitana NO van aquí: son casi cinco megas
-// entre las nueve y sólo hace falta la que se está usando. Se cachean
-// sobre la marcha en el fetch, cuando se piden de verdad.
+// El catálogo sí va aquí: son las 5.009 paradas y las 432 líneas de las
+// nueve áreas, y sin él la aplicación no abre. Los HORARIOS de cada área no:
+// son casi cinco megas entre las nueve y sólo hacen falta los del sitio
+// donde estás. Se cachean sobre la marcha en el fetch, al pedirlos.
 const RECURSOS = [
   "./",
   "./index.html",
   "./data/consorcios.json",
+  "./data/catalogo.json",
   "./manifest.json"
 ];
 

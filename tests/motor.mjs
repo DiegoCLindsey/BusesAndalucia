@@ -40,9 +40,14 @@ page.on('console', m => {
 await servirLeafletLocal(page);
 // Sin tiles: el mapa no pinta nada en las pruebas y así no se sale a la red.
 await page.route('**/tile.openstreetmap.org/**', r => r.fulfill({ contentType: 'image/png', body: Buffer.from('') }));
+// Los datos van por área metropolitana: se fija Sevilla para no toparse
+// con el selector del primer arranque.
+await page.addInitScript(() => {
+  try { localStorage.setItem('ctanConsorcioV1', JSON.stringify({ id: 1 })); } catch (e) { }
+});
 await page.clock.install({ time: new Date('2026-08-18T14:45:00') });   // un martes
 await page.goto(BASE + '/index.html', { waitUntil: 'networkidle' });
-await page.waitForFunction(() => typeof APP !== 'undefined' && APP.data, null, { timeout: 30000 });
+await page.waitForFunction(() => typeof CTAN !== 'undefined' && CTAN.cargado, null, { timeout: 30000 });
 
 let fallos = 0;
 const ok = (cond, txt, extra) => {
@@ -52,7 +57,6 @@ const ok = (cond, txt, extra) => {
 
 const r = await page.evaluate(async () => {
   const routing = await loadRoutingData(true);
-  construirRed();
   const resumen = o => ({
     trasbordos: o.numTrasbordos,
     linea: o.lineas[0],
@@ -60,7 +64,7 @@ const r = await page.evaluate(async () => {
     llegada: fmtHoraAbs(o.diasSalida * 1440 + o.llegadaMin),
     destino: APP.data.paradas[o.destinoStopId].nombre
   });
-  const paradaPorNombre = n => Object.entries(APP.data.paradas).find(([, p]) => p.nombre === n)[0];
+  const paradaPorNombre = n => Object.entries(APP.data.paradas).find(([, p]) => p.nombre.toUpperCase() === n.toUpperCase())[0];
   const chapina = paradaPorNombre('CHAPINA C GONZALO JIMENEZ DE QUESADA (V)');
   const arroyo = paradaPorNombre('AV ANDALUCIA (ARROYO)');
   const t0 = performance.now();
@@ -72,7 +76,7 @@ const r = await page.evaluate(async () => {
     { type: 'stop', id: chapina }, { type: 'stop', id: arroyo },
     new Date('2026-08-18T15:00:00')).map(resumen);
   const sentidos = sentidosEnParada(chapina,
-    'm-177-camas-guillena-pi-los-girasoles-sevilla-torre-de-la-reina',
+    CTAN.lineas.find(l => l.codigo === 'M-177').slug,
     new Date('2026-08-18T14:45:00'))
     .map(g => ({ etiqueta: g.etiqueta, dep: g.dep ? `${g.dep.h}:${String(g.dep.m).padStart(2, '0')}` : null }));
 
@@ -100,8 +104,8 @@ const r = await page.evaluate(async () => {
 
   return {
     sevGui, directo, sentidos, motivo, incoherentes, ms: Math.round(ms),
-    viajes: RED.rutas.reduce((a, x) => a + x.viajes.length, 0),
-    paradasCubiertas: RED.porParada.size
+    viajes: CTAN.bloques.reduce((a, x) => a + x.viajes.length, 0),
+    paradasCubiertas: CTAN.porParada.size
   };
 });
 
@@ -112,7 +116,7 @@ ok(!!primera && primera.trasbordos === 0, 'Sevilla → Guillena a las 15:00 es d
 ok(!!primera && /^m-177/.test(primera.linea), 'lo hace la M-177', primera && primera.linea);
 ok(!!primera && primera.salida === '15:00' && primera.llegada === '15:29',
   'sale a las 15:00 y llega a las 15:29', primera && primera.salida + ' → ' + primera.llegada);
-ok(!!primera && primera.destino === 'AV ANDALUCIA (ARROYO)',
+ok(!!primera && /^AV ANDALUCIA \(ARROYO\)$/i.test(primera.destino),
   'llega al núcleo de Guillena, no a un polígono del término', primera && primera.destino);
 ok(r.directo[0] && r.directo[0].trasbordos === 0 && r.directo[0].llegada === '15:29',
   'de parada a parada da lo mismo');

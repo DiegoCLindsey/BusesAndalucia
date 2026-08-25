@@ -38,9 +38,14 @@ page.on('console', m => {
 await servirLeafletLocal(page);
 // Sin tiles: el mapa no pinta nada en las pruebas y así no se sale a la red.
 await page.route('**/tile.openstreetmap.org/**', r => r.fulfill({ contentType: 'image/png', body: Buffer.from('') }));
+// Los datos van por área metropolitana: se fija Sevilla para no toparse
+// con el selector del primer arranque.
+await page.addInitScript(() => {
+  try { localStorage.setItem('ctanConsorcioV1', JSON.stringify({ id: 1 })); } catch (e) { }
+});
 await page.clock.install({ time: new Date('2026-08-18T07:30:00') });
 await page.goto(BASE + '/index.html', { waitUntil: 'networkidle' });
-await page.waitForFunction(() => typeof APP !== 'undefined' && APP.data, null, { timeout: 30000 });
+await page.waitForFunction(() => typeof CTAN !== 'undefined' && CTAN.cargado, null, { timeout: 30000 });
 
 let fallos = 0;
 const ok = (cond, txt, extra) => {
@@ -50,12 +55,12 @@ const ok = (cond, txt, extra) => {
 
 // --- Horario de una parada -------------------------------------------
 await page.evaluate(() => {
-  const id = Object.entries(APP.data.paradas).find(([, p]) => p.nombre === 'AV ANDALUCIA (ARROYO)')[0];
+  const id = Object.entries(APP.data.paradas).find(([, p]) => /^AV ANDALUCIA \(ARROYO\)$/i.test(p.nombre))[0];
   openModal(c => buildStopScheduleModalContent(c, id));
 });
 await page.waitForTimeout(400);
 const ficha = await page.locator('#modalContent').innerText();
-ok(/AV ANDALUCIA \(ARROYO\)/.test(ficha), 'la ficha de parada abre');
+ok(/AV ANDALUCIA \(ARROYO\)/i.test(ficha), 'la ficha de parada abre');
 ok(/hacia/.test(ficha), 'y dice hacia dónde va cada línea');
 ok(!/ - .* - .* - /.test(ficha), 'sin el recorrido entero de la línea en cada fila');
 ok(!/\$\{/.test(ficha), 'sin plantillas sin interpolar');

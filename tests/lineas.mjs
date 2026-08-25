@@ -43,9 +43,14 @@ for (const width of ANCHOS) {
   });
   await servirLeafletLocal(page);
   await page.route('**/tile.openstreetmap.org/**', r => r.fulfill({ contentType: 'image/png', body: Buffer.from('') }));
-  await page.clock.install({ time: new Date('2026-08-18T14:52:00') });
+  // Los datos van por área metropolitana: se fija Sevilla para no toparse
+// con el selector del primer arranque.
+await page.addInitScript(() => {
+  try { localStorage.setItem('ctanConsorcioV1', JSON.stringify({ id: 1 })); } catch (e) { }
+});
+await page.clock.install({ time: new Date('2026-08-18T14:52:00') });
   await page.goto(BASE + '/index.html', { waitUntil: 'networkidle' });
-  await page.waitForFunction(() => typeof APP !== 'undefined' && APP.data, null, { timeout: 30000 });
+  await page.waitForFunction(() => typeof CTAN !== 'undefined' && CTAN.cargado, null, { timeout: 30000 });
 
   // El listado completo
   await page.evaluate(() => irAPantalla('screenLineas'));
@@ -61,7 +66,7 @@ for (const width of ANCHOS) {
   ok(listado.nav === 'fixed', `${width}px · el menú de abajo se queda quieto`, listado.nav);
 
   // La ficha de una línea larga (la M-101 tiene 56 paradas)
-  await page.evaluate(() => mostrarDetalleLinea('m-101-castilleja-circular-bormujos-mairena-s-juan-sjuan-tomares'));
+  await page.evaluate(() => mostrarDetalleLinea(CTAN.lineas.slice().sort((a,b)=>b.variantes.length-a.variantes.length)[0].slug));
   await page.waitForTimeout(1100);
   const ficha = await page.evaluate(() => ({
     ancho: document.documentElement.clientWidth,

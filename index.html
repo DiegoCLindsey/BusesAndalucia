@@ -144,14 +144,24 @@
   h1{
     margin:0; font-size:19px; font-weight:700; letter-spacing:-.02em;
     display:flex; align-items:center; gap:8px;
+    /* Con el botón del área metropolitana en la cabecera, en un móvil de
+       320 px el título empujaba "Favoritos" fuera de la pantalla y
+       arrastraba la página entera al desplazamiento lateral. */
+    min-width:0; flex:1;
   }
+  h1 .marca-texto{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   h1 .marca-ico{
     width:26px; height:26px; border-radius:9px; flex:none;
     display:grid; place-items:center; color:var(--brand-ink);
     background:linear-gradient(120deg, var(--brand), var(--brand-2));
   }
   h1 .marca-ico svg{width:16px; height:16px;}
-  .header-actions{display:flex; align-items:center; gap:6px;}
+  .header-actions{display:flex; align-items:center; gap:6px; flex:none;}
+  /* En pantallas estrechas el título sobra: el icono ya identifica la
+     aplicación y lo que hace falta son los botones. */
+  @media (max-width: 400px){
+    h1 .marca-texto{display:none;}
+  }
 
   .status-line{
     max-width:1080px; margin:6px auto 0;
@@ -930,7 +940,7 @@
 
 <header>
   <div class="headline">
-    <h1><span class="marca-ico" id="marcaIco"></span>Próxima Salida</h1>
+    <h1><span class="marca-ico" id="marcaIco"></span><span class="marca-texto">Próxima Salida</span></h1>
     <div class="header-actions">
       <button class="btn-icon" id="btnConsorcio" type="button" title="Cambiar de área" hidden></button>
       <button class="btn-icon solo-ico" id="btnTema" type="button" title="Cambiar tema"></button>

@@ -29,7 +29,7 @@ function servirLeafletLocal(page) {
 // En Guillena, junto a AV ANDALUCIA (ARROYO): la ubicación decide qué
 // parada se enseña de cada línea, así que las pruebas la fijan.
 const AQUI = { latitude: 37.5443, longitude: -6.0567 };
-const M177 = 'm-177-camas-guillena-pi-los-girasoles-sevilla-torre-de-la-reina';
+const M177 = 'M-177';   // se resuelve a slug dentro de la página
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 412, height: 900 } });
@@ -40,14 +40,19 @@ page.on('console', m => {
 });
 await servirLeafletLocal(page);
 await page.route('**/tile.openstreetmap.org/**', r => r.fulfill({ contentType: 'image/png', body: Buffer.from('') }));
+// Los datos van por área metropolitana: se fija Sevilla para no toparse
+// con el selector del primer arranque.
+await page.addInitScript(() => {
+  try { localStorage.setItem('ctanConsorcioV1', JSON.stringify({ id: 1 })); } catch (e) { }
+});
 await page.clock.install({ time: new Date('2026-08-18T14:52:00') });
 await page.goto(BASE + '/index.html', { waitUntil: 'networkidle' });
-await page.waitForFunction(() => typeof APP !== 'undefined' && APP.data, null, { timeout: 30000 });
+await page.waitForFunction(() => typeof CTAN !== 'undefined' && CTAN.cargado, null, { timeout: 30000 });
 
 // Dos paradas guardadas en municipios distintos: es el caso que rompía el
 // orden cuando las salidas iban agrupadas por parada.
 await page.evaluate(() => {
-  const idPor = n => Object.entries(APP.data.paradas).find(([, p]) => p.nombre === n)[0];
+  const idPor = n => Object.entries(APP.data.paradas).find(([, p]) => p.nombre.toUpperCase() === n.toUpperCase())[0];
   FAVORITOS.paradas = [
     { id: idPor('AV ANDALUCIA (ARROYO)'), nombre: 'AV ANDALUCIA (ARROYO)' },
     { id: idPor('CHAPINA (I)'), nombre: 'CHAPINA (I)' }
@@ -55,7 +60,7 @@ await page.evaluate(() => {
   guardarFavoritos();
 });
 await page.reload({ waitUntil: 'networkidle' });
-await page.waitForFunction(() => typeof APP !== 'undefined' && APP.data, null, { timeout: 30000 });
+await page.waitForFunction(() => typeof CTAN !== 'undefined' && CTAN.cargado, null, { timeout: 30000 });
 await page.waitForTimeout(800);
 
 let fallos = 0;
@@ -151,13 +156,13 @@ const preferencia = await page.evaluate(({ aqui, m177 }) => {
     linea: s.codigo, hacia: s.hacia, parada: s.paradaNombre,
     metros: s.dist == null ? null : Math.round(s.dist)
   }));
-  const idPor = n => Object.entries(APP.data.paradas).find(([, p]) => p.nombre === n)[0];
+  const idPor = n => Object.entries(APP.data.paradas).find(([, p]) => p.nombre.toUpperCase() === n.toUpperCase())[0];
   const casos = {};
 
   FAVORITOS.lineas = []; FAVORITOS.paradas = [];
   casos.sinNada = resumen();
 
-  FAVORITOS.lineas = [{ slug: m177 }]; FAVORITOS.paradas = [];
+  FAVORITOS.lineas = [{ slug: CTAN.lineas.find(l => l.codigo === m177).slug }]; FAVORITOS.paradas = [];
   casos.lineaFavorita = resumen();
 
   FAVORITOS.lineas = [];
@@ -168,7 +173,7 @@ const preferencia = await page.evaluate(({ aqui, m177 }) => {
   // Lo que tiene el usuario de verdad: la línea 177 y su parada del
   // Arroyo. Estando en Guillena manda su parada; en Sevilla, la que
   // tenga delante — pero siempre la 177 y nada más.
-  FAVORITOS.lineas = [{ slug: m177 }];
+  FAVORITOS.lineas = [{ slug: CTAN.lineas.find(l => l.codigo === m177).slug }];
   FAVORITOS.paradas = [{ id: idPor('AV ANDALUCIA (ARROYO)'), nombre: 'AV ANDALUCIA (ARROYO)' }];
   casos.lineaYParadaEnGuillena = resumen();
   UBICACION = { lat: 37.3921, lng: -6.0330 };   // junto a Chapina
@@ -206,24 +211,24 @@ const m177Favoritas = preferencia.paradasFavoritas.filter(f => f.linea === 'M-17
 ok(unaParadaPorLineaYSentido(preferencia.paradasFavoritas),
   'con tres paradas favoritas de la misma línea, una sola por sentido',
   JSON.stringify(m177Favoritas.map(f => f.hacia + ' → ' + f.parada)));
-ok(m177Favoritas.every(f => f.parada !== 'PLAZA DE ARMAS'),
+ok(m177Favoritas.every(f => !/^PLAZA DE ARMAS$/i.test(f.parada)),
   'y no la que está a diecisiete kilómetros',
   JSON.stringify(m177Favoritas.map(f => f.parada + ' ' + f.metros + ' m')));
 
 // La combinación real: línea favorita + una parada favorita suya.
 const guillena = preferencia.lineaYParadaEnGuillena;
 const chapina = preferencia.lineaYParadaEnChapina;
-ok(guillena.length > 0 && guillena.every(f => f.parada === 'AV ANDALUCIA (ARROYO)' && f.linea === 'M-177'),
+ok(guillena.length > 0 && guillena.every(f => /^AV ANDALUCIA \(ARROYO\)$/i.test(f.parada) && f.linea === 'M-177'),
   'en Guillena, sólo mi parada del Arroyo y sólo la 177',
   JSON.stringify(guillena.map(f => f.linea + ' · ' + f.parada)));
 ok(chapina.length > 0 && chapina.every(f => f.linea === 'M-177') && chapina.every(f => f.metros < 500),
   'junto a Chapina, la 177 en la parada que tengo delante',
   JSON.stringify(chapina.map(f => f.linea + ' · ' + f.parada + ' ' + f.metros + ' m')));
-ok(chapina.every(f => f.parada !== 'AV ANDALUCIA (ARROYO)'),
+ok(chapina.every(f => !/^AV ANDALUCIA \(ARROYO\)$/i.test(f.parada)),
   'y no mi parada de Guillena, que está a diecisiete kilómetros');
 
 const sinFav = preferencia.paradaSinLineaFavorita;
-ok(sinFav.length === 3 && sinFav.every(f => f.parada === 'PLAZA DE ARMAS'),
+ok(sinFav.length === 3 && sinFav.every(f => /^PLAZA DE ARMAS$/i.test(f.parada)),
   'una parada favorita sin líneas que siga trae sus 3 próximas salidas',
   JSON.stringify(sinFav.map(f => f.linea)));
 ok(new Set(sinFav.map(f => f.linea)).size > 1,

@@ -905,6 +905,7 @@
   <div class="headline">
     <h1><span class="marca-ico" id="marcaIco"></span>Próxima Salida</h1>
     <div class="header-actions">
+      <button class="btn-icon" id="btnConsorcio" type="button" title="Cambiar de área" hidden></button>
       <button class="btn-icon solo-ico" id="btnTema" type="button" title="Cambiar tema"></button>
       <button class="btn-icon" id="btnAbrirFavoritos" type="button">Favoritos</button>
     </div>
@@ -1010,9 +1011,7 @@
   <div id="favRutasList"></div>
 </aside>
 
-<footer>
-  Horarios programados del Consorcio de Transportes de Sevilla. No es tiempo real.
-</footer>
+<footer id="pie"></footer>
 
 <div id="modalRoot"></div>
 
@@ -1023,9 +1022,125 @@
 /* ------------------------------------------------------------------ */
 /* Config y estado                                                     */
 /* ------------------------------------------------------------------ */
-const DATA_URL = "ctas_data_app.json";
-const LS_KEY = "ctasAppDataV2"; // v2: cada parada trae su municipio
+const INDICE_URL = "./data/consorcios.json";
+const LS_CONSORCIO = "ctanConsorcioV1";
+const LS_DATOS = "ctanDatosV1";        // v1: formato derivado del GTFS oficial
 const APP = { data: null };
+
+/* ------------------------------------------------------------------ */
+/* El modelo: bloques del GTFS y calendario real                        */
+/* ------------------------------------------------------------------ */
+/** Los datos vienen del GTFS oficial de la Red de Consorcios, y eso cambia
+ * de raíz de qué está hecha la aplicación.
+ *
+ * Antes se raspaba el horario de cada parada por separado, sin nada que
+ * dijera qué salida de una era la llegada a la siguiente, y el motor tenía
+ * que reconstruir los viajes leyendo las horas en columna. Ahora un viaje
+ * viene dado: `stop_times` dice por qué paradas pasa un autobús concreto y
+ * a qué hora por cada una.
+ *
+ * Un BLOQUE es una línea, un sentido y una secuencia de paradas, con todos
+ * los viajes que la recorren. Es el mismo concepto que el motor ya usaba,
+ * así que el GTFS entra sin adaptador: lo que antes se deducía, ahora se
+ * lee.
+ *
+ * Y el día de circulación deja de ser "laborable / sábado / domingo"
+ * calculado con getDay(): cada viaje trae su `service_id`, y el calendario
+ * dice qué servicios circulan en cada fecha concreta. Por eso un lunes
+ * festivo ya no se trata como un lunes cualquiera. */
+const CTAN = {
+  id: null,
+  nombre: null,
+  generado: null,
+  paradas: {},        // id -> {nombre, lat, lng, zona, municipio}
+  lineas: [],         // {slug, codigo, titulo, color, url, variantes}
+  municipios: [],
+  bloques: [],        // {lineaSlug, varianteId, dir, paradas, viajes, servicios, trazado}
+  porParada: new Map(),   // paradaId -> [{bloque, pos}]
+  calendario: { servicios: {}, excepciones: {} },
+  trazados: {},
+  cargado: false
+};
+
+function ymd(fecha) {
+  return `${fecha.getFullYear()}${String(fecha.getMonth() + 1).padStart(2, "0")}${String(fecha.getDate()).padStart(2, "0")}`;
+}
+
+/** Qué servicios circulan en una fecha, con la semántica del GTFS: el
+ * patrón semanal mientras la fecha esté dentro de su vigencia, más lo que
+ * añada o quite calendar_dates ese día concreto.
+ *
+ * Ahí está el arreglo de los festivos. El 1 de enero la CTAN añade casi un
+ * centenar de servicios especiales en Sevilla que antes no se veían por
+ * ningún lado, porque mirar getDay() decía "jueves" y enseñaba el horario
+ * de un jueves normal.
+ *
+ * Aviso honesto: la CTAN sólo publica excepciones de tipo "añadir", nunca
+ * de tipo "quitar". Si una línea suspende su servicio de diario en festivo,
+ * el feed no lo dice y aquí tampoco puede saberse. */
+const CACHE_SERVICIOS = new Map();
+
+function serviciosActivosEn(fecha) {
+  const clave = ymd(fecha);
+  if (CACHE_SERVICIOS.has(clave)) return CACHE_SERVICIOS.get(clave);
+  const dia = (fecha.getDay() + 6) % 7;   // GTFS empieza en lunes
+  const activos = new Set();
+  for (const [sid, def] of Object.entries(CTAN.calendario.servicios)) {
+    if (def[dia] === 1 && def[7] <= clave && clave <= def[8]) activos.add(sid);
+  }
+  const exc = CTAN.calendario.excepciones[clave];
+  if (exc) {
+    (exc["+"] || []).forEach(sid => activos.add(sid));
+    (exc["-"] || []).forEach(sid => activos.delete(sid));
+  }
+  if (CACHE_SERVICIOS.size > 60) CACHE_SERVICIOS.clear();
+  CACHE_SERVICIOS.set(clave, activos);
+  return activos;
+}
+
+/** Todos los pasos por una parada en una fecha, ordenados por hora.
+ *
+ * Es la consulta de la que cuelga toda la aplicación: la próxima salida,
+ * el horario completo, los sentidos de una parada. Devuelve el minuto
+ * desde la medianoche —que puede pasar de 1440 en los viajes de
+ * madrugada, y hay que conservarlo así— junto con el bloque y la posición,
+ * para saber hacia dónde va ese autobús. */
+function pasosEnParada(paradaId, fecha, lineaSlug) {
+  const activos = serviciosActivosEn(fecha);
+  const salida = [];
+  (CTAN.porParada.get(paradaId) || []).forEach(({ bloque, pos }) => {
+    if (lineaSlug && bloque.lineaSlug !== lineaSlug) return;
+    // El último punto de un bloque es una llegada, no una salida: quien
+    // espera ahí no va a subirse a nada.
+    if (pos === bloque.paradas.length - 1) return;
+    bloque.viajes.forEach((viaje, i) => {
+      if (!activos.has(bloque.servicios[i])) return;
+      salida.push({ min: viaje[pos], bloque, pos, viaje });
+    });
+  });
+  salida.sort((a, b) => a.min - b.min);
+  return salida;
+}
+
+/** La próxima salida de una parada a partir de un momento, mirando hasta
+ * siete días por delante para no dejar la fila muda cuando una línea sólo
+ * circula en días sueltos. `filtro` deja elegir línea y sentido. */
+function proximaSalida(paradaId, ahora, filtro) {
+  ahora = ahora || new Date();
+  const desde = ahora.getHours() * 60 + ahora.getMinutes();
+  for (let dia = 0; dia <= 7; dia++) {
+    const fecha = new Date(ahora.getTime() + dia * 86400000);
+    const pasos = pasosEnParada(paradaId, fecha, filtro && filtro.lineaSlug);
+    for (const paso of pasos) {
+      if (dia === 0 && paso.min < desde) continue;
+      if (filtro && filtro.sentidoClave &&
+          sentidoDeBloque(paradaId, paso.bloque, paso.pos).clave !== filtro.sentidoClave) continue;
+      const m = paso.min % 1440;
+      return { h: Math.floor(m / 60), m: m % 60, dias: dia + Math.floor(paso.min / 1440), paso };
+    }
+  }
+  return null;
+}
 
 /* ------------------------------------------------------------------ */
 /* Iconos                                                              */
@@ -1141,7 +1256,17 @@ function wireTema() {
 /* ------------------------------------------------------------------ */
 /* Favoritos                                                           */
 /* ------------------------------------------------------------------ */
-const LS_FAVORITOS_KEY = "ctasFavoritosV1";
+/** Los favoritos van por área metropolitana: la parada 3287 de Sevilla y
+ * la 3287 de Málaga no tienen nada que ver, y mezclarlas enseñaría horas
+ * de otra provincia. Lo que hubiera guardado antes de que existieran las
+ * nueve áreas era de Sevilla, así que se le pone su etiqueta. */
+const LS_FAVORITOS_VIEJO = "ctasFavoritosV1";
+const CONSORCIO_ORIGINAL = 1;   // hasta ahora la app era sólo del Área de Sevilla
+
+function claveFavoritos() {
+  return `ctanFavoritosV2:${CTAN.id || consorcioGuardado() || CONSORCIO_ORIGINAL}`;
+}
+
 let FAVORITOS = { paradas: [], lineas: [], rutas: [], notificaciones: [] };
 
 /** Municipio desde el que se están mirando las salidas ("" = todos). Se
@@ -1156,9 +1281,19 @@ function setFiltroMunicipio(municipio) {
   try { localStorage.setItem(LS_FILTRO_MUNI_KEY, FILTRO_MUNICIPIO); } catch (e) { /* modo privado */ }
 }
 
+function migrarFavoritosViejos() {
+  try {
+    const viejo = localStorage.getItem(LS_FAVORITOS_VIEJO);
+    if (!viejo) return;
+    const destino = `ctanFavoritosV2:${CONSORCIO_ORIGINAL}`;
+    if (!localStorage.getItem(destino)) localStorage.setItem(destino, viejo);
+    localStorage.removeItem(LS_FAVORITOS_VIEJO);
+  } catch (e) { /* modo privado */ }
+}
+
 function cargarFavoritos() {
   try {
-    const raw = localStorage.getItem(LS_FAVORITOS_KEY);
+    const raw = localStorage.getItem(claveFavoritos());
     if (raw) {
       const parsed = JSON.parse(raw);
       FAVORITOS = {
@@ -1186,7 +1321,7 @@ function cargarFavoritos() {
 
 function guardarFavoritos() {
   try {
-    localStorage.setItem(LS_FAVORITOS_KEY, JSON.stringify(FAVORITOS));
+    localStorage.setItem(claveFavoritos(), JSON.stringify(FAVORITOS));
   } catch (e) {
     console.warn("No se pudieron guardar los favoritos (¿cuota llena?)", e);
   }
@@ -1343,28 +1478,23 @@ function mostrarAvisoEnApp(titulo, cuerpo, onSnooze, yaLanzadaFuera) {
 function proximaSalidaVigilada(notif) {
   const p = APP.data.paradas[notif.paradaId];
   if (!p) return null;
-  const servicios = (p.servicios || []).filter(s => !notif.lineaSlug || s.linea_slug === notif.lineaSlug);
-  if (!servicios.length) return null;
   const now = new Date();
-  const dep = nextDepartureConOrigen(servicios, now);
+  const dep = proximaSalida(notif.paradaId, now, { lineaSlug: notif.lineaSlug || null });
   if (!dep) return null;
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const minutosRestantes = dep.dias * 1440 + dep.h * 60 + dep.m - nowMin;
-  // La línea y la dirección deben salir del MISMO servicio que produce
-  // esa salida concreta: tomar el título de servicios[0] mezclaba la
-  // línea de un servicio con la dirección de otro cuando la parada tiene
-  // varias líneas.
-  const nombreVariante = dep.variantes && dep.variantes.length ? dep.variantes[0] : null;
-  const servicioSalida = nombreVariante
-    ? servicios.find(s => s.variante_nombre === nombreVariante) || servicios[0]
-    : servicios[0];
-  const lineaTitulo = servicioSalida.linea_titulo;
-  let direccion = "";
-  if (nombreVariante) {
-    const od = origenDestinoVariante(nombreVariante);
-    direccion = od ? od.origen + " → " + od.destino : nombreVariante;
-  }
-  return { minutosRestantes, lineaTitulo, direccion, paradaNombre: p.nombre, dep };
+  // La línea y el sentido salen del MISMO paso que produce esa salida
+  // concreta: mezclar la línea de uno con la dirección de otro fue un
+  // fallo real cuando la parada tiene varias líneas.
+  const bloque = dep.paso.bloque;
+  const sentido = sentidoDeBloque(notif.paradaId, bloque, dep.paso.pos);
+  return {
+    minutosRestantes,
+    lineaTitulo: tituloDeLinea(bloque.lineaSlug),
+    direccion: sentido.destinoId ? "hacia " + sentido.etiqueta : "",
+    paradaNombre: p.nombre,
+    dep
+  };
 }
 
 function revisarNotificaciones() {
@@ -1492,37 +1622,6 @@ function formatDistance(m) {
 
 function normalize(s) {
   return String(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-}
-
-function frecuenciaKeyForDate(date) {
-  const day = date.getDay(); // 0 domingo .. 6 sábado
-  if (day === 0) return "domingo";
-  if (day === 6) return "sabado";
-  return "laborable";
-}
-
-function matchFrecuencia(frecuenciaStr, key) {
-  const n = normalize(frecuenciaStr);
-  const esDomingo = /domingo|festivo/.test(n);
-  const esSabado = /sabado/.test(n);
-  if (key === "domingo") return esDomingo;
-  if (key === "sabado") return esSabado;
-  // laborable: aceptamos "lunes a viernes", "laborable", "diario"... y como
-  // último recurso, cualquier frecuencia que no sea explícitamente de
-  // sábado o domingo/festivo.
-  return /lunes|viernes|laborable|diario/.test(n) || (!esDomingo && !esSabado);
-}
-
-function pickHorarioBucket(horarios, key) {
-  if (!horarios) return null;
-  return horarios.find(h => matchFrecuencia(h.frecuencia, key)) || null;
-}
-
-function normFrecuencia(frecuenciaStr) {
-  const n = normalize(frecuenciaStr);
-  if (/domingo|festivo/.test(n)) return "domingo";
-  if (/sabado/.test(n)) return "sabado";
-  return "laborable";
 }
 
 /* ------------------------------------------------------------------ */
@@ -1681,207 +1780,28 @@ function municipiosDeLinea(lineaSlug) {
   return orden;
 }
 
-/* ------------------------------------------------------------------ */
-/* La red de verdad: viajes reconstruidos                              */
-/* ------------------------------------------------------------------ */
-/** ctas.es publica los horarios parada a parada, sin un identificador que
- * diga qué salida de una parada es la misma que la llegada a la
- * siguiente. Hasta ahora esas conexiones se INFERÍAN emparejando horas
- * consecutivas, y salía mal: en la M-177 el enlace real de las 15:00
- * desde Plaza de Armas no existía, y en su lugar había un salto de 14:27
- * a 15:04 para un trayecto de cuatro minutos. Con eso, ir de Sevilla a
- * Guillena — media hora en un directo — daba casi cuatro horas dando
- * rodeos.
- *
- * No hace falta inferir nada. Dentro de un recorrido, cada parada publica
- * la MISMA cantidad de pasos, y el k-ésimo de cada una es el mismo
- * autobús: basta con leerlos en columna. Lo único que hay que detectar es
- * dónde acaba una "ida" y empieza la "vuelta" de un circular, y eso lo
- * dice el propio horario: es donde la hora retrocede.
- *
- * Un BLOQUE es un tramo seguido del recorrido en el que todos los viajes
- * avanzan en el tiempo. Cada bloque es una "ruta" en el sentido de
- * RAPTOR: una secuencia fija de paradas recorrida por varios viajes. */
-const RED = {
-  rutas: [],                     // {lineaSlug, varianteId, frecuencia, paradas, viajes, destino}
-  porParada: new Map(),          // paradaId -> [{ruta, pos}]
-  bloqueDeServicio: new Map(),   // "varianteId|orden" -> ruta (para nombrar el sentido)
-  construida: false
-};
-
-const FRECUENCIAS = ["laborable", "sabado", "domingo"];
-
-/** Todos los pasos de una parada en un recorrido y un tipo de día, en
- * minutos desde medianoche y ordenados. */
-function pasosDeServicio(servicio, frecuencia) {
-  const bucket = (servicio.horarios || []).find(h => normFrecuencia(h.frecuencia) === frecuencia);
-  if (!bucket) return [];
-  const out = [];
-  for (const hora of Object.keys(bucket.pasos || {})) {
-    (bucket.pasos[hora] || []).forEach(m => out.push(parseInt(hora, 10) * 60 + m));
-  }
-  return out.sort((a, b) => a - b);
-}
-
-/** ¿Los pasos de esta parada son la continuación de los de la anterior?
- * Lo son si hay tantos como antes y ninguno se ha adelantado; la excepción
- * es el viaje que cruza la medianoche, donde 23:50 sí precede a 00:10. */
-function encajaEnBloque(previos, pasos) {
-  return previos.length === pasos.length &&
-    previos.every((t, k) => t <= pasos[k] || (t >= 22 * 60 && pasos[k] <= 3 * 60));
-}
-
-/** Parte el recorrido de una variante en bloques con viajes coherentes.
- * Se corta cuando cambia el número de pasos (otro tramo de servicio) o
- * cuando alguna hora retrocede (ahí empieza la vuelta del circular).
- *
- * Alguna parada aparece dos veces en el mismo punto del recorrido con dos
- * cuadros de horarios distintos (ctas.es publica así los servicios que
- * comparten cabecera). Cuando eso pasa se elige el cuadro que continúa el
- * bloque en marcha; si ninguno lo hace, el primero, y el bloque se corta
- * como en cualquier otro cambio de servicio. */
-function bloquesDeVariante(variante, frecuencia, serviciosDe) {
-  const bloques = [];
-  let actual = [];
-  const cerrar = () => { if (actual.length > 1) bloques.push(actual); actual = []; };
-
-  (variante.paradas || []).forEach((paradaId, i) => {
-    if (!APP.data.paradas[paradaId]) { cerrar(); return; }
-    const candidatos = serviciosDe(variante.nodo_id, i + 1)
-      .map(s => pasosDeServicio(s, frecuencia))
-      .filter(p => p.length);
-    if (!candidatos.length) { cerrar(); return; }
-
-    if (!actual.length) {
-      actual.push({ paradaId, pasos: candidatos[0], orden: i + 1 });
-      return;
-    }
-    const previos = actual[actual.length - 1].pasos;
-    const sigue = candidatos.find(p => encajaEnBloque(previos, p));
-    if (!sigue) cerrar();
-    actual.push({ paradaId, pasos: sigue || candidatos[0], orden: i + 1 });
-  });
-  cerrar();
-  return bloques;
-}
-
-function construirRed() {
-  RED.rutas = [];
-  RED.porParada.clear();
-  RED.bloqueDeServicio.clear();
-
-  // Índice (variante, orden) -> servicios, para no recorrer las paradas
-  // una y otra vez. Es una lista porque un mismo punto del recorrido
-  // puede traer más de un cuadro de horarios.
-  const porVariante = new Map();
-  Object.values(APP.data.paradas).forEach(p => {
-    (p.servicios || []).forEach(s => {
-      if (!porVariante.has(s.variante_nodo_id)) porVariante.set(s.variante_nodo_id, new Map());
-      const m = porVariante.get(s.variante_nodo_id);
-      if (!m.has(s.orden)) m.set(s.orden, []);
-      m.get(s.orden).push(s);
-    });
-  });
-  const serviciosDe = (varianteId, orden) => {
-    const m = porVariante.get(varianteId);
-    return (m && m.get(orden)) || [];
-  };
-
-  (APP.data.lineas || []).forEach(linea => {
-    (linea.variantes || []).forEach(variante => {
-      FRECUENCIAS.forEach(frecuencia => {
-        bloquesDeVariante(variante, frecuencia, serviciosDe).forEach(bloque => {
-          const cuantos = bloque[0].pasos.length;
-          const viajes = [];
-          for (let k = 0; k < cuantos; k++) {
-            const tiempos = [];
-            let previo = null;
-            bloque.forEach(({ pasos }) => {
-              let t = pasos[k];
-              if (previo != null && t < previo) t += 1440; // pasa de medianoche
-              tiempos.push(t);
-              previo = t;
-            });
-            viajes.push(tiempos);
-          }
-          viajes.sort((a, b) => a[0] - b[0]);
-
-          const ruta = {
-            indice: RED.rutas.length,
-            lineaSlug: linea.slug,
-            lineaTitulo: linea.titulo,
-            varianteId: variante.nodo_id,
-            frecuencia,
-            paradas: bloque.map(b => b.paradaId),
-            viajes,
-            destino: bloque[bloque.length - 1].paradaId
-          };
-          RED.rutas.push(ruta);
-
-          ruta.paradas.forEach((paradaId, pos) => {
-            if (!RED.porParada.has(paradaId)) RED.porParada.set(paradaId, []);
-            RED.porParada.get(paradaId).push({ ruta, pos });
-          });
-          // El sentido de una parada se nombra por el final de SU bloque:
-          // el laborable manda, que es el recorrido completo.
-          bloque.forEach(({ orden }) => {
-            const clave = variante.nodo_id + "|" + orden;
-            if (!RED.bloqueDeServicio.has(clave) || frecuencia === "laborable") {
-              RED.bloqueDeServicio.set(clave, ruta);
-            }
-          });
-        });
-      });
-    });
-  });
-  RED.construida = true;
-}
-
-/* ------------------------------------------------------------------ */
-/* Sentido de circulación en una parada                                 */
-/* ------------------------------------------------------------------ */
 /** Hacia dónde va un autobús concreto cuando pasa por una parada.
  *
- * Esto se deducía antes de la CABECERA de la variante (dónde arranca), y
+ * Esto se dedujo primero de la CABECERA de la variante (dónde arranca), y
  * de ahí venía el fallo de las próximas salidas: la M-177 sale unas veces
  * de Torre de la Reina y otras de Guillena, pero ambas pasan por la misma
  * parada camino de Sevilla. Al agrupar por cabecera, mirando el sentido
- * "Torre de la Reina" solo se contaban los autobuses que arrancan allí y
- * se anunciaba como próxima salida la de una hora más tarde, ignorando el
- * que salía de Guillena y pasaba por delante mucho antes.
+ * "Torre de la Reina" sólo se contaban los autobuses que arrancan allí y
+ * se anunciaba como próxima salida la de una hora más tarde.
  *
- * Después se probó a votar entre las paradas pendientes más lejanas, que
- * arreglaba aquello pero seguía siendo una aproximación geométrica: en un
- * circular, "lo que queda por delante" incluye la vuelta entera y el
- * sentido acababa nombrando el punto de partida.
- *
- * Ahora el sentido sale del BLOQUE reconstruido (ver `construirRed`): el
- * tramo del recorrido que el autobús hace de una tirada, de principio a
- * fin, sin que la hora retroceda. Su última parada es el destino real de
- * quien se sube aquí, y su municipio da el nombre del sentido. Si la
- * parada es el final del bloque, no hay salida que anunciar. */
-function sentidoDeServicio(paradaId, servicio) {
-  const vacio = { clave: "_fin_", etiqueta: "fin de trayecto", destinoId: null };
-  if (!RED.construida) construirRed();
-  const ruta = RED.bloqueDeServicio.get(servicio.variante_nodo_id + "|" + servicio.orden);
-  if (!ruta) return vacio;
-
-  // La parada puede salir más de una vez en el bloque; vale la última
-  // desde la que todavía queda recorrido por delante. Si su única
-  // aparición es el final —y en un circular el final es también la
-  // salida—, ahí no hay nada que anunciar: la hora que publica ctas.es
-  // para el último punto del trayecto es de llegada.
-  let pos = -1;
-  for (let i = ruta.paradas.length - 2; i >= 0; i--) {
-    if (ruta.paradas[i] === paradaId) { pos = i; break; }
-  }
-  if (pos < 0) return vacio;
-
-  const destinoId = ruta.destino;
-  const destino = APP.data.paradas[destinoId];
+ * El sentido sale del BLOQUE: el trayecto que ese autobús hace de una
+ * tirada. Su última parada es el destino real de quien se sube aquí. El
+ * GTFS trae un campo trip_headsign pensado justo para esto, pero la CTAN
+ * lo publica VACÍO en los 18.596 viajes, así que sigue saliendo de la
+ * última parada, que además es más fiable. */
+function sentidoDeBloque(paradaId, bloque, pos) {
+  const vacio = { clave: "_fin_", etiqueta: "fin de trayecto", destinoId: null, alcance: 0 };
+  if (!bloque || pos == null || pos < 0 || pos >= bloque.paradas.length - 1) return vacio;
+  const destinoId = bloque.paradas[bloque.paradas.length - 1];
+  const destino = CTAN.paradas[destinoId];
   if (!destino) return vacio;
   const municipioDestino = destino.municipio || null;
-  const municipioParada = (APP.data.paradas[paradaId] || {}).municipio || null;
+  const municipioParada = (CTAN.paradas[paradaId] || {}).municipio || null;
 
   // El sentido se agrupa por el municipio en el que acaba el trayecto:
   // así todos los recorridos que van "hacia allí" caen juntos, salgan de
@@ -1893,30 +1813,32 @@ function sentidoDeServicio(paradaId, servicio) {
     clave: municipioDestino ? "m:" + municipioDestino : "p:" + destinoId,
     etiqueta: (!mismoMunicipio && municipioDestino) || nombreLegible(destino.nombre),
     destinoId,
-    alcance: ruta.paradas.length - pos
+    alcance: bloque.paradas.length - pos
   };
 }
 
 /** Las salidas de una parada agrupadas por línea Y sentido: cada grupo
  * responde a "¿cuándo pasa por aquí el próximo autobús de la línea X
  * hacia Y?", juntando todos los recorridos que hacen ese mismo trayecto.
- * Si se pasa `lineaSlug`, solo se mira esa línea. */
+ * Si se pasa `lineaSlug`, sólo se mira esa línea.
+ *
+ * Un bloque que TERMINA aquí no cuenta: la hora que publica el GTFS para
+ * su última parada es de llegada, y enseñarla como "próximo autobús" sería
+ * mandar a alguien a esperar un bus que se queda parado. */
 function sentidosEnParada(paradaId, lineaSlug, ahora) {
-  const p = APP.data.paradas[paradaId];
-  if (!p) return [];
+  if (!CTAN.paradas[paradaId]) return [];
   const grupos = new Map();
-  (p.servicios || []).forEach(s => {
-    if (lineaSlug && s.linea_slug !== lineaSlug) return;
-    const sentido = sentidoDeServicio(paradaId, s);
-    // Un recorrido que TERMINA aquí no es una salida: la hora que publica
-    // ctas.es para él es la de llegada. Enseñarla como "próximo autobús"
-    // sería mandar a alguien a esperar un bus que se queda parado.
+  (CTAN.porParada.get(paradaId) || []).forEach(({ bloque, pos }) => {
+    if (lineaSlug && bloque.lineaSlug !== lineaSlug) return;
+    const sentido = sentidoDeBloque(paradaId, bloque, pos);
     if (!sentido.destinoId) return;
-    const clave = s.linea_slug + "|" + sentido.clave;
+    const clave = bloque.lineaSlug + "|" + sentido.clave;
     if (!grupos.has(clave)) {
       grupos.set(clave, {
-        clave, sentidoClave: sentido.clave, lineaSlug: s.linea_slug, lineaTitulo: s.linea_titulo,
-        etiqueta: sentido.etiqueta, destinoId: sentido.destinoId, alcance: sentido.alcance, servicios: []
+        clave, sentidoClave: sentido.clave,
+        lineaSlug: bloque.lineaSlug, lineaTitulo: tituloDeLinea(bloque.lineaSlug),
+        etiqueta: sentido.etiqueta, destinoId: sentido.destinoId,
+        alcance: sentido.alcance, bloques: []
       });
     }
     const g = grupos.get(clave);
@@ -1928,10 +1850,13 @@ function sentidosEnParada(paradaId, lineaSlug, ahora) {
       g.etiqueta = sentido.etiqueta;
       g.destinoId = sentido.destinoId;
     }
-    g.servicios.push(s);
+    g.bloques.push({ bloque, pos });
   });
   const now = ahora || new Date();
-  const salida = [...grupos.values()].map(g => ({ ...g, dep: nextDepartureConOrigen(g.servicios, now) }));
+  const salida = [...grupos.values()].map(g => ({
+    ...g,
+    dep: proximaSalida(paradaId, now, { lineaSlug: g.lineaSlug, sentidoClave: g.sentidoClave })
+  }));
   salida.sort((a, b) => {
     const av = a.dep ? a.dep.dias * 1440 + a.dep.h * 60 + a.dep.m : Infinity;
     const bv = b.dep ? b.dep.dias * 1440 + b.dep.h * 60 + b.dep.m : Infinity;
@@ -1940,119 +1865,13 @@ function sentidosEnParada(paradaId, lineaSlug, ahora) {
   return salida;
 }
 
-/** Todos los "servicios" (línea+variante) de una MISMA línea que pasan
- * físicamente por una parada dada. Una parada puede estar servida por
- * varias sub-rutas de la misma línea (p.ej. la M-177 tiene 5 recorridos
- * distintos que comparten tramos). */
-function serviciosDeLineaEnParada(paradaId, lineaSlug) {
-  const p = APP.data.paradas[paradaId];
-  if (!p) return [];
-  return p.servicios.filter(s => s.linea_slug === lineaSlug);
+function tituloDeLinea(slug) {
+  const l = CTAN.lineas.find(x => x.slug === slug);
+  return l ? l.titulo : slug;
 }
 
-/** Fusiona los horarios de varios "servicios" que pasan por la misma
- * parada física en un único horario por tipo de día: cualquier bus de
- * la línea que pase por ahí, venga por la sub-ruta que venga. Esto es
- * lo que responde de verdad a "¿cuándo sale el próximo autobús de esta
- * línea desde esta parada?" en vez de atarlo a una única variante. */
-function mergeHorarios(serviciosArray) {
-  const buckets = {}; // 'laborable'|'sabado'|'domingo' -> {frecuencia, pasos:{hora:Set}}
-  serviciosArray.forEach(s => {
-    (s.horarios || []).forEach(h => {
-      const key = normFrecuencia(h.frecuencia);
-      if (!buckets[key]) buckets[key] = { frecuencia: h.frecuencia, pasos: {} };
-      for (const hora of Object.keys(h.pasos || {})) {
-        if (!buckets[key].pasos[hora]) buckets[key].pasos[hora] = new Set();
-        (h.pasos[hora] || []).forEach(m => buckets[key].pasos[hora].add(m));
-      }
-    });
-  });
-  return ["laborable", "sabado", "domingo"].filter(k => buckets[k]).map(k => {
-    const b = buckets[k];
-    const pasos = {};
-    Object.keys(b.pasos).forEach(hora => {
-      pasos[hora] = [...b.pasos[hora]].sort((a, b2) => a - b2);
-    });
-    return { frecuencia: b.frecuencia, pasos };
-  });
-}
-
-/** Como mergeHorarios, pero conserva qué recorrido(s) concreto(s) ofrecen
- * cada hora de paso, para poder mostrar "próximo bus a las X, por el
- * recorrido Y" sin atarse a una única variante. */
-function mergeDeparturesConOrigen(serviciosArray) {
-  const buckets = {};
-  serviciosArray.forEach(s => {
-    (s.horarios || []).forEach(h => {
-      const key = normFrecuencia(h.frecuencia);
-      if (!buckets[key]) buckets[key] = { frecuencia: h.frecuencia, slots: new Map() };
-      for (const hora of Object.keys(h.pasos || {})) {
-        (h.pasos[hora] || []).forEach(m => {
-          const k = hora + "-" + m;
-          if (!buckets[key].slots.has(k)) buckets[key].slots.set(k, { h: parseInt(hora, 10), m, variantes: new Map() });
-          buckets[key].slots.get(k).variantes.set(s.variante_nodo_id, s.variante_nombre);
-        });
-      }
-    });
-  });
-  const out = {};
-  Object.keys(buckets).forEach(key => {
-    const arr = [...buckets[key].slots.values()].sort((a, b) => (a.h * 60 + a.m) - (b.h * 60 + b.m));
-    arr.forEach(x => { x.variantes = [...x.variantes.values()]; });
-    out[key] = { frecuencia: buckets[key].frecuencia, slots: arr };
-  });
-  return out;
-}
-
-function nextDepartureConOrigen(serviciosArray, now) {
-  now = now || new Date();
-  const nowMin = now.getHours() * 60 + now.getMinutes();
-  const merged = mergeDeparturesConOrigen(serviciosArray);
-  const bucketHoy = merged[frecuenciaKeyForDate(now)];
-  if (bucketHoy) {
-    const slot = bucketHoy.slots.find(s => s.h * 60 + s.m >= nowMin);
-    if (slot) return { h: slot.h, m: slot.m, dias: 0, variantes: slot.variantes };
-  }
-  for (let add = 1; add <= 7; add++) {
-    const future = new Date(now.getTime() + add * 86400000);
-    const bucket = merged[frecuenciaKeyForDate(future)];
-    if (bucket && bucket.slots.length) {
-      const slot = bucket.slots[0];
-      return { h: slot.h, m: slot.m, dias: add, variantes: slot.variantes };
-    }
-  }
-  return null;
-}
-
-function flattenPasos(pasos) {
-  const out = [];
-  for (const h of Object.keys(pasos || {})) {
-    for (const m of pasos[h]) out.push({ h: parseInt(h, 10), m });
-  }
-  out.sort((a, b) => a.h - b.h || a.m - b.m);
-  return out;
-}
-
-/** Devuelve {h, m, dias} de la próxima salida, o null si la línea no
- * tiene ningún horario utilizable en los próximos 7 días. */
-function nextDeparture(horarios, now) {
-  now = now || new Date();
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  const bucketHoy = pickHorarioBucket(horarios, frecuenciaKeyForDate(now));
-  if (bucketHoy) {
-    const pasos = flattenPasos(bucketHoy.pasos);
-    const upcoming = pasos.find(p => p.h * 60 + p.m >= nowMinutes);
-    if (upcoming) return { h: upcoming.h, m: upcoming.m, dias: 0 };
-  }
-  for (let add = 1; add <= 7; add++) {
-    const future = new Date(now.getTime() + add * 86400000);
-    const bucket = pickHorarioBucket(horarios, frecuenciaKeyForDate(future));
-    if (bucket) {
-      const pasos = flattenPasos(bucket.pasos);
-      if (pasos.length) return { h: pasos[0].h, m: pasos[0].m, dias: add };
-    }
-  }
-  return null;
+function lineaPorSlug(slug) {
+  return CTAN.lineas.find(x => x.slug === slug) || null;
 }
 
 function formatDeparture(dep) {
@@ -2106,26 +1925,138 @@ function setStatus(msg, esError) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Carga de datos con caché en localStorage                            */
+/* Carga de datos: un consorcio cada vez                                */
 /* ------------------------------------------------------------------ */
-async function loadData(force) {
-  if (!force) {
+/** Los nueve consorcios de Andalucía ocupan casi cinco megas juntos, así
+ * que no se cargan juntos nunca: se pide sólo el activo. Los ficheros van
+ * por rutas relativas porque GitHub Pages sirve el sitio en una
+ * subcarpeta. */
+async function pedirJson(url) {
+  const resp = await fetch(url, { cache: "no-store" });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} al pedir ${url}`);
+  return resp.json();
+}
+
+async function cargarIndice() {
+  const guardado = leerCache(LS_DATOS + ":indice");
+  try {
+    const json = await pedirJson(INDICE_URL);
+    guardarCache(LS_DATOS + ":indice", json);
+    return json;
+  } catch (e) {
+    // Sin conexión se sigue con lo último que se supo: la aplicación tiene
+    // que abrir en la parada aunque no haya cobertura.
+    if (guardado) return guardado;
+    throw e;
+  }
+}
+
+function leerCache(clave) {
+  try {
+    const crudo = localStorage.getItem(clave);
+    return crudo ? JSON.parse(crudo) : null;
+  } catch (e) { return null; }
+}
+
+function guardarCache(clave, valor) {
+  try { localStorage.setItem(clave, JSON.stringify(valor)); }
+  catch (e) { console.warn("No se pudo cachear (¿cuota llena?)", e); }
+}
+
+/** Carga un consorcio y monta el modelo. Primero mira la caché: si lo que
+ * hay se generó el mismo día que lo que anuncia el índice, no se vuelve a
+ * pedir nada. */
+async function cargarConsorcio(idc, generadoEsperado) {
+  const claveL = `${LS_DATOS}:${idc}:lineas`;
+  const claveR = `${LS_DATOS}:${idc}:rutas`;
+  let lineas = leerCache(claveL);
+  let rutas = leerCache(claveR);
+  const alDia = lineas && rutas && lineas.generado === generadoEsperado &&
+                rutas.generado === generadoEsperado;
+  if (!alDia) {
     try {
-      const cached = localStorage.getItem(LS_KEY);
-      if (cached) return JSON.parse(cached);
+      [lineas, rutas] = await Promise.all([
+        pedirJson(`./data/${idc}/lineas.json`),
+        pedirJson(`./data/${idc}/rutas.json`)
+      ]);
+      guardarCache(claveL, lineas);
+      guardarCache(claveR, rutas);
     } catch (e) {
-      console.warn("No se pudo leer la caché local", e);
+      if (!lineas || !rutas) throw e;   // sin caché previa no hay nada que enseñar
+      console.warn("No se han podido refrescar los datos; se usan los guardados", e);
     }
   }
-  const resp = await fetch(DATA_URL, { cache: "no-store" });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} al pedir ${DATA_URL}`);
-  const json = await resp.json();
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(json));
-  } catch (e) {
-    console.warn("No se pudo cachear en localStorage (¿cuota llena?)", e);
+  montarModelo(lineas, rutas);
+}
+
+/** Pasa los ficheros a la forma con la que trabaja la aplicación.
+ *
+ * Los datos vienen en arrays posicionales para que ocupen poco por la red;
+ * aquí se les vuelven a poner nombres, que es como se leen luego. */
+function montarModelo(lineas, rutas) {
+  CTAN.id = lineas.id;
+  CTAN.nombre = lineas.nombre;
+  CTAN.codigo = lineas.codigo;
+  CTAN.generado = lineas.generado;
+  CTAN.municipios = lineas.municipios || [];
+  CTAN.calendario = lineas.calendario || { servicios: {}, excepciones: {} };
+  CTAN.trazados = rutas.trazados || {};
+  CACHE_SERVICIOS.clear();
+
+  CTAN.paradas = {};
+  for (const [id, p] of Object.entries(lineas.paradas)) {
+    CTAN.paradas[id] = { nombre: p[0], lat: p[1], lng: p[2], zona: p[3], municipio: p[4] };
   }
-  return json;
+
+  CTAN.bloques = (rutas.bloques || []).map(b => ({
+    lineaSlug: b.l,
+    varianteId: b.var,
+    dir: b.d,
+    paradas: b.p,
+    viajes: b.v,
+    servicios: b.s,
+    trazado: b.g
+  }));
+
+  CTAN.porParada = new Map();
+  CTAN.bloques.forEach(bloque => {
+    bloque.paradas.forEach((paradaId, pos) => {
+      if (!CTAN.porParada.has(paradaId)) CTAN.porParada.set(paradaId, []);
+      CTAN.porParada.get(paradaId).push({ bloque, pos });
+    });
+  });
+
+  // Cada línea necesita saber por dónde pasa. El GTFS no lo da como tal:
+  // se deduce de sus bloques, que es lo mismo pero mejor, porque son
+  // recorridos que de verdad circulan.
+  CTAN.lineas = (lineas.lineas || []).map(l => {
+    const suyos = CTAN.bloques.filter(b => b.lineaSlug === l.slug);
+    const porVariante = new Map();
+    suyos.forEach(b => {
+      const previo = porVariante.get(b.varianteId + "|" + b.dir);
+      if (!previo || previo.paradas.length < b.paradas.length) {
+        porVariante.set(b.varianteId + "|" + b.dir, b);
+      }
+    });
+    const variantes = [...porVariante.values()].map(b => ({
+      nodo_id: b.varianteId + "|" + b.dir,
+      nombre: (l.variantes.find(v => v.id === b.varianteId) || {}).nombre || l.titulo,
+      paradas: b.paradas
+    }));
+    // El orden unificado es el recorrido más largo con las paradas que
+    // sólo tocan los demás intercaladas donde les toca.
+    const orden = [];
+    const vistas = new Set();
+    variantes.slice().sort((a, b2) => b2.paradas.length - a.paradas.length)
+      .forEach(v => v.paradas.forEach(id => {
+        if (!vistas.has(id)) { vistas.add(id); orden.push(id); }
+      }));
+    return { ...l, variantes, orden_unificado: orden };
+  });
+
+  CTAN.cargado = true;
+  // Vista de compatibilidad: buena parte de la interfaz lee de aquí.
+  APP.data = { paradas: CTAN.paradas, lineas: CTAN.lineas, municipios: CTAN.municipios };
 }
 
 /* ------------------------------------------------------------------ */
@@ -2559,9 +2490,27 @@ function abrirMenuGrupo(map, grupo, marca, capa, modo) {
 /* ------------------------------------------------------------------ */
 /* Render: horario completo + tablero de próxima salida + PDF          */
 /* ------------------------------------------------------------------ */
-function renderBoard(container, servicio) {
-  const dep = nextDeparture(servicio.horarios);
-  const fmt = formatDeparture(dep);
+/** El horario de una parada, para un día concreto y una línea.
+ *
+ * Ya no hay "cubos" de laborable/sábado/domingo: se piden los pasos de esa
+ * fecha y se agrupan por hora para pintarlos. Con el calendario real, un
+ * lunes festivo enseña el horario de festivo y no el de un lunes
+ * cualquiera. */
+function horarioDelDia(paradaId, fecha, lineaSlug) {
+  const porHora = new Map();
+  pasosEnParada(paradaId, fecha, lineaSlug).forEach(paso => {
+    const m = paso.min % 1440;
+    const h = Math.floor(m / 60);
+    if (!porHora.has(h)) porHora.set(h, new Set());
+    porHora.get(h).add(m % 60);
+  });
+  return [...porHora.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([h, mins]) => ({ hora: h, minutos: [...mins].sort((a, b) => a - b) }));
+}
+
+function renderBoard(container, paradaId, lineaSlug) {
+  const fmt = formatDeparture(proximaSalida(paradaId, new Date(), { lineaSlug }));
   container.innerHTML = `
     <div class="board">
       <div class="board-label">PRÓXIMA SALIDA</div>
@@ -2571,45 +2520,33 @@ function renderBoard(container, servicio) {
 `;
 }
 
-function renderPdfBtn(container, servicio) {
-  container.innerHTML = "";
-  if (servicio.pdf_url) {
-    const a = document.createElement("a");
-    a.href = servicio.pdf_url;
-    a.target = "_blank";
-    a.rel = "noopener";
-    a.className = "btn btn-pdf";
-    a.textContent = "Descargar el PDF oficial";
-    container.appendChild(a);
-  } else {
-    container.innerHTML = '<p class="empty">PDF no disponible para esta parada.</p>';
-  }
-}
+const DIAS_HORARIO = 4;   // hoy y los tres siguientes: lo que se consulta de verdad
 
-function renderHorarioSection(container, servicio) {
+function renderHorarioSection(container, paradaId, lineaSlug) {
   container.innerHTML = "";
-  const todayKey = frecuenciaKeyForDate(new Date());
-  (servicio.horarios || []).forEach(h => {
-    const isToday = matchFrecuencia(h.frecuencia, todayKey);
+  const hoy = new Date();
+  for (let i = 0; i < DIAS_HORARIO; i++) {
+    const fecha = new Date(hoy.getTime() + i * 86400000);
+    const franjas = horarioDelDia(paradaId, fecha, lineaSlug);
+    if (!franjas.length) continue;
     const details = document.createElement("details");
-    details.open = isToday;
+    details.open = i === 0;
     const summary = document.createElement("summary");
-    summary.textContent = h.frecuencia + (isToday ? " · hoy" : "");
+    summary.textContent = i === 0 ? "Hoy" : nombreDeDia(fecha);
     details.appendChild(summary);
 
     const grid = document.createElement("div");
     grid.className = "horagrid";
-    const horas = Object.keys(h.pasos || {}).map(Number).sort((a, b) => a - b);
-    horas.forEach(hh => {
+    franjas.forEach(({ hora, minutos }) => {
       const cell = document.createElement("div");
       cell.className = "horacell";
       const label = document.createElement("span");
       label.className = "horalabel";
-      label.textContent = String(hh).padStart(2, "0") + "h";
+      label.textContent = String(hora).padStart(2, "0") + "h";
       cell.appendChild(label);
       const mins = document.createElement("div");
       mins.className = "minchips";
-      (h.pasos[hh] || []).forEach(m => {
+      minutos.forEach(m => {
         const chip = document.createElement("span");
         chip.className = "chip";
         chip.textContent = String(m).padStart(2, "0");
@@ -2620,9 +2557,30 @@ function renderHorarioSection(container, servicio) {
     });
     details.appendChild(grid);
     container.appendChild(details);
-  });
+  }
   if (!container.children.length) {
     container.innerHTML = '<p class="empty">No hay horario disponible para esta parada.</p>';
+  }
+}
+
+function nombreDeDia(fecha) {
+  const d = fecha.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "short" });
+  return d.charAt(0).toUpperCase() + d.slice(1);
+}
+
+/** El PDF oficial es de la línea, no de la parada: el GTFS trae una
+ * route_url por línea que apunta a su horario en la web del consorcio. */
+function renderPdfLinea(container, lineaSlug) {
+  container.innerHTML = "";
+  const linea = lineaPorSlug(lineaSlug);
+  if (linea && linea.url) {
+    const a = document.createElement("a");
+    a.href = linea.url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.className = "btn btn-pdf";
+    a.innerHTML = icono("reloj") + "Horario oficial de la línea";
+    container.appendChild(a);
   }
 }
 
@@ -2685,11 +2643,9 @@ function renderLineDetail(container, linea, defaultStopId, onBack, mapRef) {
     const p = APP.data.paradas[id];
     if (wasHidden && p.lat != null && mapRef.map) mapRef.map.panTo([p.lat, p.lng]);
     if (wasHidden && !body.dataset.built) {
-      const serviciosLinea = serviciosDeLineaEnParada(id, linea.slug);
-      const merged = mergeHorarios(serviciosLinea);
-      renderBoard(body.querySelector(".boardBox"), { horarios: merged });
-      renderPdfMultiBtn(body.querySelector(".pdfBox"), serviciosLinea);
-      renderHorarioSection(body.querySelector(".horarioBox"), { horarios: merged });
+      renderBoard(body.querySelector(".boardBox"), id, linea.slug);
+      renderPdfLinea(body.querySelector(".pdfBox"), linea.slug);
+      renderHorarioSection(body.querySelector(".horarioBox"), id, linea.slug);
       body.dataset.built = "1";
     }
   }
@@ -2697,8 +2653,7 @@ function renderLineDetail(container, linea, defaultStopId, onBack, mapRef) {
   let firstRow = null;
   paradasValidas.forEach((id, idx) => {
     const p = APP.data.paradas[id];
-    const serviciosLinea = serviciosDeLineaEnParada(id, linea.slug);
-    const dep = nextDepartureConOrigen(serviciosLinea);
+    const dep = proximaSalida(id, new Date(), { lineaSlug: linea.slug });
     const fmt = formatDeparture(dep);
     // Bajo el nombre de la parada va su municipio, no el nombre de la
     // variante. "M-101A Circular Bormujos - Castilleja - Tomares - S Juan
@@ -2729,31 +2684,6 @@ function renderLineDetail(container, linea, defaultStopId, onBack, mapRef) {
 
   openStopRow(firstRow);
   if (defaultStopId) firstRow.scrollIntoView({ block: "nearest" });
-}
-
-/** Lista, en vez de un único botón, un enlace de PDF por cada recorrido
- * de la línea que pasa por esta parada (pueden tener PDFs distintos). */
-function renderPdfMultiBtn(container, serviciosArray) {
-  container.innerHTML = "";
-  const conPdf = serviciosArray.filter(s => s.pdf_url);
-  if (!conPdf.length) {
-    container.innerHTML = '<p class="empty">PDF no disponible para esta parada.</p>';
-    return;
-  }
-  const wrap = document.createElement("div");
-  wrap.style.margin = "10px 0 4px 0";
-  conPdf.forEach(s => {
-    const a = document.createElement("a");
-    a.href = s.pdf_url;
-    a.target = "_blank";
-    a.rel = "noopener";
-    a.className = "btn btn-pdf";
-    a.style.marginRight = "8px";
-    a.style.marginBottom = "6px";
-    a.textContent = `PDF · ${s.variante_nombre}`;
-    wrap.appendChild(a);
-  });
-  container.appendChild(wrap);
 }
 
 /* ------------------------------------------------------------------ */
@@ -2831,7 +2761,7 @@ function buildStopScheduleModalContent(container, stopId) {
     // publica ctas.es ahí es la de llegada, no la de una salida.
     const aviso = document.createElement("p");
     aviso.className = "empty";
-    aviso.textContent = (p.servicios || []).length
+    aviso.textContent = (CTAN.porParada.get(stopId) || []).length
       ? "Aquí terminan los recorridos que pasan: no salen autobuses de esta parada."
       : "Sin datos de horario para esta parada.";
     list.parentNode.insertBefore(aviso, list);
@@ -2929,15 +2859,10 @@ function origenDestinoVariante(nombreVariante) {
  * mirando ahí la vuelta no aparecía por ningún lado. En cuanto eliges
  * parada — primero municipio, luego parada — manda la tuya. */
 function referenciasPorDefecto(linea) {
-  if (!RED.construida) construirRed();
-  const suyas = RED.rutas.filter(r => r.lineaSlug === linea.slug);
-  // Normalmente manda el laborable, que es el servicio completo; alguna
-  // línea sólo circula en fin de semana y entonces vale lo que haya.
-  const conLaborable = suyas.filter(r => r.frecuencia === "laborable");
   const refs = [];
   const vistas = new Set();
-  (conLaborable.length ? conLaborable : suyas).forEach(ruta => {
-    const primera = ruta.paradas[0];
+  CTAN.bloques.filter(b => b.lineaSlug === linea.slug).forEach(bloque => {
+    const primera = bloque.paradas[0];
     if (!APP.data.paradas[primera]) return;
     sentidosEnParada(primera, linea.slug).forEach(s => {
       const clave = primera + "|" + s.sentidoClave;
@@ -2985,14 +2910,15 @@ function quitarReferencia(lineaSlug, referencia) {
  * convertía el listado en un horario disfrazado; aquí decide si echas a
  * correr, y saber que el siguiente es dentro de diez minutos —o que ya no
  * hay otro— cambia lo que haces. */
-function salidaDespuesDe(servicios, dep) {
-  if (!dep || dep.dias !== 0 || !servicios || !servicios.length) return { dep: null, ultimo: false };
-  const bucket = mergeDeparturesConOrigen(servicios)[frecuenciaKeyForDate(new Date())];
-  if (!bucket || !bucket.slots.length) return { dep: null, ultimo: false };
-  const tDep = dep.h * 60 + dep.m;
-  const slot = bucket.slots.find(sl => sl.h * 60 + sl.m > tDep);
-  return slot ? { dep: { h: slot.h, m: slot.m, dias: 0 }, ultimo: false }
-              : { dep: null, ultimo: true };
+function salidaDespuesDe(paradaId, dep, filtro) {
+  if (!dep || dep.dias !== 0) return { dep: null, ultimo: false };
+  const ahora = new Date();
+  const tras = new Date(ahora);
+  tras.setHours(dep.h, dep.m + 1, 0, 0);
+  const siguiente = proximaSalida(paradaId, tras, filtro);
+  // Si la siguiente ya es de otro día, hoy no queda ninguna más.
+  if (!siguiente || siguiente.dias !== 0) return { dep: null, ultimo: true };
+  return { dep: siguiente, ultimo: false };
 }
 
 /** Próximas salidas de una línea en un punto de referencia: se fusionan
@@ -3000,28 +2926,13 @@ function salidaDespuesDe(servicios, dep) {
  * la cabecera que vengan. Devuelve además las siguientes horas, para
  * poder enseñar "y luego a las…". */
 function salidasDeReferencia(linea, ref, cuantas) {
-  cuantas = cuantas || 2;
   const parada = APP.data.paradas[ref.paradaId];
   if (!parada) return null;
   const sentidos = sentidosEnParada(ref.paradaId, linea.slug);
+  if (!sentidos.length) return null;
   const grupo = ref.sentidoClave ? sentidos.find(s => s.sentidoClave === ref.sentidoClave) : null;
-  const servicios = grupo ? grupo.servicios : sentidos.reduce((acc, s) => acc.concat(s.servicios), []);
-  if (!servicios.length) return null;
-
-  const now = new Date();
-  const nowMin = now.getHours() * 60 + now.getMinutes();
-  const merged = mergeDeparturesConOrigen(servicios);
-  const bucket = merged[frecuenciaKeyForDate(now)];
-  let horas = [];
-  let dep = null;
-  if (bucket && bucket.slots.length) {
-    const futuras = bucket.slots.filter(s => s.h * 60 + s.m >= nowMin).slice(0, cuantas);
-    horas = futuras.map(s => `${String(s.h).padStart(2, "0")}:${String(s.m).padStart(2, "0")}`);
-    if (futuras.length) dep = { h: futuras[0].h, m: futuras[0].m, dias: 0 };
-  }
-  // Sin salidas ya hoy: se barren los días siguientes para no dejar la
-  // fila muda.
-  if (!dep) dep = nextDeparture(mergeHorarios(servicios), now);
+  const filtro = { lineaSlug: linea.slug, sentidoClave: grupo ? grupo.sentidoClave : null };
+  const dep = proximaSalida(ref.paradaId, new Date(), filtro);
 
   return {
     ...ref,
@@ -3029,7 +2940,7 @@ function salidasDeReferencia(linea, ref, cuantas) {
     municipio: municipioDeParada(ref.paradaId),
     etiqueta: grupo ? grupo.etiqueta : (sentidos[0] ? sentidos[0].etiqueta : linea.titulo),
     numSentidos: sentidos.length,
-    horas, dep, servicios
+    dep, filtro
   };
 }
 
@@ -3193,7 +3104,7 @@ function renderSalidasDeLineaEn(contenedor, linea, onCambio) {
   // el horario completo ya está a un toque.
   refs.forEach(ref => {
     const espera = formatEspera(ref.dep);
-    const tras = espera.urgente ? salidaDespuesDe(ref.servicios, ref.dep) : { dep: null, ultimo: false };
+    const tras = espera.urgente ? salidaDespuesDe(ref.paradaId, ref.dep, ref.filtro) : { dep: null, ultimo: false };
     const seguimiento = filaSiguiente({
       paradaId: ref.paradaId,
       siguiente: tras.dep ? formatEspera(tras.dep) : null,
@@ -3477,19 +3388,20 @@ async function loadRoutingData(force) {
 const MAX_RONDAS = 4;           // como mucho cuatro autobuses: 3 trasbordos
 const MIN_TRASBORDO_MIN = 3;    // bajar, andar por el andén y subir
 
-/** Primer viaje de una ruta que se puede coger en `pos` a partir de `t`. */
-function primerViaje(ruta, pos, t) {
+/** Primer viaje de un bloque que se puede coger en `pos` a partir de `t`,
+ * de entre los que circulan ese día. El calendario entra aquí: un viaje
+ * cuyo servicio no está activo esa fecha sencillamente no existe. */
+function primerViaje(ruta, pos, t, activos) {
   const viajes = ruta.viajes;
   for (let i = 0; i < viajes.length; i++) {
-    if (viajes[i][pos] >= t) return i;
+    if (viajes[i][pos] >= t && activos.has(ruta.servicios[i])) return i;
   }
   return -1;
 }
 
 /** Núcleo de la búsqueda: devuelve, por ronda, el mejor tiempo de llegada
  * a cada parada y cómo se llegó. */
-function raptor(routing, origenes, frecuencia, destinoIds) {
-  const rutasDelDia = RED.rutas.filter(r => r.frecuencia === frecuencia);
+function raptor(routing, origenes, activos, destinoIds) {
   const mejor = new Map();          // parada -> mejor llegada de cualquier ronda
   const rondas = [new Map()];       // rondas[k] -> parada -> llegada en <=k buses
   const padres = [new Map()];       // rondas[k] -> parada -> de dónde vino
@@ -3540,10 +3452,9 @@ function raptor(routing, origenes, frecuencia, destinoIds) {
     // de todas las paradas marcadas que las tocan.
     const cola = new Map();         // ruta -> posición desde la que subir
     marcadas.forEach(paradaId => {
-      (RED.porParada.get(paradaId) || []).forEach(({ ruta, pos }) => {
-        if (ruta.frecuencia !== frecuencia) return;
-        const previa = cola.get(ruta);
-        if (previa === undefined || pos < previa) cola.set(ruta, pos);
+      (CTAN.porParada.get(paradaId) || []).forEach(({ bloque, pos }) => {
+        const previa = cola.get(bloque);
+        if (previa === undefined || pos < previa) cola.set(bloque, pos);
       });
     });
 
@@ -3566,7 +3477,7 @@ function raptor(routing, origenes, frecuencia, destinoIds) {
         if (llegadaPrevia === undefined) continue;
         const listo = llegadaPrevia + (k > 1 ? MIN_TRASBORDO_MIN : 0);
         if (viaje < 0 || listo <= ruta.viajes[viaje][pos]) {
-          const cand = primerViaje(ruta, pos, listo);
+          const cand = primerViaje(ruta, pos, listo, activos);
           if (cand >= 0 && (viaje < 0 || cand < viaje)) { viaje = cand; subidaPos = pos; }
         }
       }
@@ -3671,7 +3582,6 @@ function montarItinerario(crudos, o, de, destinoStopId, salidaMin, diaOffset) {
 /** Todas las formas razonables de ir de un extremo a otro, una por número
  * de trasbordos, de menos a más. La primera es la que se enseña. */
 function calcularOpcionesRuta(appData, routing, origin, destino, salida) {
-  if (!RED.construida) construirRed();
   const o = resolverExtremo(appData, origin);
   const de = resolverExtremo(appData, destino);
   RUTA_SIN_RESULTADO = null;
@@ -3688,7 +3598,7 @@ function calcularOpcionesRuta(appData, routing, origin, destino, salida) {
     }));
 
     const { rondas, padres } = raptor(routing, origenes,
-      frecuenciaKeyForDate(fecha), de.stopIds);
+      serviciosActivosEn(fecha), de.stopIds);
 
     const opciones = [];
     const vistas = new Set();
@@ -3753,10 +3663,9 @@ function saltosMinimos(routing, origenIds, destinoIds) {
   for (let saltos = 1; saltos <= 8 && frente.length; saltos++) {
     const siguiente = [];
     frente.forEach(paradaId => {
-      (RED.porParada.get(paradaId) || []).forEach(({ ruta, pos }) => {
-        if (ruta.frecuencia !== "laborable") return;
-        for (let i = pos + 1; i < ruta.paradas.length; i++) {
-          const q = ruta.paradas[i];
+      (CTAN.porParada.get(paradaId) || []).forEach(({ bloque, pos }) => {
+        for (let i = pos + 1; i < bloque.paradas.length; i++) {
+          const q = bloque.paradas[i];
           if (vistas.has(q)) continue;
           vistas.set(q, saltos);
           siguiente.push(q);
@@ -3962,7 +3871,7 @@ function buildStopPopupContent(id) {
   const lista = document.createElement("div");
   lista.className = "stop-popup-proximos";
   if (!grupos.length) {
-    lista.innerHTML = `<span class="stop-popup-sub">${(p.servicios || []).length
+    lista.innerHTML = `<span class="stop-popup-sub">${(CTAN.porParada.get(id) || []).length
       ? "Aquí terminan los recorridos que pasan: no salen autobuses."
       : "Sin datos de horario para esta parada."}</span>`;
   } else {
@@ -4563,7 +4472,7 @@ function lineasEnParadaPriorizadas(paradaId, limite) {
   const grupos = sentidosEnParada(paradaId, null).map(g => ({
     linea_slug: g.lineaSlug,
     linea_titulo: g.lineaTitulo,
-    servicios: g.servicios,
+    sentidoClave: g.sentidoClave,
     dep: g.dep,
     direccion: "hacia " + g.etiqueta,
     favorita: esFavoritoLinea(g.lineaSlug)
@@ -4824,6 +4733,123 @@ async function renderFavoritosTab() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Qué consorcio se está mirando                                        */
+/* ------------------------------------------------------------------ */
+/** La aplicación cubre las nueve áreas metropolitanas de Andalucía, pero
+ * nadie coge el autobús en dos a la vez: se carga sólo la activa. Las
+ * nueve juntas son casi cinco megas y no tendría sentido bajárselas para
+ * mirar una parada de Guillena. */
+function consorcioGuardado() {
+  const guardado = leerCache(LS_CONSORCIO);
+  return guardado && guardado.id ? guardado.id : null;
+}
+
+function distanciaABbox(lat, lng, bbox) {
+  if (!bbox) return Infinity;
+  const [minLat, minLng, maxLat, maxLng] = bbox;
+  const dLat = lat < minLat ? minLat - lat : lat > maxLat ? lat - maxLat : 0;
+  const dLng = lng < minLng ? minLng - lng : lng > maxLng ? lng - maxLng : 0;
+  return Math.hypot(dLat * 111320, dLng * 111320 * Math.cos(lat * Math.PI / 180));
+}
+
+/** Decide qué área abrir. Si ya se eligió una, esa. Si no, se pinta el
+ * selector y se devuelve null para que el arranque espere. */
+async function elegirConsorcio(indice) {
+  const guardado = consorcioGuardado();
+  if (guardado && indice.consorcios.some(c => c.id === guardado)) return guardado;
+  pintarSelectorConsorcio(indice, true);
+  return null;
+}
+
+async function activarConsorcio(idc) {
+  guardarCache(LS_CONSORCIO, { id: idc });
+  await cargarConsorcio(idc, APP.indice.generado);
+  cargarFavoritos();   // cada área tiene los suyos: los identificadores no son comparables
+  construirGrafo();
+  PARADA_POR_NOMBRE = null;   // el buscador se rehace con las paradas nuevas
+  const btn = document.getElementById("btnConsorcio");
+  if (btn) { btn.hidden = false; btn.textContent = CTAN.codigo || CTAN.nombre; }
+  pintarPie();
+}
+
+/** Pantalla de elección. Con ubicación se sugiere la más cercana: en la
+ * práctica casi siempre es la acertada, y así se entra de un toque. */
+function pintarSelectorConsorcio(indice, primeraVez) {
+  openModal(container => {
+    container.innerHTML = `
+      <h3 class="detail-title">¿Dónde coges el autobús?</h3>
+      <div class="detail-meta">${primeraVez
+        ? "Elige tu área metropolitana. Se descargan sólo sus horarios, y puedes cambiarla luego desde arriba."
+        : "Cambiar de área descarga sus horarios. Los favoritos de cada una se guardan por separado."}</div>
+      <div id="listaConsorcios" class="cabecera-list" style="margin-top:12px;"></div>`;
+    const lista = container.querySelector("#listaConsorcios");
+
+    const pintar = (ubicacion) => {
+      const orden = indice.consorcios.slice();
+      if (ubicacion) {
+        orden.forEach(c => { c._d = distanciaABbox(ubicacion.lat, ubicacion.lng, c.bbox); });
+        orden.sort((a, b) => a._d - b._d);
+      }
+      lista.innerHTML = "";
+      orden.forEach((c, i) => {
+        const cerca = ubicacion && i === 0 && c._d < 60000;
+        const fila = document.createElement("div");
+        fila.className = "salida-fila";
+        fila.innerHTML = `
+          <span class="home-fav-code${cerca ? " es-fav" : ""}">${escapeHtml(c.codigo)}</span>
+          <span class="salida-cuerpo">
+            <span class="salida-hacia">${escapeHtml(c.nombre)}</span>
+            <span class="salida-parada">${c.lineas} líneas · ${c.paradas} paradas${cerca ? " · estás aquí" : ""}</span>
+          </span>`;
+        fila.addEventListener("click", async () => {
+          closeModal();
+          setStatus("Cargando " + c.nombre + "…");
+          try {
+            await activarConsorcio(c.id);
+            setStatus("");
+            renderTodoTrasCambio();
+          } catch (e) {
+            setStatus("No se han podido cargar los horarios de " + c.nombre + ".", true);
+          }
+        });
+        lista.appendChild(fila);
+      });
+    };
+    pintar(UBICACION);
+    if (!UBICACION && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        pos => pintar({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => { /* sin ubicación se queda el orden del índice */ },
+        { timeout: 8000 });
+    }
+  });
+}
+
+/** El aviso legal de la API obliga a citar la fuente con esta fórmula, a
+ * decir de cuándo son los datos y a no dar a entender que la Junta ni los
+ * Consorcios están detrás de esto. */
+function pintarPie() {
+  const pie = document.getElementById("pie");
+  if (!pie) return;
+  const fecha = CTAN.generado || (APP.indice && APP.indice.generado) || "";
+  pie.innerHTML = `Información proporcionada por el Portal de Datos Abiertos de la
+    Red de Consorcios de Transporte de Andalucía${fecha ? ` · datos de ${escapeHtml(fecha)}` : ""}.
+    Horarios programados, no tiempo real.<br>
+    Herramienta personal sin relación con la Red de Consorcios ni con la Junta de Andalucía.`;
+}
+
+/** Tras cambiar de área hay que rehacerlo todo: lo que había en pantalla
+ * era de otra provincia. */
+function renderTodoTrasCambio() {
+  buildMunicipioOptions();
+  renderHomeFavSalidas();
+  renderQuickFavs();
+  renderLineasFavoritas();
+  renderListadoLineas();
+  irAPantalla("screenInicio");
+}
+
+/* ------------------------------------------------------------------ */
 /* Pantalla "Inicio": próximas salidas + "¿A dónde quieres ir?"        */
 /* ------------------------------------------------------------------ */
 /** Inicio ya no lleva mapa. Ocupaba media pantalla para enseñar círculos
@@ -5065,7 +5091,7 @@ function salidasVigiladas() {
         // "¿me da tiempo o espero al otro?", así que el otro entra en la
         // lista con su propia fila, colgando de esta.
         ...(espera.urgente ? (() => {
-          const tras = salidaDespuesDe(g.servicios, g.dep);
+          const tras = salidaDespuesDe(paradaId, g.dep, { lineaSlug: g.lineaSlug, sentidoClave: g.sentidoClave });
           return { siguiente: tras.dep ? formatEspera(tras.dep) : null, ultimoDeHoy: tras.ultimo };
         })() : { siguiente: null, ultimoDeHoy: false })
       });
@@ -5289,19 +5315,24 @@ function registrarServiceWorker() {
 }
 
 async function init() {
+  migrarFavoritosViejos();
   cargarFavoritos();
   pintarIconosDeclarados();
   wireTema();
   registrarServiceWorker();
   setStatus("Cargando datos…");
   try {
-    APP.data = await loadData(false);
-    construirGrafo();
+    APP.indice = await cargarIndice();
+    const elegido = await elegirConsorcio(APP.indice);
+    if (!elegido) { setStatus(""); return; }   // se está enseñando el selector
+    await activarConsorcio(elegido);
     setStatus("");
   } catch (err) {
     setStatus("No se han podido cargar los horarios. Comprueba la conexión y vuelve a entrar.", true);
     return;
   }
+  document.getElementById("btnConsorcio").addEventListener("click",
+    () => pintarSelectorConsorcio(APP.indice, false));
   buildMunicipioOptions();
   wireTabs();
   wireLineSearch();

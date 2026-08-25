@@ -13,14 +13,13 @@
 // v2: el fichero de datos cambia de forma (cada parada trae ya su
 // municipio), así que hay que invalidar lo cacheado o las instalaciones
 // existentes seguirían sirviendo la versión vieja.
-const CACHE = "proxima-salida-v3";
+const CACHE = "proxima-salida-v4";
 
 // Ficheros propios de la app. Rutas relativas para que funcione igual en
 // https://usuario.github.io/BusesAndalucia/ que en un servidor local.
 const RECURSOS = [
   "./",
   "./index.html",
-  "./ctas_data_app.json",
   "./ctas_routing.json",
   "./manifest.json"
 ];

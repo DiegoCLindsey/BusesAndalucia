@@ -25,6 +25,7 @@ GTFS_URL = "https://api.ctan.es/v1/datos/UNIFICADO/gtfs.zip"
 API = "https://api.ctan.es/v1"
 UA = "BusesAndalucia/2.0 (+https://github.com/DiegoCLindsey/BusesAndalucia)"
 CACHE = "cache"
+FUENTES = "fuentes"   # copia versionada de /paradas, para poder regenerar sin red
 SALIDA = "data"
 
 # El GTFS unificado no dice a qué consorcio pertenece cada prefijo; el nombre
@@ -68,6 +69,23 @@ def prefijo(ident):
 
 def sin_prefijo(ident):
     return ident.split("_", 1)[1]
+
+
+PARTICULAS = {"de", "del", "la", "las", "el", "los", "y", "a", "al", "en"}
+
+
+def legible(texto):
+    """La API devuelve los municipios en mayúsculas («BORMUJOS», «ALCALÁ DEL
+    RÍO») y a gritos desentonan al lado del resto de la interfaz. Se pasan a
+    capitales iniciales dejando en minúscula las partículas."""
+    if not texto:
+        return texto
+    bruto = str(texto).strip()
+    if bruto != bruto.upper():
+        return bruto           # ya viene escrito bien
+    palabras = bruto.lower().split()
+    return " ".join(p if i and p in PARTICULAS else p.capitalize()
+                    for i, p in enumerate(palabras))
 
 
 def slug(texto):
@@ -146,25 +164,25 @@ def municipios_de(idc):
     """Municipio, núcleo y zona de cada parada. Primero la caché de la API,
     que es el dato oficial; si no está, para Sevilla se reaprovecha lo que ya
     tenía la aplicación (los identificadores del GTFS son los mismos)."""
+    # La caché es lo primero; si no está, la copia versionada del
+    # repositorio, para que el pipeline sea reproducible en un clon limpio
+    # sin tener que volver a llamar a la API.
     ruta = os.path.join(CACHE, f"paradas_{idc}.json")
+    if not os.path.exists(ruta):
+        ruta = os.path.join(FUENTES, f"paradas_{idc}.json")
     if os.path.exists(ruta):
         with open(ruta, encoding="utf-8") as f:
             datos = json.load(f)
-        return {p["idParada"]: (p.get("municipio") or None, p.get("nucleo") or None,
+        return {p["idParada"]: (legible(p.get("municipio")), legible(p.get("nucleo")),
                                 p.get("idZona") or None)
                 for p in datos.get("paradas", [])}, "api"
-    if idc == 1 and os.path.exists("ctas_data_app.json"):
-        with open("ctas_data_app.json", encoding="utf-8") as f:
-            viejo = json.load(f)
-        return {pid: (p.get("municipio"), None, p.get("zona"))
-                for pid, p in viejo["paradas"].items()}, "datos anteriores"
     return {}, "sin municipios"
 
 
 def bajar_paradas():
-    os.makedirs(CACHE, exist_ok=True)
+    os.makedirs(FUENTES, exist_ok=True)
     for idc in CONSORCIOS:
-        destino = os.path.join(CACHE, f"paradas_{idc}.json")
+        destino = os.path.join(FUENTES, f"paradas_{idc}.json")
         if os.path.exists(destino):
             print(f"  {idc}: ya en caché")
             continue

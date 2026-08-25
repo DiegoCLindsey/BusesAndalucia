@@ -202,8 +202,6 @@ datos no vuelve a pedir nada al servidor.
   Sevilla por dentro para salir por el otro lado sale caro o directamente
   imposible, y hay pares de paradas sin ninguna combinación razonable. En
   vez de inventarse un itinerario de cuatro horas, la app lo dice.
-- Los recorridos dibujados en el mapa unen paradas consecutivas en línea
-  recta: ctas.es no publica la geometría real por calle.
 - **Los avisos sólo suenan con la app viva.** No hay servidor propio que
   mande un push, así que el aviso lo dispara la propia página: funciona en
   segundo plano, pero si cierras la app del todo no puede sonar. El

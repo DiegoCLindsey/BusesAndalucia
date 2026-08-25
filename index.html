@@ -2068,7 +2068,7 @@ function setMarkerStyle(marker, selected) {
     : { radius: 6, color: colorTema("brand"), fillColor: colorTema("card"), fillOpacity: 1, weight: 2 });
 }
 
-function renderMap(containerEl, paradaIds, onMarkerClick, mapRef) {
+function renderMap(containerEl, paradaIds, onMarkerClick, mapRef, opciones) {
   mapRef = mapRef || CURRENT_MAP_REF;
   if (mapRef.map) {
     mapRef.map.remove();
@@ -2094,7 +2094,13 @@ function renderMap(containerEl, paradaIds, onMarkerClick, mapRef) {
       markers[id] = marker;
     }
   });
-  if (latlngs.length > 1) {
+  // El recorrido, por donde va de verdad. Antes era una recta punteada de
+  // parada a parada, y la interfaz tenía que avisar de que no era el
+  // trazado real; con shapes.txt ya lo es, así que el aviso sobra.
+  const trazado = (opciones && opciones.trazado) || null;
+  if (trazado && trazado.length > 1) {
+    L.polyline(trazado, { color: colorTema("brand"), weight: 4, opacity: 0.8 }).addTo(map);
+  } else if (latlngs.length > 1) {
     L.polyline(latlngs, { color: colorTema("brand"), weight: 3, opacity: 0.55, dashArray: "1 8" }).addTo(map);
   }
   if (latlngs.length) {
@@ -2625,13 +2631,20 @@ function renderLineDetail(container, linea, defaultStopId, onBack, mapRef) {
     return;
   }
 
+  // El trazado de la línea: el del bloque más largo, que es el recorrido
+  // completo. Los demás son recortes suyos.
+  const bloqueLargo = CTAN.bloques
+    .filter(b => b.lineaSlug === linea.slug && b.trazado)
+    .sort((a, b) => b.paradas.length - a.paradas.length)[0];
+  const trazadoLinea = bloqueLargo ? CTAN.trazados[bloqueLargo.trazado] : null;
+
   const { markers } = renderMap(container.querySelector("#mapBox"), paradasValidas, id => {
     const row = stopsListEl.querySelector(`.stoprow[data-id="${cssEscape(id)}"]`);
     if (row) {
       row.scrollIntoView({ behavior: "smooth", block: "center" });
       openStopRow(row);
     }
-  }, mapRef);
+  }, mapRef, { trazado: trazadoLinea });
 
   function openStopRow(row) {
     stopsListEl.querySelectorAll(".stoprow-body").forEach(b => { if (b !== row.querySelector(".stoprow-body")) b.hidden = true; });
@@ -4077,20 +4090,75 @@ function clearRoutePathLayers() {
   ROUTE_PATH_LAYERS = [];
 }
 
+/** El trozo del trazado real que va de una parada a otra dentro de un
+ * bloque.
+ *
+ * El GTFS trae en shapes.txt por dónde va la carretera, así que el mapa
+ * deja de unir paradas con una recta que se metía por encima de las casas.
+ * Para recortar el trazado se busca el punto más cercano a cada parada y
+ * se corta por ahí: es aproximado, pero el error es de metros y el dibujo
+ * sigue la calle.
+ *
+ * Si el bloque no tiene trazado se cae a la línea recta de antes, que es
+ * lo que había y no es peor que nada. */
+function trazadoEntre(bloque, desdePos, hastaPos) {
+  const puntos = bloque && bloque.trazado ? CTAN.trazados[bloque.trazado] : null;
+  const paradas = bloque ? bloque.paradas : [];
+  const recta = () => paradas.slice(desdePos, hastaPos + 1)
+    .map(id => CTAN.paradas[id])
+    .filter(p => p && p.lat != null)
+    .map(p => [p.lat, p.lng]);
+  if (!puntos || puntos.length < 2) return recta();
+
+  const masCercano = paradaId => {
+    const p = CTAN.paradas[paradaId];
+    if (!p || p.lat == null) return null;
+    let mejor = 0, mejorD = Infinity;
+    for (let i = 0; i < puntos.length; i++) {
+      const d = (puntos[i][0] - p.lat) ** 2 + (puntos[i][1] - p.lng) ** 2;
+      if (d < mejorD) { mejorD = d; mejor = i; }
+    }
+    return mejor;
+  };
+  const a = masCercano(paradas[desdePos]);
+  const b = masCercano(paradas[hastaPos]);
+  if (a == null || b == null) return recta();
+  const tramo = a <= b ? puntos.slice(a, b + 1) : puntos.slice(b, a + 1).reverse();
+  return tramo.length >= 2 ? tramo : recta();
+}
+
+/** El bloque concreto que sirve un tramo de la ruta, para poder pintar su
+ * trazado. */
+function bloqueDeTramo(leg) {
+  if (!leg.paradasRuta || leg.paradasRuta.length < 2) return null;
+  const candidatos = CTAN.porParada.get(leg.origen) || [];
+  for (const { bloque, pos } of candidatos) {
+    if (bloque.lineaSlug !== leg.lineaSlug) continue;
+    const fin = pos + leg.paradasRuta.length - 1;
+    if (fin < bloque.paradas.length &&
+        bloque.paradas[fin] === leg.paradasRuta[leg.paradasRuta.length - 1]) {
+      return { bloque, desdePos: pos, hastaPos: fin };
+    }
+  }
+  return null;
+}
+
 function drawRouteOnMap(res) {
   if (!CURRENT_ROUTE_MAP) return;
   clearRoutePathLayers();
   const bounds = [];
   res.legs.forEach(leg => {
     if (leg.tipo === "bus") {
-      // Sigue TODAS las paradas intermedias del tramo (no solo el punto
-      // de subida y el de bajada), para que se vea el recorrido real del
-      // autobús y no un atajo en línea recta que se salta paradas.
-      const paradas = leg.paradasRuta && leg.paradasRuta.length >= 2 ? leg.paradasRuta : [leg.origen, leg.destino];
-      const puntos = paradas
-        .map(id => APP.data.paradas[id])
-        .filter(p => p && p.lat != null)
-        .map(p => [p.lat, p.lng]);
+      // El trazado real del GTFS, recortado al tramo que se coge. Antes
+      // esto unía las paradas intermedias con rectas; ahora sigue la
+      // carretera.
+      const tramo = bloqueDeTramo(leg);
+      const puntos = tramo
+        ? trazadoEntre(tramo.bloque, tramo.desdePos, tramo.hastaPos)
+        : (leg.paradasRuta || [leg.origen, leg.destino])
+            .map(id => CTAN.paradas[id])
+            .filter(p => p && p.lat != null)
+            .map(p => [p.lat, p.lng]);
       if (puntos.length < 2) return;
       const line = L.polyline(puntos, { color: colorTema("brand"), weight: 5, opacity: 0.95 }).addTo(CURRENT_ROUTE_MAP);
       ROUTE_PATH_LAYERS.push(line);

@@ -32,7 +32,8 @@ const ok = (cond, txt, extra) => {
   if (!cond) fallos++;
 };
 
-const browser = await chromium.launch();
+// CHROMIUM_PATH apunta a un Chromium ya instalado cuando el del paquete no está.
+const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const errores = [];
 
 for (const width of ANCHOS) {
@@ -46,11 +47,13 @@ for (const width of ANCHOS) {
   // Los datos van por área metropolitana: se fija Sevilla para no toparse
 // con el selector del primer arranque.
 await page.addInitScript(() => {
+  // El área de referencia se fija a Sevilla para que sus horarios se bajen
+  // solos al arrancar; las paradas y las líneas de las nueve están siempre.
   try { localStorage.setItem('ctanConsorcioV1', JSON.stringify({ id: 1 })); } catch (e) { }
 });
 await page.clock.install({ time: new Date('2026-08-18T14:52:00') });
   await page.goto(BASE + '/index.html', { waitUntil: 'networkidle' });
-  await page.waitForFunction(() => typeof CTAN !== 'undefined' && CTAN.cargado, null, { timeout: 30000 });
+  await page.waitForFunction(() => typeof CTAN !== 'undefined' && CTAN.cargado && CTAN.horarios.has(1), null, { timeout: 30000 });
 
   // El listado completo
   await page.evaluate(() => irAPantalla('screenLineas'));

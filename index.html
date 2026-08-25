@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Próxima Salida · Consorcio de Transportes de Sevilla (no oficial)</title>
+<title>Próxima Salida · Buses de Andalucía (no oficial)</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#F4F7FA">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1066,7 +1066,7 @@
 /* ------------------------------------------------------------------ */
 const INDICE_URL = "./data/consorcios.json";
 const LS_CONSORCIO = "ctanConsorcioV1";
-const LS_DATOS = "ctanDatosV1";        // v1: formato derivado del GTFS oficial
+const LS_DATOS = "ctanDatosV2";        // v2: identificadores de parada con prefijo de área
 const APP = { data: null };
 
 /* ------------------------------------------------------------------ */
@@ -1091,8 +1091,11 @@ const APP = { data: null };
  * dice qué servicios circulan en cada fecha concreta. Por eso un lunes
  * festivo ya no se trata como un lunes cualquiera. */
 const CTAN = {
+  // El área de referencia: la que se usa para los avisos, para el pie y
+  // para decidir qué horarios se precargan. No es la única cargada.
   id: null,
   nombre: null,
+  codigo: null,
   generado: null,
   paradas: {},        // id -> {nombre, lat, lng, zona, municipio}
   lineas: [],         // {slug, codigo, titulo, color, url, variantes}
@@ -1101,7 +1104,10 @@ const CTAN = {
   porParada: new Map(),   // paradaId -> [{bloque, pos}]
   calendario: { servicios: {}, excepciones: {} },
   trazados: {},
-  cargado: false
+  vecinos: {},        // paradaId -> [[vecinoId, minutos andando], …]
+  horarios: new Set(),  // áreas cuyos horarios ya están en memoria
+  pidiendo: new Map(),  // áreas que se están bajando ahora mismo
+  cargado: false        // el catálogo está en pie (los horarios van aparte)
 };
 
 function ymd(fecha) {
@@ -1298,15 +1304,18 @@ function wireTema() {
 /* ------------------------------------------------------------------ */
 /* Favoritos                                                           */
 /* ------------------------------------------------------------------ */
-/** Los favoritos van por área metropolitana: la parada 3287 de Sevilla y
- * la 3287 de Málaga no tienen nada que ver, y mezclarlas enseñaría horas
- * de otra provincia. Lo que hubiera guardado antes de que existieran las
- * nueve áreas era de Sevilla, así que se le pone su etiqueta. */
+/** Una sola caja de favoritos para toda Andalucía. Antes iban por área
+ * porque los identificadores se repetían —la 2112 era «C Atilano de
+ * Acevedo» en Sevilla y «Hotel Las Pedrizas» en Málaga—, así que mezclarlos
+ * habría enseñado horas de otra provincia. Ahora la parada se llama
+ * «1_2112» o «4_2112» y no hay confusión posible: se guardan juntos, que es
+ * lo que espera quien tiene la casa en un área y el trabajo en otra. */
 const LS_FAVORITOS_VIEJO = "ctasFavoritosV1";
+const LS_FAVORITOS = "ctanFavoritosV3";
 const CONSORCIO_ORIGINAL = 1;   // hasta ahora la app era sólo del Área de Sevilla
 
 function claveFavoritos() {
-  return `ctanFavoritosV2:${CTAN.id || consorcioGuardado() || CONSORCIO_ORIGINAL}`;
+  return LS_FAVORITOS;
 }
 
 let FAVORITOS = { paradas: [], lineas: [], rutas: [], notificaciones: [] };
@@ -1323,13 +1332,50 @@ function setFiltroMunicipio(municipio) {
   try { localStorage.setItem(LS_FILTRO_MUNI_KEY, FILTRO_MUNICIPIO); } catch (e) { /* modo privado */ }
 }
 
+/** Trae lo guardado por las dos formas anteriores y le pone a cada parada
+ * el prefijo de su área. La V1 era de cuando la aplicación sólo cubría
+ * Sevilla; la V2 tenía una caja por área, con el número pelado. */
 function migrarFavoritosViejos() {
   try {
-    const viejo = localStorage.getItem(LS_FAVORITOS_VIEJO);
-    if (!viejo) return;
-    const destino = `ctanFavoritosV2:${CONSORCIO_ORIGINAL}`;
-    if (!localStorage.getItem(destino)) localStorage.setItem(destino, viejo);
+    if (localStorage.getItem(LS_FAVORITOS)) return;   // ya migrado
+
+    const cajas = [];
+    const v1 = localStorage.getItem(LS_FAVORITOS_VIEJO);
+    if (v1) cajas.push([CONSORCIO_ORIGINAL, v1]);
+    for (let i = 0; i < localStorage.length; i++) {
+      const clave = localStorage.key(i);
+      const m = clave && clave.match(/^ctanFavoritosV2:(\d+)$/);
+      if (m) cajas.push([Number(m[1]), localStorage.getItem(clave)]);
+    }
+    if (!cajas.length) return;
+
+    const unidos = { paradas: [], lineas: [], rutas: [], notificaciones: [] };
+    cajas.forEach(([idc, crudo]) => {
+      let caja;
+      try { caja = JSON.parse(crudo); } catch (e) { return; }
+      if (!caja) return;
+      // Si ya viene con prefijo (por si se migró a medias), se respeta.
+      const con = id => (id == null ? id : (/^\d+_/.test(String(id)) ? String(id) : `${idc}_${id}`));
+      (caja.paradas || []).forEach(p => unidos.paradas.push({ ...p, id: con(p.id) }));
+      (caja.lineas || []).forEach(l => unidos.lineas.push({
+        ...l,
+        referencias: (l.referencias || []).map(r => ({ ...r, paradaId: con(r.paradaId) })),
+        paradasPorSentido: l.paradasPorSentido
+          ? Object.fromEntries(Object.entries(l.paradasPorSentido).map(([k, v]) => [k, con(v)]))
+          : undefined
+      }));
+      (caja.rutas || []).forEach(r => unidos.rutas.push({
+        ...r, origenId: con(r.origenId), destinoId: con(r.destinoId), cache: null
+      }));
+      (caja.notificaciones || []).forEach(n => {
+        const paradaId = con(n.paradaId);
+        unidos.notificaciones.push({ ...n, paradaId, clave: claveNotificacion(paradaId, n.lineaSlug) });
+      });
+    });
+
+    localStorage.setItem(LS_FAVORITOS, JSON.stringify(unidos));
     localStorage.removeItem(LS_FAVORITOS_VIEJO);
+    cajas.forEach(([idc]) => localStorage.removeItem(`ctanFavoritosV2:${idc}`));
   } catch (e) { /* modo privado */ }
 }
 
@@ -1967,12 +2013,26 @@ function setStatus(msg, esError) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Carga de datos: un consorcio cada vez                                */
+/* Carga de datos: el catálogo entero, los horarios cuando hacen falta  */
 /* ------------------------------------------------------------------ */
-/** Los nueve consorcios de Andalucía ocupan casi cinco megas juntos, así
- * que no se cargan juntos nunca: se pide sólo el activo. Los ficheros van
- * por rutas relativas porque GitHub Pages sirve el sitio en una
- * subcarpeta. */
+/** La aplicación cubre las nueve áreas metropolitanas de Andalucía a la
+ * vez, no una cada vez. Se parte en dos:
+ *
+ *  - El CATÁLOGO (`data/catalogo.json`, 460 KB, unos 110 comprimidos) trae
+ *    las 5.009 paradas con su nombre y sus coordenadas, las 432 líneas y
+ *    los 234 municipios. Es lo que hace falta para buscar una parada,
+ *    pintar el mapa y reconocer un favorito, esté donde esté. Se carga
+ *    entero al arrancar.
+ *  - Los HORARIOS de cada área (`data/{id}/horarios.json`, de 107 KB a 1,5
+ *    MB) son casi cinco megas entre las nueve, y bajarlos todos para mirar
+ *    una parada de Guillena no tendría sentido. Se piden cuando se
+ *    necesitan: el área en la que estás al arrancar, la de tus favoritos, y
+ *    la de cualquier parada o línea que abras.
+ *
+ * Los ficheros van por rutas relativas porque GitHub Pages sirve el sitio
+ * en una subcarpeta. */
+const CATALOGO_URL = "./data/catalogo.json";
+
 async function pedirJson(url) {
   const resp = await fetch(url, { cache: "no-store" });
   if (!resp.ok) throw new Error(`HTTP ${resp.status} al pedir ${url}`);
@@ -1993,6 +2053,22 @@ async function cargarIndice() {
   }
 }
 
+/** Tira lo que guardaron versiones anteriores. Importa: el área de Sevilla
+ * ocupa millón y medio de caracteres en localStorage, y dejar ahí una copia
+ * con el formato viejo se come la cuota que necesita la nueva. */
+function limpiarCachesViejas() {
+  try {
+    const sobran = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const clave = localStorage.key(i);
+      if (!clave) continue;
+      if (clave.startsWith("ctanDatosV1:") || clave.startsWith("ctanDatosV2:") ||
+          clave === "ctasRoutingV4") sobran.push(clave);
+    }
+    sobran.forEach(c => localStorage.removeItem(c));
+  } catch (e) { /* modo privado */ }
+}
+
 function leerCache(clave) {
   try {
     const crudo = localStorage.getItem(clave);
@@ -2005,52 +2081,102 @@ function guardarCache(clave, valor) {
   catch (e) { console.warn("No se pudo cachear (¿cuota llena?)", e); }
 }
 
-/** Carga un consorcio y monta el modelo. Primero mira la caché: si lo que
- * hay se generó el mismo día que lo que anuncia el índice, no se vuelve a
- * pedir nada. */
-async function cargarConsorcio(idc, generadoEsperado) {
-  const claveL = `${LS_DATOS}:${idc}:lineas`;
-  const claveR = `${LS_DATOS}:${idc}:rutas`;
-  let lineas = leerCache(claveL);
-  let rutas = leerCache(claveR);
-  const alDia = lineas && rutas && lineas.generado === generadoEsperado &&
-                rutas.generado === generadoEsperado;
-  if (!alDia) {
-    try {
-      [lineas, rutas] = await Promise.all([
-        pedirJson(`./data/${idc}/lineas.json`),
-        pedirJson(`./data/${idc}/rutas.json`)
-      ]);
-      guardarCache(claveL, lineas);
-      guardarCache(claveR, rutas);
-    } catch (e) {
-      if (!lineas || !rutas) throw e;   // sin caché previa no hay nada que enseñar
-      console.warn("No se han podido refrescar los datos; se usan los guardados", e);
-    }
-  }
-  montarModelo(lineas, rutas);
+/** El área a la que pertenece una parada: se lee de su propio
+ * identificador, que lleva el prefijo del consorcio («4_2112» es de
+ * Málaga). Por eso los identificadores conservan el prefijo. */
+function areaDeParada(paradaId) {
+  const n = parseInt(String(paradaId), 10);
+  return Number.isFinite(n) ? n : null;
 }
 
-/** Pasa los ficheros a la forma con la que trabaja la aplicación.
- *
- * Los datos vienen en arrays posicionales para que ocupen poco por la red;
- * aquí se les vuelven a poner nombres, que es como se leen luego. */
-function montarModelo(lineas, rutas) {
-  CTAN.id = lineas.id;
-  CTAN.nombre = lineas.nombre;
-  CTAN.codigo = lineas.codigo;
-  CTAN.generado = lineas.generado;
-  CTAN.municipios = lineas.municipios || [];
-  CTAN.calendario = lineas.calendario || { servicios: {}, excepciones: {} };
-  CTAN.trazados = rutas.trazados || {};
-  CACHE_SERVICIOS.clear();
+function areaDeLinea(slug) {
+  const l = lineaPorSlug(slug);
+  return l ? l.idc : null;
+}
 
+function tieneHorarios(idc) {
+  return CTAN.horarios.has(idc);
+}
+
+/** Carga el catálogo de toda Andalucía. Primero la caché: si lo guardado
+ * se generó el mismo día que anuncia el índice, no se vuelve a pedir. */
+async function cargarCatalogo(generadoEsperado) {
+  const clave = `${LS_DATOS}:catalogo`;
+  let cat = leerCache(clave);
+  if (!cat || cat.generado !== generadoEsperado) {
+    try {
+      cat = await pedirJson(CATALOGO_URL);
+      guardarCache(clave, cat);
+    } catch (e) {
+      if (!cat) throw e;   // sin caché previa no hay nada que enseñar
+      console.warn("No se ha podido refrescar el catálogo; se usa el guardado", e);
+    }
+  }
+  montarCatalogo(cat);
+}
+
+/** Pasa el catálogo a la forma con la que trabaja la aplicación. Los datos
+ * vienen en arrays posicionales para que ocupen poco por la red; aquí se
+ * les vuelven a poner nombres, que es como se leen luego. */
+function montarCatalogo(cat) {
+  CTAN.generado = cat.generado;
   CTAN.paradas = {};
-  for (const [id, p] of Object.entries(lineas.paradas)) {
+  for (const [id, p] of Object.entries(cat.paradas || {})) {
     CTAN.paradas[id] = { nombre: p[0], lat: p[1], lng: p[2], zona: p[3], municipio: p[4] };
   }
+  CTAN.municipios = cat.municipios || [];
+  // `variantes` viene del catálogo con el identificador y el nombre de cada
+  // recorrido —con eso ya se pueden cruzar los avisos—, y se completa con
+  // sus paradas cuando llegan los horarios del área.
+  CTAN.lineas = (cat.lineas || []).map(l => ({
+    ...l,
+    variantes: (l.variantes || []).map(v => ({ ...v })),
+    orden_unificado: []
+  }));
 
-  CTAN.bloques = (rutas.bloques || []).map(b => ({
+  CTAN.bloques = [];
+  CTAN.porParada = new Map();
+  CTAN.calendario = { servicios: {}, excepciones: {} };
+  CTAN.trazados = {};
+  CTAN.vecinos = {};
+  CTAN.horarios = new Set();
+  CTAN.pidiendo = new Map();
+  ROUTING = { vecinos: CTAN.vecinos };
+  CACHE_SERVICIOS.clear();
+  PARADA_POR_NOMBRE = null;
+
+  CTAN.cargado = true;
+  // Vista de compatibilidad: buena parte de la interfaz lee de aquí.
+  APP.data = { paradas: CTAN.paradas, lineas: CTAN.lineas, municipios: CTAN.municipios };
+  construirGrafo();
+}
+
+/** Baja los horarios de un área y los suma a lo que ya hay en memoria.
+ *
+ * Es aditivo a propósito: al terminar conviven los horarios de todas las
+ * áreas cargadas, así que un itinerario puede empezar en Sevilla y acabar
+ * en Huelva sin que la aplicación tenga que "cambiar de provincia".
+ *
+ * Los ficheros no se guardan en localStorage —el de Sevilla solo se comería
+ * la cuota entera— sino que los cachea el Service Worker, que es quien
+ * hace que la aplicación funcione sin cobertura. */
+async function cargarHorarios(idc, generadoEsperado) {
+  if (CTAN.horarios.has(idc)) return;
+  if (CTAN.pidiendo.has(idc)) return CTAN.pidiendo.get(idc);
+  const promesa = (async () => {
+    try {
+      const datos = await pedirJson(`./data/${idc}/horarios.json`);
+      mezclarHorarios(idc, datos);
+    } finally {
+      CTAN.pidiendo.delete(idc);
+    }
+  })();
+  CTAN.pidiendo.set(idc, promesa);
+  return promesa;
+}
+
+function mezclarHorarios(idc, datos) {
+  const nuevos = (datos.bloques || []).map(b => ({
     lineaSlug: b.l,
     varianteId: b.var,
     dir: b.d,
@@ -2059,28 +2185,50 @@ function montarModelo(lineas, rutas) {
     servicios: b.s,
     trazado: b.g
   }));
-
-  CTAN.porParada = new Map();
-  CTAN.bloques.forEach(bloque => {
+  CTAN.bloques = CTAN.bloques.concat(nuevos);
+  nuevos.forEach(bloque => {
     bloque.paradas.forEach((paradaId, pos) => {
       if (!CTAN.porParada.has(paradaId)) CTAN.porParada.set(paradaId, []);
       CTAN.porParada.get(paradaId).push({ bloque, pos });
     });
   });
 
-  // Cada línea necesita saber por dónde pasa. El GTFS no lo da como tal:
-  // se deduce de sus bloques, que es lo mismo pero mejor, porque son
-  // recorridos que de verdad circulan.
-  CTAN.lineas = (lineas.lineas || []).map(l => {
+  const cal = datos.calendario || {};
+  Object.assign(CTAN.calendario.servicios, cal.servicios || {});
+  // Los identificadores de servicio tampoco se repiten entre áreas, pero
+  // dos áreas sí pueden tener excepciones el mismo día (Nochebuena las
+  // tienen las nueve), así que las listas de cada fecha se suman.
+  for (const [fecha, cambio] of Object.entries(cal.excepciones || {})) {
+    const previo = CTAN.calendario.excepciones[fecha] ||
+                   (CTAN.calendario.excepciones[fecha] = {});
+    ["+", "-"].forEach(signo => {
+      if (cambio[signo]) previo[signo] = (previo[signo] || []).concat(cambio[signo]);
+    });
+  }
+
+  Object.assign(CTAN.trazados, datos.trazados || {});
+  Object.assign(CTAN.vecinos, datos.vecinos || {});
+  CACHE_SERVICIOS.clear();
+  CTAN.horarios.add(idc);
+  completarLineasDeArea(idc);
+  construirGrafo();
+  PARADA_POR_NOMBRE = null;
+}
+
+/** Cada línea necesita saber por dónde pasa. El GTFS no lo da como tal: se
+ * deduce de sus bloques, que es lo mismo pero mejor, porque son recorridos
+ * que de verdad circulan. */
+function completarLineasDeArea(idc) {
+  CTAN.lineas.forEach(l => {
+    if (l.idc !== idc) return;
     const suyos = CTAN.bloques.filter(b => b.lineaSlug === l.slug);
     const porVariante = new Map();
     suyos.forEach(b => {
-      const previo = porVariante.get(b.varianteId + "|" + b.dir);
-      if (!previo || previo.paradas.length < b.paradas.length) {
-        porVariante.set(b.varianteId + "|" + b.dir, b);
-      }
+      const clave = b.varianteId + "|" + b.dir;
+      const previo = porVariante.get(clave);
+      if (!previo || previo.paradas.length < b.paradas.length) porVariante.set(clave, b);
     });
-    const variantes = [...porVariante.values()].map(b => ({
+    l.variantes = [...porVariante.values()].map(b => ({
       // `id` es el de la línea en la API (el mismo que el sufijo del
       // route_id del GTFS): es con lo que vienen marcados los avisos.
       id: b.varianteId,
@@ -2092,21 +2240,66 @@ function montarModelo(lineas, rutas) {
     // sólo tocan los demás intercaladas donde les toca.
     const orden = [];
     const vistas = new Set();
-    variantes.slice().sort((a, b2) => b2.paradas.length - a.paradas.length)
+    l.variantes.slice().sort((a, b) => b.paradas.length - a.paradas.length)
       .forEach(v => v.paradas.forEach(id => {
         if (!vistas.has(id)) { vistas.add(id); orden.push(id); }
       }));
-    return { ...l, variantes, orden_unificado: orden };
+    l.orden_unificado = orden;
   });
+}
 
-  CTAN.cargado = true;
-  // Vista de compatibilidad: buena parte de la interfaz lee de aquí.
-  APP.data = { paradas: CTAN.paradas, lineas: CTAN.lineas, municipios: CTAN.municipios };
+/** Asegura que están en memoria los horarios de todas esas áreas. Es lo
+ * que se pone delante de abrir una parada, una línea o calcular una ruta:
+ * si ya están, no cuesta nada; si no, los baja. */
+function asegurarHorarios(idcs) {
+  const faltan = [...new Set((Array.isArray(idcs) ? idcs : [idcs])
+    .filter(x => x != null && !CTAN.horarios.has(x)))];
+  if (!faltan.length) return Promise.resolve();
+  return Promise.all(faltan.map(idc => cargarHorarios(idc)));
+}
+
+/** Las áreas que hacen falta para pintar lo que el usuario ya tiene
+ * guardado: la de cada parada favorita y la de cada línea que sigue. */
+function areasDeFavoritos() {
+  const areas = new Set();
+  FAVORITOS.paradas.forEach(f => areas.add(areaDeParada(f.id)));
+  FAVORITOS.rutas.forEach(r => { areas.add(areaDeParada(r.origenId)); areas.add(areaDeParada(r.destinoId)); });
+  FAVORITOS.notificaciones.forEach(n => areas.add(areaDeParada(n.paradaId)));
+  FAVORITOS.lineas.forEach(f => {
+    const idc = areaDeLinea(f.slug);
+    if (idc) areas.add(idc);
+    (f.referencias || []).forEach(r => areas.add(areaDeParada(r.paradaId)));
+  });
+  areas.delete(null);
+  return [...areas];
+}
+
+/** El área más cercana a un punto, por su rectángulo envolvente. */
+function areaMasCercana(lat, lng) {
+  if (!APP.indice) return null;
+  let mejor = null, mejorD = Infinity;
+  APP.indice.consorcios.forEach(c => {
+    const d = distanciaABbox(lat, lng, c.bbox);
+    if (d < mejorD) { mejor = c.id; mejorD = d; }
+  });
+  return mejor;
 }
 
 /* ------------------------------------------------------------------ */
 /* Mapa (Leaflet)                                                      */
 /* ------------------------------------------------------------------ */
+/** Dónde mirar cuando no hay nada que encuadrar. Se centra en el área de
+ * referencia, no en Sevilla: la aplicación cubre las nueve, y abrir el mapa
+ * en Sevilla estando en Almería no ayuda a nadie. */
+function vistaPorDefecto(zoom) {
+  const cab = APP.indice && (APP.indice.consorcios || []).find(c => c.id === CTAN.id);
+  if (cab && cab.bbox) {
+    const [minLat, minLng, maxLat, maxLng] = cab.bbox;
+    return [[(minLat + maxLat) / 2, (minLng + maxLng) / 2], zoom];
+  }
+  return [[37.4, -4.9], 7];   // Andalucía entera
+}
+
 function setMarkerStyle(marker, selected) {
   marker.setStyle(selected
     ? { radius: 9, color: colorTema("amber"), fillColor: colorTema("amber"), fillOpacity: 1, weight: 2 }
@@ -2151,7 +2344,7 @@ function renderMap(containerEl, paradaIds, onMarkerClick, mapRef, opciones) {
   if (latlngs.length) {
     map.fitBounds(latlngs, { padding: [24, 24] });
   } else {
-    map.setView([37.389, -5.984], 11); // Sevilla, de referencia
+    map.setView(...vistaPorDefecto(11));
   }
   return { map, markers };
 }
@@ -2242,8 +2435,10 @@ function crearCapaRed(map, opciones) {
   opciones = opciones || {};
   const estilo = opciones.estilo || { radius: 5, weight: 1.5, color: colorTema("card"), fillColor: colorTema("brand"), fillOpacity: 0.95 };
 
-  const marcadores = {};          // paradaId -> circleMarker
+  const marcadores = {};          // paradaId -> circleMarker (los ya creados)
   const grupoDeParadas = new Map(); // municipio -> layerGroup con sus paradas
+  const paradasDe = new Map();    // municipio -> [paradaId], sin crear nada
+  const poblados = new Set();     // municipios cuyos marcadores ya existen
   const sueltas = L.layerGroup(); // paradas sin municipio conocido
   const circulos = L.layerGroup();
   const expandidos = new Set();
@@ -2251,18 +2446,37 @@ function crearCapaRed(map, opciones) {
   const limites = [];
   let dibujados = [];             // grupos pintados ahora mismo
 
-  Object.entries(APP.data.paradas).forEach(([id, p]) => {
-    if (p.lat == null || p.lng == null) return;
-    limites.push([p.lat, p.lng]);
+  const crearMarcador = id => {
+    const p = APP.data.paradas[id];
     const marcador = L.circleMarker([p.lat, p.lng], estilo)
       .bindTooltip(p.nombre, { direction: "top" });
     marcador.on("click", () => opciones.onParada && opciones.onParada(id));
     marcadores[id] = marcador;
+    return marcador;
+  };
+
+  // Los marcadores de un municipio se crean la primera vez que se enseña.
+  // Con las nueve áreas son 5.009 paradas, y crearlas todas de golpe —cada
+  // una un círculo de Leaflet con su etiqueta— costaba segundo y pico al
+  // abrir Ruta para dibujar en pantalla las de un municipio.
+  const poblar = municipio => {
+    if (poblados.has(municipio)) return;
+    poblados.add(municipio);
+    const grupo = grupoDeParadas.get(municipio);
+    (paradasDe.get(municipio) || []).forEach(id => grupo.addLayer(crearMarcador(id)));
+  };
+
+  Object.entries(APP.data.paradas).forEach(([id, p]) => {
+    if (p.lat == null || p.lng == null) return;
+    limites.push([p.lat, p.lng]);
     if (p.municipio) {
-      if (!grupoDeParadas.has(p.municipio)) grupoDeParadas.set(p.municipio, L.layerGroup());
-      grupoDeParadas.get(p.municipio).addLayer(marcador);
+      if (!grupoDeParadas.has(p.municipio)) {
+        grupoDeParadas.set(p.municipio, L.layerGroup());
+        paradasDe.set(p.municipio, []);
+      }
+      paradasDe.get(p.municipio).push(id);
     } else {
-      sueltas.addLayer(marcador);
+      sueltas.addLayer(crearMarcador(id));   // son un puñado: no compensa aplazarlas
     }
   });
 
@@ -2271,7 +2485,13 @@ function crearCapaRed(map, opciones) {
     return nodo && nodo.lat != null;
   });
 
-  const agrupando = () => map.getZoom() < ZOOM_AGRUPADO;
+  // Si el mapa aún no tiene vista, getZoom() es undefined: se da por
+  // agrupado, que es como se abre. Dar por NO agrupado obligaría a crear de
+  // golpe los marcadores de las 5.009 paradas de Andalucía.
+  const agrupando = () => {
+    const z = map.getZoom();
+    return z == null || z < ZOOM_AGRUPADO;
+  };
 
   /** Qué papel juega un grupo en la ruta: si lleva dentro el municipio
    * de origen o el de destino, se marca engordando su propio aro. */
@@ -2319,6 +2539,7 @@ function crearCapaRed(map, opciones) {
     const agrupa = agrupando();
     grupoDeParadas.forEach((grupo, municipio) => {
       const verParadas = !agrupa || expandidos.has(municipio);
+      if (verParadas) poblar(municipio);
       if (verParadas && !map.hasLayer(grupo)) grupo.addTo(map);
       if (!verParadas && map.hasLayer(grupo)) map.removeLayer(grupo);
     });
@@ -2338,6 +2559,7 @@ function crearCapaRed(map, opciones) {
     const grupo = grupoDeParadas.get(municipio);
     if (grupo) {
       const ver = !agrupando() || expandidos.has(municipio);
+      if (ver) poblar(municipio);
       if (ver && !map.hasLayer(grupo)) grupo.addTo(map);
       if (!ver && map.hasLayer(grupo)) map.removeLayer(grupo);
     }
@@ -2363,11 +2585,28 @@ function crearCapaRed(map, opciones) {
     estaExpandido: municipio => expandidos.has(municipio),
     agrupando,
     grupoDibujadoDe: municipio => dibujados.find(g => g.municipios.includes(municipio)),
+    /** El marcador de una parada, creándolo si aún no existía. Si es de un
+     * municipio que todavía no se ha poblado, se puebla entero: así el
+     * marcador acaba dentro de su capa y no suelto sin mapa al que abrirse. */
+    marcadorDe: paradaId => {
+      if (marcadores[paradaId]) return marcadores[paradaId];
+      const p = APP.data.paradas[paradaId];
+      if (!p || p.lat == null) return null;
+      if (p.municipio && grupoDeParadas.has(p.municipio)) {
+        poblar(p.municipio);
+        return marcadores[paradaId] || null;
+      }
+      const marcador = crearMarcador(paradaId);
+      sueltas.addLayer(marcador);
+      return marcador;
+    },
     /** Deja a la vista una parada concreta aunque su municipio esté
      * condensado; si no, tocar un resultado no llevaría a ningún sitio. */
     asegurarVisible: paradaId => {
       const municipio = municipioDeParada(paradaId);
-      if (municipio && agrupando() && !expandidos.has(municipio)) {
+      if (!municipio) return;
+      poblar(municipio);
+      if (agrupando() && !expandidos.has(municipio)) {
         expandidos.add(municipio);
         refrescar();
       }
@@ -2784,13 +3023,40 @@ function openModal(buildContentFn) {
   buildContentFn(root.querySelector("#modalContent"));
 }
 
+function nombreDeArea(idc) {
+  const c = APP.indice && (APP.indice.consorcios || []).find(x => x.id === idc);
+  return c ? c.nombre : "esta área";
+}
+
+/** Abre un modal que necesita los horarios de una o varias áreas. Si ya
+ * están en memoria es lo mismo que `openModal`; si no, se dice que se
+ * están bajando y el contenido se pinta en cuanto llegan. Es lo que hace
+ * que se pueda tocar una parada de Almería teniendo cargada Sevilla sin
+ * haber bajado antes los cinco megas de las nueve áreas. */
+function openModalConHorarios(areas, buildContentFn) {
+  const faltan = [...new Set((Array.isArray(areas) ? areas : [areas])
+    .filter(a => a != null && !CTAN.horarios.has(a)))];
+  if (!faltan.length) return openModal(buildContentFn);
+  openModal(container => {
+    container.innerHTML = `<p class="empty">Cargando los horarios de ${
+      escapeHtml(nombreDeArea(faltan[0]))}…</p>`;
+    asegurarHorarios(faltan).then(() => {
+      // Si mientras tanto se ha cerrado o se ha abierto otro modal, no se
+      // pinta nada encima.
+      if (document.getElementById("modalContent") === container) buildContentFn(container);
+    }).catch(() => {
+      container.innerHTML = '<p class="empty">No se han podido cargar los horarios. Comprueba la conexión.</p>';
+    });
+  });
+}
+
 /** Abre una línea completa (mapa + paradas + horarios + PDFs) dentro de
  * un modal. Se usa desde cualquier sitio donde se pulse el nombre de
  * una línea: itinerario de ruta, popup de parada, etc. */
 function openLineModal(lineaSlug, defaultStopId) {
-  const linea = APP.data.lineas.find(l => l.slug === lineaSlug);
-  if (!linea) return;
-  openModal(container => {
+  openModalConHorarios(areaDeLinea(lineaSlug), container => {
+    const linea = APP.data.lineas.find(l => l.slug === lineaSlug);
+    if (!linea) { container.innerHTML = '<p class="empty">Esa línea ya no está en los datos.</p>'; return; }
     renderLineDetail(container, linea, defaultStopId || (linea.orden_unificado || [])[0], null, CURRENT_MODAL_MAP_REF);
   });
 }
@@ -2880,8 +3146,19 @@ function cssEscape(s) {
 /* ------------------------------------------------------------------ */
 /* Pantalla "Líneas": favoritas arriba, listado completo debajo        */
 /* ------------------------------------------------------------------ */
+/** Todos los municipios del catálogo, no sólo los de las áreas que ya
+ * tienen horarios: si el desplegable escondiera Almería hasta haberla
+ * bajado, no habría manera de llegar a ella. Los horarios del área se
+ * piden al elegirla. */
 function municipiosConLineas() {
-  return GRAFO.lista.filter(m => GRAFO.municipios.get(m).lineas.size);
+  return GRAFO.lista.slice();
+}
+
+/** El área a la que pertenece un municipio, por sus paradas. */
+function areaDeMunicipio(nombre) {
+  const m = GRAFO.municipios.get(nombre);
+  if (!m || !m.paradas.length) return null;
+  return areaDeParada(m.paradas[0]);
 }
 
 function buildMunicipioOptions() {
@@ -3151,7 +3428,8 @@ function abrirMenuReferencia(linea, ref, onCambio) {
     container.querySelector("#menuNotificar").addEventListener("click", () =>
       abrirDialogoNotificacion(ref.paradaId, linea.slug, onCambio));
     container.querySelector("#menuVerHorario").addEventListener("click", () =>
-      openModal(cont => buildStopScheduleModalContent(cont, ref.paradaId)));
+      openModalConHorarios(areaDeParada(ref.paradaId),
+        cont => buildStopScheduleModalContent(cont, ref.paradaId)));
     container.querySelector("#menuVerLinea").addEventListener("click", () => {
       closeModal();
       cerrarDrawerFavoritos();
@@ -3239,6 +3517,20 @@ function renderListadoLineas() {
   // Los municipios de cada línea salen del grafo (los que de verdad
   // tienen alguna parada suya), no del campo que publica ctas.es, que
   // viene incompleto: la M-101 declara solo dos de los seis que recorre.
+  // Filtrar por municipio necesita saber por dónde pasa cada línea, y eso
+  // sale de los horarios de su área. Si aún no están, se piden y se
+  // repinta: el catálogo sabe que Almería existe, pero no qué líneas la
+  // recorren.
+  const areaMuni = municipio ? areaDeMunicipio(municipio) : null;
+  if (areaMuni != null && !tieneHorarios(areaMuni)) {
+    box.innerHTML = `<p class="empty">Cargando las líneas de ${
+      escapeHtml(nombreDeArea(areaMuni))}…</p>`;
+    asegurarHorarios(areaMuni)
+      .then(renderListadoLineas)
+      .catch(() => { box.innerHTML = '<p class="empty">No se han podido cargar las líneas. Comprueba la conexión.</p>'; });
+    return;
+  }
+
   let lineas = APP.data.lineas;
   if (municipio) lineas = lineas.filter(l => GRAFO.municipios.get(municipio).lineas.has(l.slug));
   if (texto) {
@@ -3292,6 +3584,39 @@ function renderListadoLineas() {
 function mostrarDetalleLinea(slug) {
   const linea = APP.data.lineas.find(l => l.slug === slug);
   const detailBox = document.getElementById("lineDetail");
+  // El listado enseña las 432 líneas de Andalucía desde el catálogo, pero
+  // el recorrido de una línea sale de sus horarios. Si son de un área que
+  // aún no está bajada, la ficha ocupa ya el sitio del listado —para que
+  // el aviso se vea sin arrastrar la pantalla— y se vuelve a entrar
+  // cuando llegan.
+  if (linea && !tieneHorarios(linea.idc)) {
+    const listadoCard = document.getElementById("lineasListadoCard");
+    const favCard = document.getElementById("lineasFavCard");
+    if (listadoCard) listadoCard.hidden = true;
+    if (favCard) favCard.hidden = true;
+    window.scrollTo(0, 0);
+    detailBox.className = "card";
+    detailBox.innerHTML = `<p class="empty">Cargando los horarios de ${
+      escapeHtml(nombreDeArea(linea.idc))}…</p>`;
+    const volver = () => {
+      detailBox.innerHTML = "";
+      detailBox.className = "";
+      if (listadoCard) listadoCard.hidden = false;
+      if (favCard) favCard.hidden = false;
+    };
+    asegurarHorarios(linea.idc)
+      .then(() => { volver(); mostrarDetalleLinea(slug); })
+      .catch(() => {
+        detailBox.innerHTML = '<p class="empty">No se han podido cargar los horarios. Comprueba la conexión.</p>';
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn-chip";
+        btn.textContent = "‹ Volver";
+        btn.addEventListener("click", volver);
+        detailBox.appendChild(btn);
+      });
+    return;
+  }
   if (!linea || !linea.orden_unificado || !linea.orden_unificado.length) {
     detailBox.innerHTML = '<div class="card"><p class="empty">Esta línea no tiene paradas con datos disponibles.</p></div>';
     return;
@@ -3325,9 +3650,13 @@ function wireLineSearch() {
 /* ------------------------------------------------------------------ */
 /* Pestaña "Calculadora de ruta"                                       */
 /* ------------------------------------------------------------------ */
-const ROUTING_URL = "ctas_routing.json";
-const LS_ROUTING_KEY = "ctasRoutingV4"; // v4: solo el grafo a pie (los viajes se reconstruyen en el cliente)
-let ROUTING = null;
+/** Grafo a pie: qué paradas están lo bastante cerca como para cambiar de
+ * autobús andando. Viene con los horarios del área (`vecinos` en
+ * horarios.json), calculado de las coordenadas del GTFS. Antes era un
+ * fichero suelto, ctas_routing.json, que sólo tenía Sevilla: en las otras
+ * ocho áreas el buscador no podía enlazar dos líneas que paran en la misma
+ * plaza pero en aceras distintas, y por eso perdía viajes que existen. */
+let ROUTING = { vecinos: {} };
 let CURRENT_ROUTE_MAP = null;
 let ROUTE_MARKERS = {};
 let ROUTE_CAPA = null;   // capa de red del mapa de rutas (municipios + paradas)
@@ -3353,6 +3682,23 @@ function nearestStop(appData, lat, lng) {
     if (d < bestD) { bestD = d; best = id; }
   }
   return best ? { id: best, dist: bestD } : null;
+}
+
+/** De qué áreas hacen falta los horarios para calcular una ruta con este
+ * extremo. Un municipio puede tocar una sola (los 234 son de un área
+ * cada uno) y un punto en el mapa se resuelve por su parada más cercana,
+ * que ya sale del catálogo entero. */
+function areasDeExtremo(punto) {
+  if (!punto) return [];
+  if (punto.type === "stop") return [areaDeParada(punto.id)];
+  if (punto.type === "municipio") {
+    const m = GRAFO.municipios.get(punto.nombre);
+    return m ? [...new Set(m.paradas.map(areaDeParada))] : [];
+  }
+  const near = nearestStop(APP.data, punto.lat, punto.lng);
+  const areas = [areaMasCercana(punto.lat, punto.lng)];
+  if (near) areas.push(areaDeParada(near.id));
+  return areas.filter(x => x != null);
 }
 
 /** Traduce un extremo de la ruta (parada, punto marcado en el mapa,
@@ -3417,33 +3763,6 @@ function coordenadasDeExtremo(appData, punto) {
     return m && m.lat != null ? [m.lat, m.lng] : null;
   }
   return [punto.lat, punto.lng];
-}
-
-async function loadRoutingData(force) {
-  if (!force) {
-    try {
-      const cached = localStorage.getItem(LS_ROUTING_KEY);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        // Comprobación de forma: si la caché es de un formato antiguo o
-        // está corrupta, la descartamos en vez de dejar que la app pete
-        // más adelante al intentar usarla.
-        if (parsed && parsed.vecinos) return parsed;
-        console.warn("Caché de rutas con formato inesperado, se descarta y se vuelve a pedir.");
-      }
-    } catch (e) {
-      console.warn("No se pudo leer la caché de rutas", e);
-    }
-  }
-  const resp = await fetch(ROUTING_URL, { cache: "no-store" });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status} al pedir ${ROUTING_URL}`);
-  const json = await resp.json();
-  try {
-    localStorage.setItem(LS_ROUTING_KEY, JSON.stringify(json));
-  } catch (e) {
-    console.warn("No se pudo cachear el motor de rutas (¿cuota llena?)", e);
-  }
-  return json;
 }
 
 /* ------------------------------------------------------------------ */
@@ -3867,15 +4186,25 @@ function initRouteMap() {
     attribution: "&copy; OpenStreetMap"
   }).addTo(map);
 
-  // El mapa se abre entero, o sea de lejos, o sea agrupado por municipio:
-  // que es justo la escala a la que se piensa un viaje metropolitano.
+  // La vista se fija ANTES de montar la capa: la capa mira el zoom para
+  // decidir si agrupa por municipio, y sin vista daría por bueno el detalle
+  // y crearía de golpe los marcadores de toda Andalucía.
+  //
+  // Se abre en el área de referencia, no en las nueve: de un extremo a otro
+  // de Andalucía no se va en autobús metropolitano, y encuadrarlo entero
+  // deja el sitio donde estás como un punto. Desde ahí se puede alejar.
+  const cab = APP.indice && (APP.indice.consorcios || []).find(c => c.id === CTAN.id);
+  if (cab && cab.bbox) {
+    map.fitBounds([[cab.bbox[0], cab.bbox[1]], [cab.bbox[2], cab.bbox[3]]], { padding: [16, 16] });
+  } else {
+    map.setView(...vistaPorDefecto(10));
+  }
+
   ROUTE_CAPA = crearCapaRed(map, {
     onParada: onRouteMapStopClick,
     onGrupo: onRouteMapGrupoClick
   });
   ROUTE_MARKERS = ROUTE_CAPA.marcadores;
-  if (ROUTE_CAPA.limites.length) map.fitBounds(ROUTE_CAPA.limites, { padding: [16, 16] });
-  else map.setView([37.389, -5.984], 10);
   ROUTE_CAPA.refrescar();
   map.on("click", e => onRouteMapClick(e.latlng));
 }
@@ -3976,7 +4305,8 @@ function buildStopPopupContent(id) {
     btnTodas.innerHTML = icono("lista") + `Ver las ${grupos.length} salidas`;
     btnTodas.addEventListener("click", () => {
       if (CURRENT_ROUTE_MAP) CURRENT_ROUTE_MAP.closePopup();
-      openModal(container => buildStopScheduleModalContent(container, id));
+      openModalConHorarios(areaDeParada(id),
+        container => buildStopScheduleModalContent(container, id));
     });
     wrap.appendChild(btnTodas);
   }
@@ -4012,8 +4342,24 @@ function buildStopPopupContent(id) {
 
 function openStopPopup(id) {
   if (ROUTE_CAPA) ROUTE_CAPA.asegurarVisible(id);
-  const marker = ROUTE_MARKERS[id];
+  const marker = ROUTE_CAPA ? ROUTE_CAPA.marcadorDe(id) : ROUTE_MARKERS[id];
   if (!marker) return;
+  // El mapa enseña las paradas de toda Andalucía, así que se puede tocar
+  // una de un área cuyos horarios no estén bajados. Se abre el globo con
+  // lo que se sabe y se rehace en cuanto llegan las horas.
+  const idc = areaDeParada(id);
+  if (idc != null && !tieneHorarios(idc)) {
+    marker.bindPopup(`<div class="stop-popup"><div class="stop-popup-title">${
+      escapeHtml(APP.data.paradas[id] ? APP.data.paradas[id].nombre : id)
+    }</div><p class="empty">Cargando los horarios de ${escapeHtml(nombreDeArea(idc))}…</p></div>`,
+      { minWidth: 230 }).openPopup();
+    asegurarHorarios(idc).then(() => {
+      if (marker.isPopupOpen && marker.isPopupOpen()) {
+        marker.setPopupContent(buildStopPopupContent(id));
+      }
+    }).catch(() => {});
+    return;
+  }
   marker.bindPopup(buildStopPopupContent(id), { minWidth: 230 }).openPopup();
 }
 
@@ -4498,7 +4844,8 @@ function renderRutaResultado(res, salidaDate, directo, opciones) {
     });
   });
   box.querySelectorAll("[data-stop-id]").forEach(el => {
-    el.addEventListener("click", () => openModal(container => buildStopScheduleModalContent(container, el.dataset.stopId)));
+    el.addEventListener("click", () => openModalConHorarios(areaDeParada(el.dataset.stopId),
+      container => buildStopScheduleModalContent(container, el.dataset.stopId)));
   });
   if (puedeGuardar) {
     box.querySelector("#btnFavRuta").addEventListener("click", e => {
@@ -4535,14 +4882,19 @@ async function onCalcularRuta() {
     if (cajaOpciones) cajaOpciones.innerHTML = "";
     return;
   }
-  resultBox.innerHTML = '<div class="card"><p class="empty">Calculando ruta…</p></div>';
-  if (!ROUTING) {
+  const faltan = areasDeExtremo(ROUTE_ORIGIN).concat(areasDeExtremo(ROUTE_DESTINO))
+    .filter(idc => !tieneHorarios(idc));
+  resultBox.innerHTML = `<div class="card"><p class="empty">${faltan.length
+    ? "Cargando los horarios de " + escapeHtml(nombreDeArea(faltan[0])) + "…"
+    : "Calculando ruta…"}</p></div>`;
+  if (faltan.length) {
     try {
-      ROUTING = await loadRoutingData(false);
+      await asegurarHorarios(faltan);
     } catch (e) {
-      resultBox.innerHTML = `<div class="card"><p class="empty">No se pudo cargar el motor de rutas: ${escapeHtml(e.message)}</p></div>`;
+      resultBox.innerHTML = '<div class="card"><p class="empty">No se han podido cargar los horarios. Comprueba la conexión.</p></div>';
       return;
     }
+    resultBox.innerHTML = '<div class="card"><p class="empty">Calculando ruta…</p></div>';
   }
   const horaInput = document.getElementById("horaSalida").value;
   const salida = horaInput ? new Date(horaInput) : new Date();
@@ -4654,7 +5006,8 @@ function renderFavParadas() {
     card.appendChild(head);
 
     const cuerpo = document.createElement("div");
-    cuerpo.addEventListener("click", () => openModal(container => buildStopScheduleModalContent(container, fav.id)));
+    cuerpo.addEventListener("click", () => openModalConHorarios(areaDeParada(fav.id),
+      container => buildStopScheduleModalContent(container, fav.id)));
     if (!mostradas.length) {
       cuerpo.innerHTML = '<p class="empty">Sin líneas con datos en esta parada.</p>';
     } else {
@@ -4735,7 +5088,6 @@ function getOrRecalcularFavoritoRuta(fav) {
   if (fav.cache && typeof fav.cache.proximaSalidaTs === "number" && ahora.getTime() < fav.cache.proximaSalidaTs + 60000) {
     return fav.cache.resultado;
   }
-  if (!ROUTING) return fav.cache ? fav.cache.resultado : null;
   const res = computeRoute(APP.data, ROUTING, { type: "stop", id: fav.origenId }, { type: "stop", id: fav.destinoId }, ahora);
   if (res) {
     const primerBus = res.legs.find(l => l.tipo === "bus");
@@ -4757,14 +5109,10 @@ async function renderFavRutas() {
     return;
   }
   box.innerHTML = '<div class="card"><h3 class="section-title">' + icono("brujula") + 'Rutas guardadas</h3><p class="empty">Calculando…</p></div>';
-  if (!ROUTING) {
-    try {
-      ROUTING = await loadRoutingData(false);
-    } catch (e) {
-      box.innerHTML = `<div class="card"><h3 class="section-title">${icono("brujula")}Rutas guardadas</h3><p class="empty">No se pudo cargar el motor de rutas: ${escapeHtml(e.message)}</p></div>`;
-      return;
-    }
-  }
+  // Una ruta guardada puede unir dos áreas distintas: hacen falta las dos.
+  const areas = [];
+  FAVORITOS.rutas.forEach(f => { areas.push(areaDeParada(f.origenId), areaDeParada(f.destinoId)); });
+  try { await asegurarHorarios(areas); } catch (e) { /* se pinta lo que se pueda */ }
 
   box.innerHTML = "";
   const titulo = document.createElement("h3");
@@ -4860,12 +5208,14 @@ async function renderFavoritosTab() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Qué consorcio se está mirando                                        */
+/* Área de referencia                                                   */
 /* ------------------------------------------------------------------ */
-/** La aplicación cubre las nueve áreas metropolitanas de Andalucía, pero
- * nadie coge el autobús en dos a la vez: se carga sólo la activa. Las
- * nueve juntas son casi cinco megas y no tendría sentido bajárselas para
- * mirar una parada de Guillena. */
+/** Las nueve áreas están siempre disponibles: el catálogo entero se carga
+ * al arrancar y los horarios de cada una llegan cuando hacen falta. El
+ * "área de referencia" no limita nada, sólo dice desde dónde se está
+ * mirando: de qué consorcio son los avisos, qué horarios se precargan y
+ * qué fecha de datos se cita en el pie. Se adivina por la ubicación y se
+ * puede cambiar a mano desde la cabecera. */
 function consorcioGuardado() {
   const guardado = leerCache(LS_CONSORCIO);
   return guardado && guardado.id ? guardado.id : null;
@@ -4879,35 +5229,31 @@ function distanciaABbox(lat, lng, bbox) {
   return Math.hypot(dLat * 111320, dLng * 111320 * Math.cos(lat * Math.PI / 180));
 }
 
-/** Decide qué área abrir. Si ya se eligió una, esa. Si no, se pinta el
- * selector y se devuelve null para que el arranque espere. */
-async function elegirConsorcio(indice) {
-  const guardado = consorcioGuardado();
-  if (guardado && indice.consorcios.some(c => c.id === guardado)) return guardado;
-  pintarSelectorConsorcio(indice, true);
-  return null;
-}
-
-async function activarConsorcio(idc) {
-  guardarCache(LS_CONSORCIO, { id: idc });
-  await cargarConsorcio(idc, APP.indice.generado);
-  cargarFavoritos();   // cada área tiene los suyos: los identificadores no son comparables
-  construirGrafo();
-  PARADA_POR_NOMBRE = null;   // el buscador se rehace con las paradas nuevas
+/** Fija el área de referencia y baja sus horarios. Ya no hay pantalla de
+ * bienvenida que obligue a elegir: si no se ha elegido nunca, se coge la
+ * del último uso y, si tampoco, la primera del índice hasta que la
+ * ubicación diga otra cosa. */
+async function activarConsorcio(idc, recordar) {
+  const cab = (APP.indice.consorcios || []).find(c => c.id === idc);
+  CTAN.id = idc;
+  CTAN.nombre = cab ? cab.nombre : null;
+  CTAN.codigo = cab ? cab.codigo : null;
+  if (recordar !== false) guardarCache(LS_CONSORCIO, { id: idc });
   const btn = document.getElementById("btnConsorcio");
-  if (btn) { btn.hidden = false; btn.textContent = CTAN.codigo || CTAN.nombre; }
+  if (btn) { btn.hidden = false; btn.textContent = CTAN.codigo || CTAN.nombre || ""; }
   pintarPie();
+  await asegurarHorarios(idc);
 }
 
 /** Pantalla de elección. Con ubicación se sugiere la más cercana: en la
  * práctica casi siempre es la acertada, y así se entra de un toque. */
-function pintarSelectorConsorcio(indice, primeraVez) {
+function pintarSelectorConsorcio(indice) {
   openModal(container => {
     container.innerHTML = `
       <h3 class="detail-title">¿Dónde coges el autobús?</h3>
-      <div class="detail-meta">${primeraVez
-        ? "Elige tu área metropolitana. Se descargan sólo sus horarios, y puedes cambiarla luego desde arriba."
-        : "Cambiar de área descarga sus horarios. Los favoritos de cada una se guardan por separado."}</div>
+      <div class="detail-meta">Desde dónde miras. Marca de qué consorcio se
+        enseñan los avisos y qué horarios se tienen ya bajados; las paradas y
+        las líneas de las nueve áreas están disponibles en cualquier caso.</div>
       <div id="listaConsorcios" class="cabecera-list" style="margin-top:12px;"></div>`;
     const lista = container.querySelector("#listaConsorcios");
 
@@ -4930,7 +5276,7 @@ function pintarSelectorConsorcio(indice, primeraVez) {
           </span>`;
         fila.addEventListener("click", async () => {
           closeModal();
-          setStatus("Cargando " + c.nombre + "…");
+          if (!tieneHorarios(c.id)) setStatus("Cargando " + c.nombre + "…");
           try {
             await activarConsorcio(c.id);
             setStatus("");
@@ -4965,14 +5311,28 @@ function pintarPie() {
     Herramienta personal sin relación con la Red de Consorcios ni con la Junta de Andalucía.`;
 }
 
-/** Tras cambiar de área hay que rehacerlo todo: lo que había en pantalla
- * era de otra provincia. */
-function renderTodoTrasCambio() {
+/** Tras cambiar de área de referencia se repinta lo que dependía de ella.
+ * Los avisos son de otro consorcio, así que se tiran y se vuelven a pedir:
+ * dejar los de antes en pantalla sería enseñar cortes de otra provincia. */
+function repintarTrasCambioDeArea() {
+  AVISOS = { lista: [], fecha: null, cargando: false };
+  actualizarChapaAvisos(0);
   buildMunicipioOptions();
   renderHomeFavSalidas();
   renderQuickFavs();
   renderLineasFavoritas();
   renderListadoLineas();
+  cargarAvisos(false).then(() => {
+    actualizarChapaAvisos(avisosOrdenados().mios.length);
+    const pantalla = document.getElementById("screenAvisos");
+    if (pantalla && pantalla.classList.contains("active")) renderAvisos();
+  });
+}
+
+/** Cuando el cambio lo ha pedido la persona desde la cabecera, además se
+ * vuelve a Inicio: es la pantalla desde la que se cambió. */
+function renderTodoTrasCambio() {
+  repintarTrasCambioDeArea();
   irAPantalla("screenInicio");
 }
 
@@ -4994,23 +5354,34 @@ const API_CTAN = "https://api.ctan.es/v1";
 const LS_AVISOS = "ctanAvisosV1";
 let AVISOS = { lista: [], fecha: null, cargando: false };
 
-function claveAvisos() {
-  return `${LS_AVISOS}:${CTAN.id}`;
+function claveAvisos(idc) {
+  return `${LS_AVISOS}:${idc}`;
 }
 
-async function cargarAvisos(forzar) {
-  if (!CTAN.id) return [];
+/** De qué consorcios se piden los avisos: el área de referencia y las de
+ * lo que tienes guardado. No los nueve: cada uno es una llamada a la API,
+ * y los cortes de Almería no le dicen nada a quien coge el autobús en
+ * Guillena. */
+function areasDeAvisos() {
+  const areas = new Set(areasDeFavoritos());
+  if (CTAN.id) areas.add(CTAN.id);
+  return [...areas];
+}
+
+/** Los avisos de UN consorcio. Cada uno se cachea por su cuenta y por día:
+ * si ya se consultaron hoy no se vuelven a pedir. */
+async function cargarAvisosDe(idc, forzar) {
   const hoy = ymd(new Date());
-  const guardado = leerCache(claveAvisos());
-  if (!forzar && guardado && guardado.fecha === hoy) {
-    AVISOS = { lista: guardado.lista, fecha: hoy, cargando: false };
-    return AVISOS.lista;
-  }
-  AVISOS.cargando = true;
+  const guardado = leerCache(claveAvisos(idc));
+  if (!forzar && guardado && guardado.fecha === hoy) return guardado.lista;
   try {
-    const json = await pedirJson(`${API_CTAN}/Consorcios/${CTAN.id}/noticias?lang=ES`);
+    const json = await pedirJson(`${API_CTAN}/Consorcios/${idc}/noticias?lang=ES`);
     const lista = (json.noticias || []).map(n => ({
       id: n.idNoticia,
+      // De qué consorcio es. Hace falta porque los identificadores de
+      // variante SÍ se repiten entre áreas: sin esto, un aviso de Málaga
+      // podría acabar pegado a una línea de Sevilla con el mismo número.
+      idc,
       titulo: (n.titulo || "").trim(),
       subtitulo: (n.subTitulo || n.resumen || "").trim(),
       categoria: (n.categoria || "").trim(),
@@ -5020,12 +5391,28 @@ async function cargarAvisos(forzar) {
       // o null cuando el aviso es de todo el consorcio.
       lineas: n.lineas ? String(n.lineas).split(",").map(x => x.trim()).filter(Boolean) : []
     }));
-    AVISOS = { lista, fecha: hoy, cargando: false };
-    guardarCache(claveAvisos(), { lista, fecha: hoy });
+    guardarCache(claveAvisos(idc), { lista, fecha: hoy });
+    return lista;
   } catch (e) {
-    // Sin conexión, lo último que se supo.
-    AVISOS = { lista: guardado ? guardado.lista : [], fecha: guardado ? guardado.fecha : null, cargando: false };
+    // Sin conexión, lo último que se supo: un aviso de ayer vale más que
+    // una pantalla en blanco.
+    return guardado ? guardado.lista : null;
   }
+}
+
+async function cargarAvisos(forzar) {
+  const areas = areasDeAvisos();
+  if (!areas.length) return [];
+  AVISOS.cargando = true;
+  const resultados = await Promise.all(areas.map(idc => cargarAvisosDe(idc, forzar)));
+  const lista = [];
+  let algunoFresco = false;
+  resultados.forEach(r => {
+    if (r === null) return;    // ese consorcio no ha contestado y no había copia
+    algunoFresco = true;
+    lista.push(...r);
+  });
+  AVISOS = { lista, fecha: algunoFresco ? ymd(new Date()) : null, cargando: false };
   return AVISOS.lista;
 }
 
@@ -5045,7 +5432,8 @@ function lineasQueSigo() {
 function avisoEsMio(aviso, mias) {
   if (!aviso.lineas.length) return false;
   return CTAN.lineas.some(l =>
-    mias.has(l.slug) && (l.variantes || []).some(v => aviso.lineas.includes(v.id)));
+    l.idc === aviso.idc && mias.has(l.slug) &&
+    (l.variantes || []).some(v => aviso.lineas.includes(v.id)));
 }
 
 function avisosOrdenados() {
@@ -5070,7 +5458,9 @@ function fechaAviso(iso) {
 function lineasDeAviso(aviso) {
   const codigos = new Set();
   CTAN.lineas.forEach(l => {
-    if ((l.variantes || []).some(v => aviso.lineas.includes(v.id))) codigos.add(l.codigo);
+    if (l.idc === aviso.idc && (l.variantes || []).some(v => aviso.lineas.includes(v.id))) {
+      codigos.add(l.codigo);
+    }
   });
   return [...codigos];
 }
@@ -5135,7 +5525,8 @@ function avisosDeLinea(slug) {
   const linea = lineaPorSlug(slug);
   if (!linea) return [];
   return AVISOS.lista.filter(a =>
-    a.lineas.length && (linea.variantes || []).some(v => a.lineas.includes(v.id)));
+    a.idc === linea.idc && a.lineas.length &&
+    (linea.variantes || []).some(v => a.lineas.includes(v.id)));
 }
 
 /* ------------------------------------------------------------------ */
@@ -5167,6 +5558,19 @@ function pedirUbicacionInicio() {
       // Saber dónde estás cambia QUÉ parada se enseña de cada línea, así
       // que el listado se rehace entero, no sólo se le añade la distancia.
       renderHomeFavSalidas();
+      // Y dice en qué área estás. Si nunca se eligió una a mano, esa pasa a
+      // ser la de referencia; si se eligió, se respeta y sólo se bajan los
+      // horarios de donde estás, que es lo que hace falta para enseñar las
+      // paradas de al lado.
+      const cerca = areaMasCercana(UBICACION.lat, UBICACION.lng);
+      if (!cerca) return;
+      if (!consorcioGuardado() && cerca !== CTAN.id) {
+        activarConsorcio(cerca, false)
+          .then(repintarTrasCambioDeArea)
+          .catch(() => { /* se sigue con lo que hubiera */ });
+      } else {
+        asegurarHorarios(cerca).then(renderHomeFavSalidas).catch(() => {});
+      }
     },
     () => {
       // Sin ubicación no se deja la pantalla muerta: se manda a Ruta, que
@@ -5446,11 +5850,30 @@ function filaSiguiente(sal) {
  * próximas salidas" y "paradas cerca de ti"— que contaban lo mismo con
  * distinta letra; ahora, si no hay nada guardado, este mismo bloque
  * enseña lo que pasa por las paradas que tienes al lado. */
+/** Evita que el repintado por horarios recién llegados se dispare en
+ * bucle: una vez pedida un área, ya se repintará cuando aterrice. */
+let PIDIENDO_HORARIOS_INICIO = false;
+
 function renderHomeFavSalidas() {
   const box = document.getElementById("homeFavSalidas");
   if (!box) return;
   const hayFavoritos = FAVORITOS.lineas.length > 0 || FAVORITOS.paradas.length > 0;
-  if (!candidatasDeSeguimiento().length) {
+  const candidatas = candidatasDeSeguimiento();
+
+  // Las paradas que se van a enseñar pueden ser de un área cuyos horarios
+  // aún no están (cerca de un límite provincial, o con un favorito de otra
+  // punta). Sin ellos la parada saldría muda, así que se piden y se
+  // repinta cuando lleguen.
+  const faltan = [...new Set(candidatas.map(c => areaDeParada(c.paradaId)))]
+    .filter(idc => idc != null && !tieneHorarios(idc));
+  if (faltan.length && !PIDIENDO_HORARIOS_INICIO) {
+    PIDIENDO_HORARIOS_INICIO = true;
+    asegurarHorarios(faltan)
+      .catch(() => { /* ya se verá en la próxima */ })
+      .then(() => { PIDIENDO_HORARIOS_INICIO = false; renderHomeFavSalidas(); });
+  }
+
+  if (!candidatas.length) {
     box.innerHTML = hayFavoritos ? "" : `<div class="card home-fav-card">
       <h2 class="home-fav-title">Tus próximas salidas</h2>
       <p class="empty">Comparte tu ubicación para ver lo que pasa por las paradas que tienes al lado, o guarda una línea o una parada con la estrella.</p>
@@ -5497,7 +5920,8 @@ function renderHomeFavSalidas() {
   });
 
   box.querySelectorAll(".salida-fila[data-stop-id]").forEach(el => {
-    el.addEventListener("click", () => openModal(cont => buildStopScheduleModalContent(cont, el.dataset.stopId)));
+    el.addEventListener("click", () => openModalConHorarios(areaDeParada(el.dataset.stopId),
+      cont => buildStopScheduleModalContent(cont, el.dataset.stopId)));
   });
 }
 
@@ -5605,6 +6029,7 @@ function registrarServiceWorker() {
 }
 
 async function init() {
+  limpiarCachesViejas();
   migrarFavoritosViejos();
   cargarFavoritos();
   pintarIconosDeclarados();
@@ -5613,16 +6038,24 @@ async function init() {
   setStatus("Cargando datos…");
   try {
     APP.indice = await cargarIndice();
-    const elegido = await elegirConsorcio(APP.indice);
-    if (!elegido) { setStatus(""); return; }   // se está enseñando el selector
-    await activarConsorcio(elegido);
+    await cargarCatalogo(APP.indice.generado);
     setStatus("");
   } catch (err) {
     setStatus("No se han podido cargar los horarios. Comprueba la conexión y vuelve a entrar.", true);
     return;
   }
+  // Los horarios que hacen falta desde el primer segundo: los del área que
+  // se estaba usando y los de las áreas donde tienes algo guardado. El
+  // resto llega cuando se abre una parada o una línea de por allí.
+  const referencia = consorcioGuardado() || APP.indice.consorcios[0].id;
+  activarConsorcio(referencia, !!consorcioGuardado())
+    .then(() => { renderHomeFavSalidas(); renderListadoLineas(); })
+    .catch(() => setStatus("No se han podido cargar los horarios del área.", true));
+  asegurarHorarios(areasDeFavoritos())
+    .then(() => { renderHomeFavSalidas(); renderQuickFavs(); })
+    .catch(e => console.warn("No se han podido cargar los horarios de tus favoritos", e));
   document.getElementById("btnConsorcio").addEventListener("click",
-    () => pintarSelectorConsorcio(APP.indice, false));
+    () => pintarSelectorConsorcio(APP.indice));
   buildMunicipioOptions();
   wireTabs();
   wireLineSearch();

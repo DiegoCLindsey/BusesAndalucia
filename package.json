@@ -1,0 +1,20 @@
+{
+  "name": "buses-andalucia",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Próxima Salida · horarios de las nueve áreas metropolitanas de Andalucía",
+  "license": "MIT",
+  "scripts": {
+    "servir": "python3 -m http.server 8765",
+    "test": "node tests/motor.mjs && node tests/pantallas.mjs && node tests/inicio.mjs && node tests/lineas.mjs && node tests/andalucia.mjs",
+    "test:motor": "node tests/motor.mjs",
+    "test:pantallas": "node tests/pantallas.mjs",
+    "test:inicio": "node tests/inicio.mjs",
+    "test:lineas": "node tests/lineas.mjs",
+    "test:andalucia": "node tests/andalucia.mjs"
+  },
+  "devDependencies": {
+    "leaflet": "1.9.4",
+    "playwright": "^1.49.0"
+  }
+}

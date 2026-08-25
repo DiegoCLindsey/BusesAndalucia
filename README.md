@@ -24,7 +24,7 @@ de Andalucía**, que no participan ni respaldan esto. Los horarios son
   más cerca.
   Si no has guardado nada y compartes la ubicación, la lista enseña lo que
   pasa por las paradas que tienes al lado. Debajo, el buscador de destino.
-- **Líneas** — las líneas del área activa, con las próximas salidas en las
+- **Líneas** — las 432 líneas de Andalucía, con las próximas salidas en las
   paradas que tú elijas, recorrido en mapa, horario completo y PDF oficial
   de cada parada.
 - **Ruta** — de parada a parada, de un punto del mapa, desde tu ubicación o
@@ -40,6 +40,12 @@ de Andalucía**, que no participan ni respaldan esto. Los horarios son
 - **Claro y noche** — el tema sigue al del móvil y se puede fijar a mano
   desde la cabecera.
 
+Las nueve áreas están siempre disponibles: al abrir se carga el catálogo de
+toda Andalucía —las 5.009 paradas, las 432 líneas, los 234 municipios— y los
+horarios de cada área se bajan cuando hacen falta: los del sitio donde estás
+al arrancar, y los de cualquier parada o línea que abras. Así se puede mirar
+una parada de Almería sin haber bajado antes los cinco megas de las nueve.
+
 Funciona sin conexión una vez cargada (Service Worker) y se puede instalar
 como aplicación en el móvil.
 
@@ -49,16 +55,15 @@ como aplicación en el móvil.
 |---|---|
 | `index.html` | La aplicación entera (HTML + CSS + JS en un solo fichero) |
 | `data/consorcios.json` | Índice de las nueve áreas: nombre, código, bbox y fecha |
-| `data/{1..9}/lineas.json` | Paradas, líneas, municipios y calendario de un área |
-| `data/{1..9}/rutas.json` | Bloques con sus viajes y el trazado del recorrido |
-| `ctas_routing.json` | Distancias a pie entre paradas cercanas (~70 KB) |
+| `data/catalogo.json` | Las paradas, líneas y municipios de toda Andalucía (460 KB) |
+| `data/{1..9}/horarios.json` | Los horarios de un área: bloques, calendario, trazados y grafo a pie |
 | `fuentes/paradas_*.json` | Respuesta de `/paradas` de la API, para regenerar sin red |
-| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas) |
+| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía) |
+| `package.json` | `npm test` lanza las cinco suites |
 | `sw.js` | Service Worker: caché offline y notificaciones |
 | `manifest.json`, `icon.svg` | Instalación como PWA |
 | `build_from_gtfs.py` | Genera todo `data/` a partir del GTFS oficial |
 | `verificar_datos.py` | Comprueba que lo generado es publicable |
-| `build_routing_data.py` | Genera `ctas_routing.json` (grafo a pie) |
 
 ## Desarrollo local
 
@@ -70,6 +75,19 @@ geolocalización exige `https://` o `localhost`). Sirve la carpeta:
 python3 -m http.server 8000
 # y abre http://localhost:8000
 ```
+
+Las pruebas necesitan la carpeta servida y un Chromium:
+
+```bash
+npm install
+npx playwright install chromium
+npm run servir &          # sirve en el 8765, que es lo que esperan las pruebas
+npm test
+```
+
+`CHROMIUM_PATH` apunta a un Chromium ya instalado si no se quiere descargar
+el del paquete, y `LEAFLET_DIR` sirve Leaflet desde disco cuando no hay
+salida a internet.
 
 ## De dónde salen los datos
 
@@ -106,6 +124,37 @@ no pasan por aquí.
 
 ## Notas técnicas
 
+- **Qué se baja y cuándo.** Los datos van en dos piezas. El **catálogo**
+  (`data/catalogo.json`, 460 KB, unos 110 comprimidos) trae las paradas, las
+  líneas y los municipios de las nueve áreas: es lo que hace falta para
+  buscar, para pintar el mapa y para reconocer un favorito, y se carga
+  entero al abrir. Los **horarios** de cada área (`data/{id}/horarios.json`,
+  de 107 KB a 1,5 MB) son casi cinco megas entre las nueve y llegan a
+  demanda: el área donde estás al arrancar, las de tus favoritos, y la de
+  cualquier parada o línea que abras. Se suman a lo que ya hay en memoria,
+  no lo sustituyen, así que una ruta puede cruzar de un área a otra.
+  Los horarios no se guardan en `localStorage` —el de Sevilla solo se comería
+  la cuota— sino en la caché del Service Worker, que es la que hace que la
+  aplicación abra sin cobertura.
+- **Área de referencia.** Ya no limita nada: sólo dice desde dónde se está
+  mirando (de qué consorcio son los avisos, qué horarios se precargan, qué
+  encuadre abre el mapa). Se adivina por la ubicación y se cambia desde la
+  cabecera.
+- **Identificador de parada.** Es el del GTFS, con el prefijo del área:
+  `1_2112` es «C Atilano de Acevedo» en Sevilla y `4_2112` es el «Hotel Las
+  Pedrizas» en Málaga. El prefijo estuvo un tiempo recortado y con eso
+  1.075 de 3.146 números chocaban entre áreas — bastaba para que una
+  parada guardada enseñase los horarios de otra provincia. Al ser únicos,
+  los favoritos son de toda Andalucía y no hay una caja por área.
+- **Trasbordos a pie.** Qué paradas están lo bastante cerca como para
+  cambiar de autobús andando (600 m, doce minutos a 3 km/h, como mucho
+  diez vecinas por parada) se calcula de las coordenadas del GTFS y viaja
+  en `vecinos`, dentro de los datos del área. Antes venía de un fichero
+  suelto que sólo tenía Sevilla: en las otras ocho áreas el buscador no
+  podía enlazar dos líneas que paran en la misma plaza pero en aceras
+  distintas, y perdía viajes que existen. Sobre 59 pares de paradas al
+  azar, Granada pasa de encontrar 19 itinerarios a encontrar 50, y Málaga
+  de 43 a 59.
 - **Municipio de cada parada.** No está en el GTFS, lo da el endpoint
   `/paradas` de la API. Antes se deducía a ojo —zona A para anclar la
   capital, núcleo urbano más cercano de un catálogo escrito a mano,

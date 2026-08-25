@@ -28,7 +28,8 @@ function servirLeafletLocal(page) {
 }
 
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:8765';
-const browser = await chromium.launch();
+// CHROMIUM_PATH apunta a un Chromium ya instalado cuando el del paquete no está.
+const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const page = await browser.newPage({ viewport: { width: 430, height: 950 } });
 const errores = [];
 page.on('pageerror', e => errores.push('PAGEERROR: ' + e.message));
@@ -41,11 +42,13 @@ await page.route('**/tile.openstreetmap.org/**', r => r.fulfill({ contentType: '
 // Los datos van por área metropolitana: se fija Sevilla para no toparse
 // con el selector del primer arranque.
 await page.addInitScript(() => {
+  // El área de referencia se fija a Sevilla para que sus horarios se bajen
+  // solos al arrancar; las paradas y las líneas de las nueve están siempre.
   try { localStorage.setItem('ctanConsorcioV1', JSON.stringify({ id: 1 })); } catch (e) { }
 });
 await page.clock.install({ time: new Date('2026-08-18T07:30:00') });
 await page.goto(BASE + '/index.html', { waitUntil: 'networkidle' });
-await page.waitForFunction(() => typeof CTAN !== 'undefined' && CTAN.cargado, null, { timeout: 30000 });
+await page.waitForFunction(() => typeof CTAN !== 'undefined' && CTAN.cargado && CTAN.horarios.has(1), null, { timeout: 30000 });
 
 let fallos = 0;
 const ok = (cond, txt, extra) => {

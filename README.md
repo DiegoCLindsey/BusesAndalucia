@@ -119,7 +119,11 @@ datos no vuelve a pedir nada al servidor.
   el número grande es el que se usa para decidir ("11 min"), no el que hay
   que restar mentalmente ("15:03"). El resumen limita a dos salidas por
   parada para que ninguna se quede fuera de pantalla, y se despliega
-  entero de un toque. Ya no hay dos listados —"tus próximas salidas" y
+  entero de un toque. Cuando a una salida le quedan diez minutos o menos,
+  la fila enseña además la siguiente —o avisa de que es la última de
+  hoy—: a esas alturas la pregunta ya no es "¿cuándo pasa?" sino "¿corro
+  o espero al otro?", y la respuesta cambia lo que haces. Ya no hay dos
+  listados —"tus próximas salidas" y
   "paradas cerca de ti"— contando lo mismo con distinta letra: es uno.
   Inicio ya no lleva mapa: ocupaba media pantalla para
   enseñar círculos sobre un fondo gris y empujaba fuera de la vista lo

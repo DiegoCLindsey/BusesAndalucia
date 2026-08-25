@@ -381,6 +381,28 @@ def procesar_consorcio(idc, nombre, codigo, stops, routes, trips, por_viaje,
             if menos:
                 exc[fecha]["-"] = menos
 
+    # La API devuelve menos paradas que el GTFS en varios consorcios (en
+    # Granada, 841 de 1.285), así que unas cuantas se quedan sin municipio.
+    # Se rellenan con el de la parada oficial más cercana, que a menos de un
+    # par de kilómetros acierta casi siempre: son paradas de la misma calle o
+    # del mismo polígono. Más lejos se deja en blanco antes que inventar.
+    RADIO_HEREDA_M = 2000
+    conocidas = [(pid, p) for pid, p in paradas.items() if p[4]]
+    huerfanas = [(pid, p) for pid, p in paradas.items() if not p[4]]
+    heredados = 0
+    for pid, p in huerfanas:
+        mejor, mejor_d = None, RADIO_HEREDA_M
+        for _, q in conocidas:
+            d = math.hypot((p[1] - q[1]) * 111320.0,
+                           (p[2] - q[2]) * 111320.0 * math.cos(math.radians(p[1])))
+            if d < mejor_d:
+                mejor, mejor_d = q, d
+        if mejor:
+            p[4] = mejor[4]
+            if p[3] is None:
+                p[3] = mejor[3]
+            heredados += 1
+
     municipios = sorted({p[4] for p in paradas.values() if p[4]})
 
     lats = [p[1] for p in paradas.values()]
@@ -408,9 +430,13 @@ def procesar_consorcio(idc, nombre, codigo, stops, routes, trips, por_viaje,
 
     kb = sum(os.path.getsize(os.path.join(carpeta, f)) for f in ("lineas.json", "rutas.json")) / 1024
     sin_muni = sum(1 for p in paradas.values() if not p[4])
+    detalle = origen_muni
+    if heredados:
+        detalle += f", {heredados} heredados"
+    if sin_muni:
+        detalle += f", {sin_muni} SIN"
     print(f"  {idc} {nombre:<22} {len(paradas):>5} paradas {len(lineas):>4} líneas "
-          f"{len(bloques):>4} bloques  {kb:>7.0f} KB   municipios: {origen_muni}"
-          + (f" ({sin_muni} sin)" if sin_muni else ""))
+          f"{len(bloques):>4} bloques  {kb:>7.0f} KB   municipios: {detalle}")
 
     return {"id": idc, "nombre": nombre, "codigo": codigo, "bbox": bbox,
             "paradas": len(paradas), "lineas": len(lineas), "kb": round(kb)}

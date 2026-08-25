@@ -45,6 +45,7 @@ como aplicación en el móvil.
 |---|---|
 | `index.html` | La aplicación entera (HTML + CSS + JS en un solo fichero) |
 | `ctas_data_app.json` | Líneas, paradas, horarios, coordenadas y municipio (~2,4 MB) |
+| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas) |
 | `ctas_routing.json` | Distancias a pie entre paradas cercanas (~70 KB) |
 | `sw.js` | Service Worker: caché offline y notificaciones |
 | `manifest.json`, `icon.svg` | Instalación como PWA |
@@ -97,9 +98,16 @@ datos no vuelve a pedir nada al servidor.
   que tiene sentido para quien va a coger el autobús: manda lo que has
   marcado como tuyo y, dentro de eso, lo que tienes más cerca.
 
-  1. **Líneas favoritas.** Si además has elegido paradas para esa línea,
-     sólo esas; si no, la que tengas más cerca de su recorrido.
-  2. **Paradas favoritas**: todas las líneas que pasan por ellas.
+  1. **Líneas favoritas.** Si has elegido paradas para esa línea, sólo
+     esas; si no, una parada tuya que esté a mano (menos de 1 km); y si
+     no, la que tengas más cerca de su recorrido. Así, siguiendo la M-177
+     y con la parada del Arroyo guardada, en Guillena sale el Arroyo y en
+     Sevilla la parada que tengas delante — siempre la M-177 y nada más.
+  2. **Paradas favoritas por las que no pasa ninguna línea que sigas**:
+     sus 3 próximas salidas, de la línea que sean. Si por tu parada pasa
+     una línea tuya, ya está contada arriba y con la línea que te importa:
+     sacarla otra vez con todo lo que para en ella llenaría la pantalla de
+     autobuses que no piensas coger.
   3. **Sin nada guardado**, las paradas que tienes al lado.
 
   Después se poda: de cada línea y sentido queda una sola parada, la más

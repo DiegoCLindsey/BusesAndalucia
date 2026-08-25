@@ -64,48 +64,71 @@ const ok = (cond, txt, extra) => {
   if (!cond) fallos++;
 };
 
-const filas = await page.locator('#homeFavSalidas .salida-fila').all();
+// Las filas de "el siguiente" cuelgan de la de arriba: se leen aparte
+// porque no compiten por su sitio en el orden.
+const todas = await page.locator('#homeFavSalidas .salida-fila').all();
 const leidas = [];
-for (const f of filas) {
+for (const f of todas) {
+  const clase = await f.getAttribute('class');
   leidas.push({
+    seguimiento: /seguimiento/.test(clase),
     hacia: (await f.locator('.salida-hacia').innerText()).trim(),
-    parada: (await f.locator('.salida-parada').innerText()).trim(),
-    cuando: (await f.locator('.salida-cuando').innerText()).split('\n')[0].trim(),
-    luego: await f.locator('.salida-luego').count()
-      ? (await f.locator('.salida-luego').innerText()).trim() : null
+    parada: await f.locator('.salida-parada').count()
+      ? (await f.locator('.salida-parada').innerText()).trim() : null,
+    cuando: await f.locator('.salida-cuando').count()
+      ? (await f.locator('.salida-cuando').innerText()).split('\n')[0].trim() : null
   });
 }
 console.log(JSON.stringify(leidas, null, 1));
 
-const minutos = leidas.map(f => {
-  const m = f.cuando.match(/^(\d+) min$/);
-  if (m) return Number(m[1]);
-  if (f.cuando === 'ahora') return 0;
-  const h = f.cuando.match(/^(\d+) h(?: (\d+))?$/);
-  if (h) return Number(h[1]) * 60 + Number(h[2] || 0);
-  return Infinity;   // horas de reloj: mañana o más allá
-});
+const filas = leidas.filter(f => !f.seguimiento);
+// A las 14:52 del reloj congelado: cuánto falta para cada fila.
+const AHORA_MIN = 14 * 60 + 52;
+const cuantoFalta = texto => {
+  if (texto === 'ahora') return 0;
+  const min = texto.match(/^(\d+) min$/);
+  if (min) return Number(min[1]);
+  const reloj = texto.match(/^(\d\d):(\d\d)$/);
+  if (reloj) return Number(reloj[1]) * 60 + Number(reloj[2]) - AHORA_MIN;
+  return Infinity;   // mañana o más allá
+};
+const minutos = filas.map(f => cuantoFalta(f.cuando));
 
-ok(filas.length > 0 && filas.length <= 5, 'el resumen cabe en pantalla', filas.length + ' filas');
+ok(filas.length > 0 && filas.length <= 5, 'el resumen cabe en pantalla', filas.length + ' salidas');
 ok(minutos.every((m, i) => i === 0 || m >= minutos[i - 1]),
   'ordenadas por lo que falta, no por parada', JSON.stringify(minutos));
-ok(new Set(leidas.map(f => f.parada)).size > 1,
-  'las dos paradas guardadas asoman en el resumen', JSON.stringify([...new Set(leidas.map(f => f.parada))]));
-ok(leidas.every(f => f.hacia.startsWith('hacia ')), 'cada fila dice hacia dónde va');
-ok(leidas.every(f => f.hacia !== f.hacia.toUpperCase()),
-  'los destinos van en capitales iniciales, no a gritos', JSON.stringify(leidas.map(f => f.hacia)));
+ok(new Set(filas.map(f => f.parada)).size > 1,
+  'las dos paradas guardadas asoman en el resumen', JSON.stringify([...new Set(filas.map(f => f.parada))]));
+ok(filas.every(f => f.hacia.startsWith('hacia ')), 'cada fila dice hacia dónde va');
+ok(filas.every(f => f.hacia !== f.hacia.toUpperCase()),
+  'los destinos van en capitales iniciales, no a gritos', JSON.stringify(filas.map(f => f.hacia)));
 ok(await page.locator('#homeMap').count() === 0, 'Inicio no lleva mapa');
 
 // Cuando faltan diez minutos o menos, la pregunta es "¿corro o espero al
-// siguiente?": la fila tiene que decir cuál es ese siguiente.
-const urgentes = leidas.filter((f, i) => minutos[i] <= 10);
-const holgadas = leidas.filter((f, i) => minutos[i] > 10);
-ok(urgentes.length > 0 && urgentes.every(f => f.luego && /^(luego \d\d:\d\d|último de hoy)$/.test(f.luego)),
-  'con diez minutos o menos, se enseña también la salida siguiente',
-  JSON.stringify(urgentes.map(f => f.cuando + ' → ' + f.luego)));
-ok(holgadas.every(f => f.luego === null),
-  'y no se enseña cuando hay tiempo de sobra',
-  JSON.stringify(holgadas.map(f => f.cuando + ' → ' + f.luego)));
+// siguiente?": debajo tiene que aparecer ese siguiente como otra fila.
+const seguimientoDe = fila => {
+  const i = leidas.indexOf(fila);
+  const sig = leidas[i + 1];
+  return sig && sig.seguimiento ? sig : null;
+};
+const urgentes = filas.filter((f, i) => minutos[i] <= 10);
+const holgadas = filas.filter((f, i) => minutos[i] > 10);
+
+ok(urgentes.length > 0 && urgentes.every(f => {
+  const sig = seguimientoDe(f);
+  return sig && (sig.hacia === 'el siguiente' || sig.hacia === 'no hay otro hoy');
+}), 'con diez minutos o menos, el siguiente aparece como otra fila',
+  JSON.stringify(urgentes.map(f => f.cuando + ' → ' + (seguimientoDe(f) || {}).cuando)));
+
+ok(urgentes.every(f => {
+  const sig = seguimientoDe(f);
+  if (!sig || sig.hacia === 'no hay otro hoy') return true;
+  return cuantoFalta(sig.cuando) > cuantoFalta(f.cuando);
+}), 'y es posterior a la suya, no otra cualquiera');
+
+ok(holgadas.every(f => seguimientoDe(f) === null),
+  'sin fila extra cuando hay tiempo de sobra',
+  JSON.stringify(holgadas.map(f => f.cuando)));
 
 // Desplegar tiene que enseñar más, no romperse.
 const btn = page.locator('#btnVerTodasSalidas');
@@ -113,7 +136,7 @@ if (await btn.count()) {
   const antes = filas.length;
   await btn.click();
   await page.waitForTimeout(300);
-  const despues = await page.locator('#homeFavSalidas .salida-fila').count();
+  const despues = await page.locator('#homeFavSalidas .salida-fila:not(.seguimiento)').count();
   ok(despues > antes, 'al desplegar se ven todas', `${antes} → ${despues}`);
 }
 

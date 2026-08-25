@@ -15,7 +15,9 @@ tiempo real.
   que falta para cada una: primero el autobús que se va antes, venga de la
   parada que venga. Cada fila dice la línea, hacia dónde va y desde qué
   parada, y en grande **cuánto queda** (la hora del reloj va debajo, en
-  pequeño). De cada línea sale una sola parada, la que tengas más cerca.
+  pequeño; pasada la hora se cambian los papeles, que a dos horas vista
+  nadie cuenta minutos). De cada línea sale una sola parada, la que tengas
+  más cerca.
   Si no has guardado nada y compartes la ubicación, la lista enseña lo que
   pasa por las paradas que tienes al lado. Debajo, el buscador de destino.
 - **Líneas** — las 55 líneas del consorcio, con las próximas salidas en las
@@ -120,9 +122,12 @@ datos no vuelve a pedir nada al servidor.
   que restar mentalmente ("15:03"). El resumen limita a dos salidas por
   parada para que ninguna se quede fuera de pantalla, y se despliega
   entero de un toque. Cuando a una salida le quedan diez minutos o menos,
-  la fila enseña además la siguiente —o avisa de que es la última de
-  hoy—: a esas alturas la pregunta ya no es "¿cuándo pasa?" sino "¿corro
-  o espero al otro?", y la respuesta cambia lo que haces. Ya no hay dos
+  debajo aparece la siguiente de esa misma línea y sentido —o el aviso de
+  que no hay otra hoy—: a esas alturas la pregunta ya no es "¿cuándo
+  pasa?" sino "¿corro o espero al otro?", y la respuesta cambia lo que
+  haces. Esa fila cuelga de la suya en vez de ir en su sitio por hora,
+  porque lo que dice sólo se entiende junto a la de arriba: cinco filas
+  más abajo, "16:53" ya no es "el siguiente de este". Ya no hay dos
   listados —"tus próximas salidas" y
   "paradas cerca de ti"— contando lo mismo con distinta letra: es uno.
   Inicio ya no lleva mapa: ocupaba media pantalla para

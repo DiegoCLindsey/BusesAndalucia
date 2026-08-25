@@ -438,6 +438,10 @@
     display:block; font-size:12px; font-weight:600;
     color:var(--text-mute); letter-spacing:0;
   }
+  .salida-luego{
+    display:block; font-size:11px; font-weight:600;
+    color:var(--text-mute); letter-spacing:0; opacity:.8; margin-top:1px;
+  }
   .salida-mas{
     display:block; width:100%; margin-top:10px; padding:8px 0;
     background:none; border:none; cursor:pointer;
@@ -2936,6 +2940,24 @@ function quitarReferencia(lineaSlug, referencia) {
   guardarFavoritos();
 }
 
+/** Cuando quedan pocos minutos, la pregunta deja de ser "¿cuándo pasa?"
+ * y pasa a ser "¿me da tiempo o espero al siguiente?". Esta es la
+ * respuesta: la salida que va después de la inminente.
+ *
+ * Sólo se enseña en ese caso. Ponerla en todas las filas era lo que
+ * convertía el listado en un horario disfrazado; aquí decide si echas a
+ * correr, y saber que el siguiente es dentro de diez minutos —o que ya no
+ * hay otro— cambia lo que haces. */
+function pistaSiguienteSalida(servicios, dep) {
+  if (!dep || dep.dias !== 0 || !servicios || !servicios.length) return "";
+  const bucket = mergeDeparturesConOrigen(servicios)[frecuenciaKeyForDate(new Date())];
+  if (!bucket || !bucket.slots.length) return "";
+  const tDep = dep.h * 60 + dep.m;
+  const slot = bucket.slots.find(sl => sl.h * 60 + sl.m > tDep);
+  if (!slot) return "último de hoy";
+  return `luego ${String(slot.h).padStart(2, "0")}:${String(slot.m).padStart(2, "0")}`;
+}
+
 /** Próximas salidas de una línea en un punto de referencia: se fusionan
  * TODOS los recorridos que pasan por esa parada en ese sentido, vengan de
  * la cabecera que vengan. Devuelve además las siguientes horas, para
@@ -3134,6 +3156,7 @@ function renderSalidasDeLineaEn(contenedor, linea, onCambio) {
   // el horario completo ya está a un toque.
   refs.forEach(ref => {
     const espera = formatEspera(ref.dep);
+    const siguiente = espera.urgente ? pistaSiguienteSalida(ref.servicios, ref.dep) : "";
     const row = document.createElement("div");
     row.className = "salida-fila";
     row.innerHTML = `
@@ -3144,6 +3167,7 @@ function renderSalidasDeLineaEn(contenedor, linea, onCambio) {
       </span>
       <span class="salida-cuando${espera.urgente ? " ya" : ""}">${escapeHtml(espera.cuando)}
         <span class="salida-reloj">${escapeHtml(espera.reloj)}</span>
+        ${siguiente ? `<span class="salida-luego">${escapeHtml(siguiente)}</span>` : ""}
       </span>`;
     row.addEventListener("click", () => abrirMenuReferencia(linea, ref, onCambio));
     contenedor.appendChild(row);
@@ -4944,7 +4968,8 @@ function salidasVigiladas() {
         lineaSlug: g.lineaSlug,
         codigo: codigoLinea(g.lineaTitulo),
         hacia: g.etiqueta,
-        espera
+        espera,
+        siguiente: espera.urgente ? pistaSiguienteSalida(g.servicios, g.dep) : ""
       });
     });
   });
@@ -5001,6 +5026,7 @@ function renderHomeFavSalidas() {
       </span>
       <span class="salida-cuando${sal.espera.urgente ? " ya" : ""}">${escapeHtml(sal.espera.cuando)}
         <span class="salida-reloj">${escapeHtml(sal.espera.reloj)}</span>
+        ${sal.siguiente ? `<span class="salida-luego">${escapeHtml(sal.siguiente)}</span>` : ""}
       </span>
     </div>`).join("");
 

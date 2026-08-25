@@ -70,7 +70,9 @@ for (const f of filas) {
   leidas.push({
     hacia: (await f.locator('.salida-hacia').innerText()).trim(),
     parada: (await f.locator('.salida-parada').innerText()).trim(),
-    cuando: (await f.locator('.salida-cuando').innerText()).split('\n')[0].trim()
+    cuando: (await f.locator('.salida-cuando').innerText()).split('\n')[0].trim(),
+    luego: await f.locator('.salida-luego').count()
+      ? (await f.locator('.salida-luego').innerText()).trim() : null
   });
 }
 console.log(JSON.stringify(leidas, null, 1));
@@ -93,6 +95,17 @@ ok(leidas.every(f => f.hacia.startsWith('hacia ')), 'cada fila dice hacia dónde
 ok(leidas.every(f => f.hacia !== f.hacia.toUpperCase()),
   'los destinos van en capitales iniciales, no a gritos', JSON.stringify(leidas.map(f => f.hacia)));
 ok(await page.locator('#homeMap').count() === 0, 'Inicio no lleva mapa');
+
+// Cuando faltan diez minutos o menos, la pregunta es "¿corro o espero al
+// siguiente?": la fila tiene que decir cuál es ese siguiente.
+const urgentes = leidas.filter((f, i) => minutos[i] <= 10);
+const holgadas = leidas.filter((f, i) => minutos[i] > 10);
+ok(urgentes.length > 0 && urgentes.every(f => f.luego && /^(luego \d\d:\d\d|último de hoy)$/.test(f.luego)),
+  'con diez minutos o menos, se enseña también la salida siguiente',
+  JSON.stringify(urgentes.map(f => f.cuando + ' → ' + f.luego)));
+ok(holgadas.every(f => f.luego === null),
+  'y no se enseña cuando hay tiempo de sobra',
+  JSON.stringify(holgadas.map(f => f.cuando + ' → ' + f.luego)));
 
 // Desplegar tiene que enseñar más, no romperse.
 const btn = page.locator('#btnVerTodasSalidas');

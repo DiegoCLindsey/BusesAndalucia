@@ -457,6 +457,33 @@
     color:var(--text-mute); opacity:.55;
   }
   .salida-flecha svg{width:15px; height:15px;}
+  .nav-badge{
+    position:absolute; top:6px; right:calc(50% - 20px);
+    min-width:16px; height:16px; padding:0 4px; border-radius:999px;
+    background:var(--coral, #e2504a); color:#fff;
+    font-size:10px; font-weight:800; line-height:16px; text-align:center;
+  }
+  /* Un aviso del consorcio: qué pasa, a quién le toca y desde cuándo. */
+  .aviso-fila{
+    display:block; padding:12px 0; border-top:1px solid var(--line);
+    cursor:pointer; -webkit-tap-highlight-color:transparent;
+  }
+  .aviso-fila:first-of-type{border-top:none;}
+  .aviso-cab{display:flex; align-items:center; gap:8px; margin-bottom:3px;}
+  .aviso-titulo{flex:1; min-width:0; font-size:15px; font-weight:700; color:var(--text);}
+  .aviso-sub{font-size:13px; font-weight:500; color:var(--text-soft); line-height:1.45;}
+  .aviso-meta{
+    display:block; font-size:11.5px; font-weight:600;
+    color:var(--text-mute); margin-top:4px; letter-spacing:.01em;
+  }
+  .aviso-cat{
+    font-size:10.5px; font-weight:800; letter-spacing:.04em; text-transform:uppercase;
+    padding:2px 7px; border-radius:6px; flex:none;
+    background:var(--surface-strong); color:var(--text-mute);
+  }
+  .aviso-cat.tuyo{background:var(--brand); color:var(--brand-ink);}
+  .linea-aviso-pin{display:inline-flex; align-items:center; flex:none; color:var(--coral, #e2504a);}
+  .linea-aviso-pin svg{width:15px; height:15px;}
   .salida-mas{
     display:block; width:100%; margin-top:10px; padding:8px 0;
     background:none; border:none; cursor:pointer;
@@ -917,6 +944,7 @@
   <button class="nav-btn active" data-screen="screenInicio" type="button" data-ico="reloj">Inicio</button>
   <button class="nav-btn" data-screen="screenLineas" type="button" data-ico="bus">Líneas</button>
   <button class="nav-btn" data-screen="screenRuta" type="button" data-ico="brujula">Ruta</button>
+  <button class="nav-btn" data-screen="screenAvisos" type="button" data-ico="aviso">Avisos<span class="nav-badge" id="navAvisosBadge" hidden></span></button>
 </nav>
 
 <main>
@@ -932,6 +960,10 @@
       </div>
       <div class="home-quickfavs" id="homeQuickFavs"></div>
     </div>
+  </section>
+
+  <section id="screenAvisos" class="screen">
+    <div id="listaAvisos"></div>
   </section>
 
   <section id="screenLineas" class="screen">
@@ -2039,6 +2071,9 @@ function montarModelo(lineas, rutas) {
       }
     });
     const variantes = [...porVariante.values()].map(b => ({
+      // `id` es el de la línea en la API (el mismo que el sufijo del
+      // route_id del GTFS): es con lo que vienen marcados los avisos.
+      id: b.varianteId,
       nodo_id: b.varianteId + "|" + b.dir,
       nombre: (l.variantes.find(v => v.id === b.varianteId) || {}).nombre || l.titulo,
       paradas: b.paradas
@@ -2606,6 +2641,7 @@ function renderLineDetail(container, linea, defaultStopId, onBack, mapRef) {
     ${onBack ? '<button class="btn-back" id="btnBack">← Volver</button>' : ""}
     <h3 class="detail-title"><span class="linea-badge">${escapeHtml(codigoLinea(linea.titulo))}</span> ${escapeHtml(nombreSinCodigo(linea.titulo))} <button type="button" class="btn-fav${esFavoritoLinea(linea.slug) ? " es-fav" : ""}" id="btnFavLinea" title="Guardar esta línea">${icono("estrella")}</button></h3>
 
+    <div id="avisosDeLinea"></div>
     <h4 class="section-title" style="margin-top:14px;">Salidas por sentido</h4>
     <div class="cabecera-list" id="cabecerasBox"></div>
 
@@ -2615,6 +2651,19 @@ function renderLineDetail(container, linea, defaultStopId, onBack, mapRef) {
     <div id="stopsList"></div>
   `;
   if (onBack) container.querySelector("#btnBack").addEventListener("click", onBack);
+
+  // Si el consorcio ha publicado algo de esta línea, se dice aquí: es
+  // donde alguien viene a mirar antes de plantarse en la parada.
+  const cajaAvisos = container.querySelector("#avisosDeLinea");
+  const pintarAvisosLinea = () => {
+    const suyos = avisosDeLinea(linea.slug);
+    cajaAvisos.innerHTML = suyos.length
+      ? `<div class="itin-leg-warn" style="margin-top:10px;">${icono("aviso")}<span>${
+          suyos.map(a => escapeHtml(a.titulo)).join(" · ")}</span></div>`
+      : "";
+  };
+  pintarAvisosLinea();
+  if (!AVISOS.fecha) cargarAvisos(false).then(pintarAvisosLinea);
   const cabecerasBox = container.querySelector("#cabecerasBox");
   const repintarCabeceras = () => renderSalidasDeLineaEn(cabecerasBox, linea, repintarCabeceras);
   repintarCabeceras();
@@ -4918,6 +4967,168 @@ function renderTodoTrasCambio() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Avisos del consorcio                                                 */
+/* ------------------------------------------------------------------ */
+/** Los cambios de horario, los cortes por obras y las fiestas del pueblo
+ * no están en el GTFS: el consorcio los publica aparte, como noticias.
+ *
+ * Se piden en caliente a la API —permite CORS, así que se puede llamar
+ * desde el navegador— y se guardan por día: si ya se consultaron hoy no se
+ * vuelve a pedir. Si falla la red se enseña la última copia buena, porque
+ * un aviso de ayer sigue valiendo más que una pantalla en blanco.
+ *
+ * Lo que importa se pone primero: un aviso que toca a una línea o a una
+ * parada que sigues no es lo mismo que uno de la otra punta de la
+ * provincia. Van arriba y separados del resto. */
+const API_CTAN = "https://api.ctan.es/v1";
+const LS_AVISOS = "ctanAvisosV1";
+let AVISOS = { lista: [], fecha: null, cargando: false };
+
+function claveAvisos() {
+  return `${LS_AVISOS}:${CTAN.id}`;
+}
+
+async function cargarAvisos(forzar) {
+  if (!CTAN.id) return [];
+  const hoy = ymd(new Date());
+  const guardado = leerCache(claveAvisos());
+  if (!forzar && guardado && guardado.fecha === hoy) {
+    AVISOS = { lista: guardado.lista, fecha: hoy, cargando: false };
+    return AVISOS.lista;
+  }
+  AVISOS.cargando = true;
+  try {
+    const json = await pedirJson(`${API_CTAN}/Consorcios/${CTAN.id}/noticias?lang=ES`);
+    const lista = (json.noticias || []).map(n => ({
+      id: n.idNoticia,
+      titulo: (n.titulo || "").trim(),
+      subtitulo: (n.subTitulo || n.resumen || "").trim(),
+      categoria: (n.categoria || "").trim(),
+      desde: n.fechaInicio || null,
+      hasta: n.fechafin || n.fechafinFija || null,
+      // La API devuelve los identificadores de línea separados por comas,
+      // o null cuando el aviso es de todo el consorcio.
+      lineas: n.lineas ? String(n.lineas).split(",").map(x => x.trim()).filter(Boolean) : []
+    }));
+    AVISOS = { lista, fecha: hoy, cargando: false };
+    guardarCache(claveAvisos(), { lista, fecha: hoy });
+  } catch (e) {
+    // Sin conexión, lo último que se supo.
+    AVISOS = { lista: guardado ? guardado.lista : [], fecha: guardado ? guardado.fecha : null, cargando: false };
+  }
+  return AVISOS.lista;
+}
+
+/** Las líneas que sigues: las marcadas como favoritas más las que pasan
+ * por tus paradas guardadas. Un aviso de cualquiera de ellas es tuyo. */
+function lineasQueSigo() {
+  const suyas = new Set(FAVORITOS.lineas.map(l => l.slug));
+  FAVORITOS.paradas.forEach(f => {
+    const nodo = GRAFO.paradas.get(f.id);
+    if (nodo) nodo.lineas.forEach(slug => suyas.add(slug));
+  });
+  return suyas;
+}
+
+/** Un aviso trae identificadores de línea de la API, no slugs. Se cruzan
+ * con las variantes de cada línea, que es donde viven esos números. */
+function avisoEsMio(aviso, mias) {
+  if (!aviso.lineas.length) return false;
+  return CTAN.lineas.some(l =>
+    mias.has(l.slug) && (l.variantes || []).some(v => aviso.lineas.includes(v.id)));
+}
+
+function avisosOrdenados() {
+  const mias = lineasQueSigo();
+  const conMarca = AVISOS.lista.map(a => ({ ...a, mio: avisoEsMio(a, mias) }));
+  const porFecha = (a, b) => String(b.desde || "").localeCompare(String(a.desde || ""));
+  return {
+    mios: conMarca.filter(a => a.mio).sort(porFecha),
+    resto: conMarca.filter(a => !a.mio).sort(porFecha)
+  };
+}
+
+function fechaAviso(iso) {
+  if (!iso) return "";
+  const d = new Date(iso + "T00:00:00");
+  if (isNaN(d)) return iso;
+  return d.toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" });
+}
+
+/** Los nombres de las líneas a las que toca un aviso, para poder decirlo
+ * sin obligar a abrirlo. */
+function lineasDeAviso(aviso) {
+  const codigos = new Set();
+  CTAN.lineas.forEach(l => {
+    if ((l.variantes || []).some(v => aviso.lineas.includes(v.id))) codigos.add(l.codigo);
+  });
+  return [...codigos];
+}
+
+function filaAviso(aviso) {
+  const codigos = lineasDeAviso(aviso);
+  const desde = fechaAviso(aviso.desde);
+  return `<div class="aviso-fila">
+    <div class="aviso-cab">
+      <span class="aviso-titulo">${escapeHtml(aviso.titulo)}</span>
+      ${aviso.categoria ? `<span class="aviso-cat${aviso.mio ? " tuyo" : ""}">${escapeHtml(aviso.categoria)}</span>` : ""}
+    </div>
+    ${aviso.subtitulo && aviso.subtitulo !== aviso.titulo
+      ? `<div class="aviso-sub">${escapeHtml(aviso.subtitulo)}</div>` : ""}
+    <span class="aviso-meta">${codigos.length ? escapeHtml(codigos.join(" · ")) + " · " : ""}${
+      desde ? "desde el " + escapeHtml(desde) : "sin fecha"}</span>
+  </div>`;
+}
+
+async function renderAvisos() {
+  const box = document.getElementById("listaAvisos");
+  if (!box) return;
+  if (!AVISOS.lista.length && !AVISOS.fecha) {
+    box.innerHTML = '<div class="card"><p class="empty">Consultando avisos…</p></div>';
+  }
+  await cargarAvisos(false);
+  const { mios, resto } = avisosOrdenados();
+  actualizarChapaAvisos(mios.length);
+
+  if (!mios.length && !resto.length) {
+    box.innerHTML = `<div class="card"><h2 class="home-fav-title">Avisos</h2>
+      <p class="empty">${AVISOS.fecha
+        ? "No hay ningún aviso publicado ahora mismo."
+        : "No se han podido consultar los avisos. Comprueba la conexión."}</p></div>`;
+    return;
+  }
+
+  box.innerHTML = `
+    ${mios.length ? `<div class="card">
+      <h2 class="home-fav-title">Te afectan</h2>
+      <div class="detail-meta" style="margin-bottom:6px;">Avisos de líneas o paradas que sigues.</div>
+      ${mios.map(filaAviso).join("")}
+    </div>` : ""}
+    <div class="card">
+      <h2 class="home-fav-title">${mios.length ? "Los demás avisos" : "Avisos"}</h2>
+      ${resto.length ? resto.map(filaAviso).join("")
+        : '<p class="empty">No hay más avisos.</p>'}
+    </div>`;
+}
+
+/** La chapa del menú sólo cuenta lo que te toca: un número que sube por
+ * avisos de la otra punta de la provincia deja de significar nada. */
+function actualizarChapaAvisos(cuantos) {
+  const chapa = document.getElementById("navAvisosBadge");
+  if (!chapa) return;
+  chapa.hidden = !cuantos;
+  chapa.textContent = cuantos > 9 ? "9+" : String(cuantos || "");
+}
+
+/** Los avisos de una línea concreta, para su ficha. */
+function avisosDeLinea(slug) {
+  const linea = lineaPorSlug(slug);
+  if (!linea) return [];
+  return AVISOS.lista.filter(a =>
+    a.lineas.length && (linea.variantes || []).some(v => a.lineas.includes(v.id)));
+}
+
+/* ------------------------------------------------------------------ */
 /* Pantalla "Inicio": próximas salidas + "¿A dónde quieres ir?"        */
 /* ------------------------------------------------------------------ */
 /** Inicio ya no lleva mapa. Ocupaba media pantalla para enseñar círculos
@@ -5344,6 +5555,7 @@ function irAPantalla(idPantalla) {
   if (idPantalla === "screenInicio") { renderHomeFavSalidas(); renderQuickFavs(); }
   if (idPantalla === "screenRuta") { buildStopsDatalist(); initRouteMap(); }
   if (idPantalla === "screenLineas") { renderLineasFavoritas(); renderListadoLineas(); }
+  if (idPantalla === "screenAvisos") { renderAvisos(); }
   if (CURRENT_MAP_REF.map) setTimeout(() => CURRENT_MAP_REF.map.invalidateSize(), 60);
   if (CURRENT_ROUTE_MAP) setTimeout(() => CURRENT_ROUTE_MAP.invalidateSize(), 60);
 }
@@ -5410,6 +5622,9 @@ async function init() {
   renderHomeFavSalidas();
   arrancarVigilanteNotificaciones();
   pedirUbicacionInicio();
+  // En segundo plano: si hay avisos que te tocan, la chapa lo dice sin
+  // que haya que entrar a mirar.
+  cargarAvisos(false).then(() => actualizarChapaAvisos(avisosOrdenados().mios.length));
 }
 
 document.addEventListener("DOMContentLoaded", init);

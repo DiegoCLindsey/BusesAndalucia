@@ -3651,11 +3651,11 @@ function wireLineSearch() {
 /* Pestaña "Calculadora de ruta"                                       */
 /* ------------------------------------------------------------------ */
 /** Grafo a pie: qué paradas están lo bastante cerca como para cambiar de
- * autobús andando. Viene con los datos del área (`vecinos` en lineas.json),
- * calculado de las coordenadas del GTFS. Antes era un fichero suelto,
- * ctas_routing.json, que sólo tenía Sevilla: en las otras ocho áreas el
- * buscador no podía enlazar dos líneas que paran en la misma plaza pero en
- * aceras distintas, y por eso perdía viajes que existen. */
+ * autobús andando. Viene con los horarios del área (`vecinos` en
+ * horarios.json), calculado de las coordenadas del GTFS. Antes era un
+ * fichero suelto, ctas_routing.json, que sólo tenía Sevilla: en las otras
+ * ocho áreas el buscador no podía enlazar dos líneas que paran en la misma
+ * plaza pero en aceras distintas, y por eso perdía viajes que existen. */
 let ROUTING = { vecinos: {} };
 let CURRENT_ROUTE_MAP = null;
 let ROUTE_MARKERS = {};

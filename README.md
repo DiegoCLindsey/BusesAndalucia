@@ -1,11 +1,15 @@
 # Próxima Salida · Buses Andalucía
 
-Aplicación web para consultar horarios, paradas y rutas del **Consorcio de
-Transportes Metropolitano del Área de Sevilla**.
+Aplicación web para consultar horarios, paradas y rutas de las **nueve áreas
+metropolitanas de Andalucía**: Sevilla, Bahía de Cádiz, Granada, Málaga, Campo
+de Gibraltar, Almería, Jaén, Córdoba y Costa de Huelva.
 
-Herramienta personal, **sin relación con el Consorcio**. Los datos se extraen
-de [ctas.es](https://ctas.es) y son horarios *programados*, no posición en
-tiempo real.
+> Información proporcionada por el Portal de Datos Abiertos de la Red de
+> Consorcios de Transporte de Andalucía.
+
+Herramienta personal, **sin relación con la Red de Consorcios ni con la Junta
+de Andalucía**, que no participan ni respaldan esto. Los horarios son
+*programados*, no posición en tiempo real.
 
 👉 **[Abrir la aplicación](https://diegoclindsey.github.io/BusesAndalucia/)**
 
@@ -20,7 +24,7 @@ tiempo real.
   más cerca.
   Si no has guardado nada y compartes la ubicación, la lista enseña lo que
   pasa por las paradas que tienes al lado. Debajo, el buscador de destino.
-- **Líneas** — las 55 líneas del consorcio, con las próximas salidas en las
+- **Líneas** — las líneas del área activa, con las próximas salidas en las
   paradas que tú elijas, recorrido en mapa, horario completo y PDF oficial
   de cada parada.
 - **Ruta** — de parada a parada, de un punto del mapa, desde tu ubicación o
@@ -44,15 +48,17 @@ como aplicación en el móvil.
 | Fichero | Qué es |
 |---|---|
 | `index.html` | La aplicación entera (HTML + CSS + JS en un solo fichero) |
-| `ctas_data_app.json` | Líneas, paradas, horarios, coordenadas y municipio (~2,4 MB) |
-| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas) |
+| `data/consorcios.json` | Índice de las nueve áreas: nombre, código, bbox y fecha |
+| `data/{1..9}/lineas.json` | Paradas, líneas, municipios y calendario de un área |
+| `data/{1..9}/rutas.json` | Bloques con sus viajes y el trazado del recorrido |
 | `ctas_routing.json` | Distancias a pie entre paradas cercanas (~70 KB) |
+| `fuentes/paradas_*.json` | Respuesta de `/paradas` de la API, para regenerar sin red |
+| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas) |
 | `sw.js` | Service Worker: caché offline y notificaciones |
 | `manifest.json`, `icon.svg` | Instalación como PWA |
-| `ctas_scraper.py` | Extrae los datos de ctas.es |
-| `build_app_data.py` | Genera `ctas_data_app.json` |
+| `build_from_gtfs.py` | Genera todo `data/` a partir del GTFS oficial |
+| `verificar_datos.py` | Comprueba que lo generado es publicable |
 | `build_routing_data.py` | Genera `ctas_routing.json` (grafo a pie) |
-| `build_municipios.py` | Asigna su municipio a cada parada |
 
 ## Desarrollo local
 
@@ -65,35 +71,50 @@ python3 -m http.server 8000
 # y abre http://localhost:8000
 ```
 
-## Regenerar los datos
+## De dónde salen los datos
 
-Cuando el consorcio cambie los horarios (los suyos indican periodo de
-validez en cada línea):
+De la **API pública de la Red de Consorcios de Transporte de Andalucía**
+(`api.ctan.es`), publicada como datos abiertos al amparo de la Ley 37/2007.
+Sin clave, sin autenticación y con CORS, así que la aplicación puede llamarla
+desde el navegador.
+
+Dos fuentes, cada una para lo suyo:
+
+- **El feed GTFS unificado** (`/v1/datos/UNIFICADO/gtfs.zip`, 5,6 MB) trae los
+  horarios de los nueve consorcios. Es la fuente de todo `data/`.
+- **El endpoint `/noticias`** trae los avisos e incidencias, que no están en el
+  GTFS. La aplicación lo consulta en caliente y lo guarda por día.
+
+### Regenerar
 
 ```bash
-pip install requests beautifulsoup4
-python3 ctas_scraper.py        # descarga y cachea las 55 líneas de ctas.es
-python3 build_app_data.py      # -> ctas_data_app.json
-python3 build_municipios.py    # añade el municipio a cada parada
-python3 build_routing_data.py  # -> ctas_routing.json
+python3 build_from_gtfs.py --descargar --paradas
+python3 verificar_datos.py
+python3 build_routing_data.py   # el grafo a pie, si cambian las paradas
 ```
 
-El scraper guarda en `cache/` el HTML descargado, así que reprocesar los
-datos no vuelve a pedir nada al servidor.
+`--descargar` baja el GTFS a `cache/`; sin él se reutiliza el que haya.
+`--paradas` refresca `fuentes/paradas_*.json`, que es de donde sale el
+municipio de cada parada. Ambos son opcionales: sin red, con lo versionado en
+`fuentes/` se regenera igual.
+
+También se puede lanzar desde la pestaña **Actions** del repositorio, con el
+workflow «Actualizar datos». No hay cron a propósito: el GTFS cambia poco y de
+forma previsible, así que un commit automático semanal estaría casi siempre
+vacío. Lo imprevisto —una feria, un corte por obras— llega por los avisos, que
+no pasan por aquí.
 
 ## Notas técnicas
 
-- **Municipio de cada parada.** ctas.es no lo publica: de cada parada da
-  coordenadas y zona tarifaria, y de cada línea una lista de municipios
-  incompleta (la M-101 declara dos de los seis que recorre). Como la app
-  necesita el dato para su grafo municipio–parada–línea,
-  `build_municipios.py` lo deduce sin servicios externos: la zona A del
-  consorcio es la capital y ancla Sevilla, el resto de paradas van al
-  núcleo urbano más cercano de un catálogo, los núcleos se recolocan sobre
-  las paradas que les caen, y una votación entre paradas vecinas arregla
-  los bordes. Los anejos que quedan lejos de su municipio (Torre de la
-  Reina es de Guillena aunque esté pegada a Alcalá del Río) llevan ancla
-  propia.
+- **Municipio de cada parada.** No está en el GTFS, lo da el endpoint
+  `/paradas` de la API. Antes se deducía a ojo —zona A para anclar la
+  capital, núcleo urbano más cercano de un catálogo escrito a mano,
+  votación entre paradas vecinas para los bordes, anclas aparte para los
+  anejos como Torre de la Reina— y ahora viene dado. La API no cubre todas
+  las paradas del GTFS (en Granada devuelve 841 de 1.285), así que las que
+  quedan sueltas heredan el municipio de la parada oficial más cercana
+  dentro de dos kilómetros: son de la misma calle o del mismo polígono.
+  Más lejos se deja en blanco antes que inventarlo. Salen 5.006 de 5.009.
 - **Qué parada se enseña de cada línea.** El orden de preferencia es el
   que tiene sentido para quien va a coger el autobús: manda lo que has
   marcado como tuyo y, dentro de eso, lo que tienes más cerca.
@@ -150,22 +171,28 @@ datos no vuelve a pedir nada al servidor.
   Todo el dibujo es el `circleMarker` de Leaflet: el aro es su propio
   contorno, también cuando marca el origen o el destino de una ruta, sin
   figuras superpuestas.
-- **Los viajes se reconstruyen, no se infieren.** ctas.es publica los
-  horarios parada a parada sin un identificador que diga qué salida de una
-  parada es la misma que la llegada a la siguiente. Antes esas conexiones
-  se deducían emparejando horas consecutivas y salían mal: en la M-177 el
-  enlace real de las 15:00 desde Plaza de Armas no existía y en su lugar
-  había un salto de 14:27 a 15:04 para un trayecto de cuatro minutos, así
-  que ir de Sevilla a Guillena —media hora en un directo— daba casi cuatro
-  horas dando rodeos.
+- **Los viajes vienen dados.** ctas.es publicaba los horarios parada a
+  parada sin un identificador que dijera qué salida de una parada era la
+  llegada a la siguiente, así que hubo que reconstruirlos leyendo las horas
+  en columna. El GTFS trae `trip_id`: la secuencia de paradas de un autobús
+  concreto y su hora en cada una. Un **bloque** —línea, sentido y secuencia
+  de paradas, con todos sus viajes— es el mismo concepto que ya usaba el
+  motor, así que el GTFS entra sin adaptador. Sevilla: 249 bloques, 7.497
+  viajes.
 
-  No hace falta inferir nada. Dentro de un tramo seguido del recorrido cada
-  parada publica la misma cantidad de pasos, y el k-ésimo de todas ellas es
-  el mismo autobús: basta con leerlos en columna. Lo único que hay que
-  detectar es dónde termina la ida y empieza la vuelta de un circular, y
-  eso lo dice el propio horario: es donde la hora retrocede. A cada uno de
-  esos tramos lo llamamos **bloque**; salen 352 bloques con 3.124 viajes
-  reales, sin descartar ninguno, y cubren 1.086 de las 1.094 paradas.
+- **El sentido no sale de `trip_headsign`.** El GTFS trae ese campo pensado
+  justo para decir hacia dónde va un viaje, pero la CTAN lo publica
+  **vacío** en los 18.596. Sigue saliendo de la última parada del bloque,
+  que además es más fiable.
+
+- **Una `route_id` no es una línea, es una variante.** La M-177 son seis
+  rutas del GTFS («Sent Sevilla», «Directo», «Sin Parada En Torre De La
+  Reina»…). Y el código de línea no está en el mismo sitio en todos los
+  consorcios: Sevilla lo pone al principio del nombre largo y deja en
+  `route_short_name` un número interno distinto por variante, mientras que
+  los demás dejan el nombre largo sin código y ponen el bueno en
+  `short_name`. Agrupar por `short_name` partía la M-177 en seis líneas;
+  agrupar por el nombre largo dejaba Granada en diez.
 
 - **La búsqueda es un RAPTOR por rondas.** Cada ronda añade un autobús más,
   así que la ronda en la que aparece el destino *es* su número de
@@ -189,8 +216,16 @@ datos no vuelve a pedir nada al servidor.
   —centro mediano de las paradas del término, con el radio estirado hasta
   abarcar el grueso de ellas—, de modo que las ciudades grandes no se
   parten en dos.
+- **Festivos.** El tipo de día se resolvía con `getDay()`: laborable,
+  sábado o domingo. Ahora manda el calendario del GTFS —patrón semanal
+  dentro de su vigencia, más las excepciones por fecha—, así que un lunes
+  festivo deja de tratarse como un lunes. En Sevilla el 1 de enero pasa de
+  105 servicios a los 119 que de verdad circulan. Aviso honesto: la CTAN
+  sólo publica excepciones de tipo «añadir», nunca de «quitar», así que si
+  una línea suspende su servicio de diario en festivo, el feed no lo dice.
+  Para eso están los avisos.
 - Una parada donde todos los recorridos terminan no ofrece salidas: la hora
-  que ctas.es publica ahí es de llegada.
+  que publica el GTFS ahí es de llegada.
 - **La espera del trasbordo.** El itinerario funde en un solo punto los dos
   momentos de un trasbordo sin cambiar de parada — la hora a la que llegas
   y la hora a la que sales — y enseña la diferencia. Antes esa espera solo

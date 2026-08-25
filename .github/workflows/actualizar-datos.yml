@@ -1,0 +1,46 @@
+# Regenera los datos a partir del GTFS oficial de la CTAN.
+#
+# Sin cron a propósito: el GTFS cambia poco y de forma previsible (los
+# cambios de temporada), así que no compensa un commit automático semanal
+# que casi siempre estaría vacío. Se lanza a mano desde la pestaña Actions
+# cuando el consorcio cambia horarios, que es el "botón de actualizar" que
+# se quería.
+#
+# Los avisos e incidencias NO pasan por aquí: la aplicación los consulta a
+# la API en caliente y los guarda por día, así que un cambio imprevisto
+# —una feria, un corte por obras— aparece sin tener que regenerar nada.
+name: Actualizar datos
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Descargar el GTFS y regenerar
+        run: python3 build_from_gtfs.py --descargar --paradas
+
+      - name: Comprobar que los datos siguen siendo coherentes
+        run: python3 verificar_datos.py
+
+      - name: Publicar si algo ha cambiado
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data fuentes
+          if git diff --cached --quiet; then
+            echo "Los datos no han cambiado; no se hace commit."
+            exit 0
+          fi
+          git commit -m "datos: regenerados desde el GTFS de la CTAN ($(date +%F))"
+          git push

@@ -17,10 +17,14 @@ const CACHE = "proxima-salida-v4";
 
 // Ficheros propios de la app. Rutas relativas para que funcione igual en
 // https://usuario.github.io/BusesAndalucia/ que en un servidor local.
+// Los datos de cada área metropolitana NO van aquí: son casi cinco megas
+// entre las nueve y sólo hace falta la que se está usando. Se cachean
+// sobre la marcha en el fetch, cuando se piden de verdad.
 const RECURSOS = [
   "./",
   "./index.html",
   "./ctas_routing.json",
+  "./data/consorcios.json",
   "./manifest.json"
 ];
 

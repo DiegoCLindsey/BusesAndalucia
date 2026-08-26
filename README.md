@@ -30,8 +30,10 @@ de Andalucía**, que no participan ni respaldan esto. Los horarios son
 - **Ruta** — de parada a parada, de un punto del mapa, desde tu ubicación o
   **de municipio a municipio** (eligiéndolo en el buscador o tocando su
   círculo en el mapa). Enseña las combinaciones de líneas disponibles y se
-  queda con la de menos trasbordos, sin pedirte que elijas ningún criterio
-  de optimización. El itinerario se lee como una línea vertical: hora y
+  queda con la que llega antes de verdad —salvo que una con menos
+  trasbordos se quede a un cuarto de hora o menos, y entonces gana la
+  sencilla—, sin pedirte que elijas ningún criterio de optimización. El
+  itinerario se lee como una línea vertical: hora y
   sitio en cada punto, qué coges entre punto y punto, y cuánto esperas en
   cada trasbordo. Cuando no hay manera de llegar, dice por qué — y si se
   puede ir **directo, a pie o en bicicleta** (interruptor aparte, porque
@@ -64,8 +66,8 @@ como aplicación en el móvil.
 | `data/catalogo.json` | Las paradas, líneas y municipios de toda Andalucía (460 KB) |
 | `data/{1..9}/horarios.json` | Los horarios de un área: bloques, calendario, trazados y grafo a pie |
 | `fuentes/paradas_*.json` | Respuesta de `/paradas` de la API, para regenerar sin red |
-| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas, directo_pie_bici, bici_entre_paradas, mejor_opcion) |
-| `package.json` | `npm test` lanza las diez suites |
+| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas, directo_pie_bici, mejor_opcion) |
+| `package.json` | `npm test` lanza las nueve suites |
 | `sw.js` | Service Worker: caché offline y notificaciones |
 | `manifest.json`, `icon.svg` | Instalación como PWA |
 | `build_from_gtfs.py` | Genera todo `data/` a partir del GTFS oficial |
@@ -292,22 +294,6 @@ no pasan por aquí.
   seria, sólo ruido). La bicicleta es opt-in —no todo el mundo tiene una a
   mano— y se recuerda entre visitas.
 
-- **La bicicleta también ahorra trasbordos dentro del propio itinerario.**
-  El interruptor no sólo ofrece "ir directo en bici": con él activado, el
-  buscador prueba saltos en bici de hasta 2,5 km entre paradas (antes 600 m
-  a pie), así que puede enganchar una línea mejor en vez de esperar a que
-  aparezca un autobús que cubra ese trozo. Un caso real: Guillena a
-  Mairena del Alcor encontraba una combinación de cinco trasbordos que
-  serpenteaba por medio Sevilla; con la bici puesta, una alternativa baja
-  de trasbordos y llega antes, pedaleando varios tramos cortos entre
-  parada y parada. Esto sacó a la luz un fallo real del
-  motor —un salto a pie o en bici podía encadenarse con otro sin que
-  hubiera autobús de por medio, si la parada de llegada de un salto
-  resultaba ser también el origen de otro dentro de la misma ronda de
-  RAPTOR—, que se arregló congelando la hora de salida de cada parada
-  antes de repartir los saltos y sin dejar que una parada que ya hubiera
-  llegado en autobús esa ronda cambie de historia por un salto ajeno.
-
 - **La opción por defecto no siempre es la de menos trasbordos.** RAPTOR
   ordena las alternativas por número de trasbordos, pero la primera de la
   lista no siempre es la más rápida de verdad: con más autobuses de margen
@@ -323,23 +309,23 @@ no pasan por aquí.
   cambia cuál se enseña sin tocar nada, tanto en la pantalla de Ruta como
   en el cálculo de las rutas favoritas.
 
-- **El tope de vecinos en bici se quedaba corto en los centros con más
-  densidad de paradas.** Sobre ese mismo caso —Guillena a Carmona—
-  seguía quedando una espera de más de dos horas de por medio, y la
-  causa era otra distinta: el salto en bici sólo probaba las doce
-  paradas más cercanas (`MAX_VECINOS_BICI`), un tope pensado para el
-  radio a pie (600 m) y nunca subido al ampliar el radio en bici a
-  2.500 m —diecisiete veces más área—. En Plaza de Armas, en pleno
-  centro de Sevilla, hay 31 paradas dentro de ese radio: la que
-  enganchaba con la línea a Carmona quedaba en el puesto 16, fuera del
-  tope, así que ese salto ni se probaba. Con el tope subido a 40 sí se
-  encuentra, y con ella una combinación de dos trasbordos que llega una
-  hora antes que la mejor de antes —y con menos trasbordos, no más—.
-  Subir el tope no cuesta prácticamente nada: `vecinosCerca` ya calcula
-  y ordena todas las paradas del radio antes de recortar la lista, así
-  que ampliar cuántas se quedan no añade trabajo aparte, sólo dispersa
-  algo más la búsqueda en las zonas más concurridas (2,7 ms de media por
-  consulta, frente a los 2,35 ms de antes).
+- **Vuelta a RAPTOR clásico: sin saltos a pie ni en bici a mitad de
+  trayecto.** Se probó a dejar que el buscador enganchase una línea
+  mejor pedaleando entre dos paradas a mitad de itinerario (no sólo al
+  principio y al final), con un radio cada vez mayor para cubrirlo. Dio
+  varios bugs reales por el camino —saltos encadenados sin autobús de
+  por medio, un tope de vecinos pensado para un radio mucho más pequeño—
+  y aun arreglados, el resultado era difícil de predecir: la ruta que
+  salía dependía de qué paradas quedaban dentro de un radio en línea
+  recta, no de una decisión que tuviera sentido explicar. Se ha quitado
+  esa parte entera del motor: dentro de la búsqueda sólo queda el paseo
+  de siempre para llegar a la primera parada, el de después de la
+  última, y el trasbordo a pie de hasta 600 m entre dos líneas (cruzar
+  la calle a la parada de enfrente, no perseguir una mejor a base de
+  bicicleta). "Ir directo, a pie o en bicicleta" —el punto de arriba— no
+  se ha tocado: es una alternativa aparte, sencilla de entender, y sigue
+  ahí. Lo que sustituye a los saltos automáticos es dejar que sea la
+  persona quien decida por dónde pasar: ver "Puntos de ruta", más abajo.
 
 - **Sentido de circulación.** Es el final del bloque que coges, no la
   cabecera de la línea. Así todos los recorridos que pasan por tu parada

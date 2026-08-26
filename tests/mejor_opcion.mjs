@@ -3,15 +3,10 @@
  *
  * Salió de un caso real: Guillena a Carmona daba por defecto una
  * combinación de "sólo" tres trasbordos que llevaba casi dos horas y
- * media de esperas sumadas (50 + 8 + 85 + 18 min), cuando había una con
- * un trasbordo más que llegaba una hora antes. La de menos trasbordos
- * seguía disponible a un toque en las pestañas de arriba — el problema
- * era sólo cuál se enseñaba SIN tocar nada. (Ese mismo caso quedó
- * arreglado de raíz al ampliar MAX_VECINOS_BICI —ver
- * tests/bici_entre_paradas.mjs—, así que hoy Guillena a Carmona encuentra
- * una única combinación dominante y ya no sirve para probar esto: el
- * caso 1 de abajo usa otro par de paradas que sigue dando varias
- * alternativas de verdad.)
+ * media de esperas sumadas, cuando había una con un trasbordo más que
+ * llegaba una hora antes. La de menos trasbordos seguía disponible a un
+ * toque en las pestañas de arriba — el problema era sólo cuál se
+ * enseñaba SIN tocar nada.
  *
  * `mejorOpcion()` no siempre elige la más rápida a machamartillo: si la
  * ganancia es de un par de minutos, no compensa la complicación de un
@@ -59,19 +54,18 @@ const ok = (cond, txt, extra) => {
 };
 
 /* ------------------------------------------------------------------ */
-/* 1. Un caso real con varias alternativas: Camas a Castilleja de la    */
-/*    Cuesta (dos pueblos del Aljarafe), con la bici activada           */
+/* 1. Un caso real con varias alternativas: Castilleja de la Cuesta a   */
+/*    San Juan de Aznalfarache (dos pueblos del Aljarafe)               */
 /* ------------------------------------------------------------------ */
 const r = await page.evaluate(() => {
   const salida = new Date('2026-08-26T08:00:00');
-  const origen = { type: 'stop', id: '1_2327' };   // Rues (Gasolinera), Camas
-  const destino = { type: 'stop', id: '1_2377' };  // Hacienda San Ignacio (V), Castilleja de la Cuesta
+  const origen = { type: 'stop', id: '1_2376' };   // C Real Irlandesas Frente, Castilleja de la Cuesta
+  const destino = { type: 'stop', id: '1_2895' };  // Rtda Hdad Sacram S Juan Bautista, San Juan de Aznalfarache
   const resumen = res => !res ? null : {
     trasbordos: res.numTrasbordos,
     llegada: fmtHoraAbs(res.diasSalida * 1440 + res.llegadaMin)
   };
 
-  MODO_BICI = true;
   const opciones = calcularOpcionesRuta(APP.data, ROUTING, origen, destino, salida);
   const elegida = mejorOpcion(opciones);
 
@@ -83,8 +77,8 @@ console.log('');
 ok(r.opciones.length >= 2, 'hay más de una combinación entre las que elegir', r.opciones.length);
 ok(r.elegida.trasbordos > r.opciones[0].trasbordos,
   'la elegida no es la de menos trasbordos...', `${r.opciones[0].trasbordos} → ${r.elegida.trasbordos}`);
-ok(r.elegida.llegada === '08:44' && r.opciones[0].llegada === '09:33',
-  '...sino la que llega antes de verdad (08:44, no 09:33)', JSON.stringify(r));
+ok(r.elegida.llegada === '08:53' && r.opciones[0].llegada === '09:23',
+  '...sino la que llega antes de verdad (08:53, no 09:23)', JSON.stringify(r));
 
 /* ------------------------------------------------------------------ */
 /* 2. Sin diferencia real, gana la simple                               */
@@ -107,7 +101,6 @@ ok(umbral.meritoria, 'veinte minutos sí compensan: gana la más rápida');
 /* ------------------------------------------------------------------ */
 const favorito = await page.evaluate(() => {
   const idPor = n => Object.entries(APP.data.paradas).find(([, p]) => p.nombre.toUpperCase() === n.toUpperCase())[0];
-  MODO_BICI = true;
   const res = computeRoute(APP.data, ROUTING,
     { type: 'stop', id: idPor('AV ANDALUCIA (ARROYO)') },
     { type: 'stop', id: idPor('PLAZA DE ARMAS') },

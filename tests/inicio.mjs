@@ -155,10 +155,11 @@ if (await btn.count()) {
 // que es lo que decide, y así una sola carga sirve para los cuatro casos.
 const preferencia = await page.evaluate(({ aqui, m177 }) => {
   UBICACION = { lat: aqui.latitude, lng: aqui.longitude };
-  const resumen = () => salidasVigiladas().map(s => ({
+  const resumenCon = incluirOtrasLineas => salidasVigiladas(incluirOtrasLineas).map(s => ({
     linea: s.codigo, hacia: s.hacia, parada: s.paradaNombre,
     metros: s.dist == null ? null : Math.round(s.dist)
   }));
+  const resumen = () => resumenCon(undefined);
   const idPor = n => Object.entries(APP.data.paradas).find(([, p]) => p.nombre.toUpperCase() === n.toUpperCase())[0];
   const casos = {};
 
@@ -188,6 +189,19 @@ const preferencia = await page.evaluate(({ aqui, m177 }) => {
   FAVORITOS.lineas = [];
   FAVORITOS.paradas = [{ id: idPor('PLAZA DE ARMAS'), nombre: 'PLAZA DE ARMAS' }];
   casos.paradaSinLineaFavorita = resumen();
+
+  // La misma idea, pero AHORA sí sigo una línea (la 177, en el Arroyo,
+  // que sale cubierta aparte). "Polígono Torreblanca" es una parada
+  // favorita a la que no llega la 177 (sólo la M-120): no debe asomar
+  // por defecto, sólo al pulsar "ver más".
+  FAVORITOS.lineas = [{ slug: CTAN.lineas.find(l => l.codigo === m177).slug }];
+  FAVORITOS.paradas = [
+    { id: idPor('AV ANDALUCIA (ARROYO)'), nombre: 'AV ANDALUCIA (ARROYO)' },
+    { id: idPor('POLIGONO (JUNTO A RENAULT) TORREBLANCA'), nombre: 'POLIGONO (JUNTO A RENAULT) TORREBLANCA' }
+  ];
+  UBICACION = { lat: 37.5443, lng: -6.0567 };   // Guillena, junto al Arroyo
+  casos.conLineaLaParadaSinCubrirOculta = resumenCon(false);
+  casos.conLineaLaParadaSinCubrirVerMas = resumenCon(true);
 
   FAVORITOS.lineas = []; FAVORITOS.paradas = [];
   return casos;
@@ -236,6 +250,20 @@ ok(sinFav.length === 3 && sinFav.every(f => /^PLAZA DE ARMAS$/i.test(f.parada)),
   JSON.stringify(sinFav.map(f => f.linea)));
 ok(new Set(sinFav.map(f => f.linea)).size > 1,
   'de las líneas que sean, no sólo de una');
+
+// Regresión: con una línea favorita Y una parada favorita que esa línea
+// no cubre, la parada suelta no debe colarse en el resumen — sólo la
+// línea que de verdad se sigue — y sólo debe aparecer al pedir "ver más".
+const oculta = preferencia.conLineaLaParadaSinCubrirOculta;
+const conVerMas = preferencia.conLineaLaParadaSinCubrirVerMas;
+ok(oculta.length > 0 && oculta.every(f => f.linea === 'M-177'),
+  'con línea favorita, la parada favorita sin cubrir no aparece por defecto',
+  JSON.stringify(oculta.map(f => f.linea + ' · ' + f.parada)));
+ok(conVerMas.some(f => /^POLIGONO \(JUNTO A RENAULT\) TORREBLANCA$/i.test(f.parada)),
+  'pero sí aparece al pulsar "ver más"',
+  JSON.stringify(conVerMas.map(f => f.linea + ' · ' + f.parada)));
+ok(conVerMas.some(f => f.linea === 'M-177'),
+  'sin perder la línea que sí se sigue');
 
 ok(errores.length === 0, 'sin errores en consola', JSON.stringify(errores));
 console.log(fallos ? `\n${fallos} comprobaciones fallidas` : '\nTodo correcto');

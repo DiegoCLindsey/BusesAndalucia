@@ -78,8 +78,12 @@ ok(sinBici.n >= 1 && sinBici.todasConBus,
   'sin bici activada, 33 km a pie no se cuela como opción (son >6 h)', JSON.stringify(sinBici));
 
 // Con bici: 33 km en bici son unas cinco horas y media — sí compite, y
-// aparece como una opción más, sin desplazar a la de autobús del puesto
-// por defecto.
+// se añade al final de la lista, sin desplazar a la de autobús del
+// puesto por defecto. Además, con la bici también puesta a saltar de
+// parada en parada, el propio buscador de autobuses puede encontrar
+// combinaciones que antes no salían (menos trasbordos, o el mismo número
+// pero más rápidas), así que puede que no sea "una opción más": pueden
+// ser varias.
 await page.click('#btnModoBici');
 await page.waitForTimeout(400);
 const conBici = await page.evaluate(() => ({
@@ -89,9 +93,9 @@ const conBici = await page.evaluate(() => ({
   pills: [...document.querySelectorAll('#rutaOpciones .opcion-pill')].map(b => b.textContent.replace(/\s+/g, ' ').trim()),
   armado: document.getElementById('btnModoBici').classList.contains('armed')
 }));
-ok(conBici.n === sinBici.n + 1, 'con bici activada aparece una opción más', conBici.n);
+ok(conBici.n > sinBici.n, 'con bici activada aparecen opciones nuevas', `${sinBici.n} → ${conBici.n}`);
 ok(conBici.primeraEsBus, 'la opción por defecto sigue siendo la de autobús, no la bici', conBici.primeraEsBus);
-ok(conBici.ultimaEsBici, 'la bici se añade al final, no encabeza la lista', conBici.ultimaEsBici);
+ok(conBici.ultimaEsBici, 'la bici (todo el trayecto) se añade al final, no encabeza la lista', conBici.ultimaEsBici);
 ok(conBici.armado, 'el interruptor se marca como activado', conBici.armado);
 ok(conBici.pills.some(p => /en bici/.test(p)), 'la opción de bici se etiqueta "en bici"', JSON.stringify(conBici.pills));
 

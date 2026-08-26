@@ -64,8 +64,8 @@ como aplicación en el móvil.
 | `data/catalogo.json` | Las paradas, líneas y municipios de toda Andalucía (460 KB) |
 | `data/{1..9}/horarios.json` | Los horarios de un área: bloques, calendario, trazados y grafo a pie |
 | `fuentes/paradas_*.json` | Respuesta de `/paradas` de la API, para regenerar sin red |
-| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas, directo_pie_bici) |
-| `package.json` | `npm test` lanza las ocho suites |
+| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas, directo_pie_bici, bici_entre_paradas) |
+| `package.json` | `npm test` lanza las nueve suites |
 | `sw.js` | Service Worker: caché offline y notificaciones |
 | `manifest.json`, `icon.svg` | Instalación como PWA |
 | `build_from_gtfs.py` | Genera todo `data/` a partir del GTFS oficial |
@@ -291,6 +291,22 @@ no pasan por aquí.
   se ofrece si tarda seis horas o menos (más de eso no es una alternativa
   seria, sólo ruido). La bicicleta es opt-in —no todo el mundo tiene una a
   mano— y se recuerda entre visitas.
+
+- **La bicicleta también ahorra trasbordos dentro del propio itinerario.**
+  El interruptor no sólo ofrece "ir directo en bici": con él activado, el
+  buscador prueba saltos en bici de hasta 2,5 km entre paradas (antes 600 m
+  a pie), así que puede enganchar una línea mejor en vez de esperar a que
+  aparezca un autobús que cubra ese trozo. Un caso real: Guillena a
+  Mairena del Alcor encontraba una combinación de cinco trasbordos que
+  serpenteaba por medio Sevilla; con la bici puesta, una alternativa baja
+  a cuatro trasbordos y llega una hora antes, pedaleando cuatro tramos
+  cortos entre parada y parada. Esto sacó a la luz un fallo real del
+  motor —un salto a pie o en bici podía encadenarse con otro sin que
+  hubiera autobús de por medio, si la parada de llegada de un salto
+  resultaba ser también el origen de otro dentro de la misma ronda de
+  RAPTOR—, que se arregló congelando la hora de salida de cada parada
+  antes de repartir los saltos y sin dejar que una parada que ya hubiera
+  llegado en autobús esa ronda cambie de historia por un salto ajeno.
 
 - **Sentido de circulación.** Es el final del bloque que coges, no la
   cabecera de la línea. Así todos los recorridos que pasan por tu parada

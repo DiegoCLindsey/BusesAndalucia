@@ -299,8 +299,8 @@ no pasan por aquí.
   aparezca un autobús que cubra ese trozo. Un caso real: Guillena a
   Mairena del Alcor encontraba una combinación de cinco trasbordos que
   serpenteaba por medio Sevilla; con la bici puesta, una alternativa baja
-  a cuatro trasbordos y llega una hora antes, pedaleando cuatro tramos
-  cortos entre parada y parada. Esto sacó a la luz un fallo real del
+  de trasbordos y llega antes, pedaleando varios tramos cortos entre
+  parada y parada. Esto sacó a la luz un fallo real del
   motor —un salto a pie o en bici podía encadenarse con otro sin que
   hubiera autobús de por medio, si la parada de llegada de un salto
   resultaba ser también el origen de otro dentro de la misma ronda de
@@ -322,6 +322,24 @@ no pasan por aquí.
   frontera— sigue disponible a un toque en las pestañas de arriba; sólo
   cambia cuál se enseña sin tocar nada, tanto en la pantalla de Ruta como
   en el cálculo de las rutas favoritas.
+
+- **El tope de vecinos en bici se quedaba corto en los centros con más
+  densidad de paradas.** Sobre ese mismo caso —Guillena a Carmona—
+  seguía quedando una espera de más de dos horas de por medio, y la
+  causa era otra distinta: el salto en bici sólo probaba las doce
+  paradas más cercanas (`MAX_VECINOS_BICI`), un tope pensado para el
+  radio a pie (600 m) y nunca subido al ampliar el radio en bici a
+  2.500 m —diecisiete veces más área—. En Plaza de Armas, en pleno
+  centro de Sevilla, hay 31 paradas dentro de ese radio: la que
+  enganchaba con la línea a Carmona quedaba en el puesto 16, fuera del
+  tope, así que ese salto ni se probaba. Con el tope subido a 40 sí se
+  encuentra, y con ella una combinación de dos trasbordos que llega una
+  hora antes que la mejor de antes —y con menos trasbordos, no más—.
+  Subir el tope no cuesta prácticamente nada: `vecinosCerca` ya calcula
+  y ordena todas las paradas del radio antes de recortar la lista, así
+  que ampliar cuántas se quedan no añade trabajo aparte, sólo dispersa
+  algo más la búsqueda en las zonas más concurridas (2,7 ms de media por
+  consulta, frente a los 2,35 ms de antes).
 
 - **Sentido de circulación.** Es el final del bloque que coges, no la
   cabecera de la línea. Así todos los recorridos que pasan por tu parada

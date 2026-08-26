@@ -1022,6 +1022,7 @@
       <div class="field-row">
         <button class="btn" id="btnCalcularRuta" type="button">Ver cómo llegar</button>
         <button class="btn-chip" id="btnOtraHora" type="button">Salgo a otra hora</button>
+        <button class="btn-chip" id="btnModoBici" type="button" data-ico="bici" title="Ofrecer también ir en bicicleta, al doble de velocidad que a pie">Bicicleta</button>
       </div>
       <div class="field" id="campoHora" hidden style="margin-top:12px;">
         <label class="field-label" for="horaSalida">Salir a las</label>
@@ -1212,6 +1213,7 @@ const ICONOS = {
   lapiz:     `<path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"/>`,
   refrescar: `<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/>`,
   andar:     `<circle cx="13" cy="4" r="1.6"/><path d="m10 21 2-5-2.5-2.5.5-4.5 3 1.5 2 2.5"/><path d="M8.5 9 12 8"/><path d="m15 21-1.5-4"/>`,
+  bici:      `<circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17 10 8h4l4 9"/><path d="M9 8H7"/><path d="m14 8 3 4h-6"/>`,
   abajo:     `<path d="m6 9 6 6 6-6"/>`,
   municipio: `<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.2" fill="currentColor" stroke="none"/>`,
   sol:       `<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>`,
@@ -3747,6 +3749,29 @@ function walkMinutes(distMeters) {
   return Math.max(1, Math.round((distMeters / 1000) / 3 * 60));
 }
 
+/** El pedal cunde el doble que caminar, por decisión sencilla: mismo
+ * cálculo de distancia en línea recta, la mitad de minutos. */
+function bikeMinutes(distMeters) {
+  return Math.max(1, Math.round(walkMinutes(distMeters) / 2));
+}
+
+/** Ir en bicicleta es opt-in: no todo el mundo tiene una a mano, así que
+ * por defecto sólo se ofrece caminar. Se recuerda entre visitas. */
+const LS_MODO_BICI = "ctanModoBiciV1";
+let MODO_BICI = false;
+try { MODO_BICI = localStorage.getItem(LS_MODO_BICI) === "1"; } catch (e) { MODO_BICI = false; }
+function setModoBici(activo) {
+  MODO_BICI = !!activo;
+  try { localStorage.setItem(LS_MODO_BICI, MODO_BICI ? "1" : "0"); } catch (e) { /* modo privado */ }
+}
+
+// Por encima de esto ni caminar ni pedalear es una alternativa seria: se
+// deja de ofrecer como opción y sólo queda el aviso de "sería más lento".
+// Seis horas de bici cubren un buen trozo de Andalucía (más de 30 km al
+// doble de la velocidad a pie) y aun así hay pueblos que se enlazan en
+// autobús con un rodeo peor que eso: vale la pena poder comparar.
+const UMBRAL_MIN_DIRECTO = 360;
+
 function nearestStop(appData, lat, lng) {
   let best = null, bestD = Infinity;
   for (const [id, p] of Object.entries(appData.paradas)) {
@@ -4694,6 +4719,11 @@ function drawRouteOnMap(res) {
       const a = APP.data.paradas[leg.origen];
       if (a && a.lat != null) latlngA = [a.lat, a.lng];
       latlngB = ROUTE_DESTINO.type === "point" ? [ROUTE_DESTINO.lat, ROUTE_DESTINO.lng] : null;
+    } else if (leg.tipo === "walk_todo") {
+      // Sin ninguna parada de por medio: del origen al destino tal cual
+      // se resolvieron, sea parada, municipio o punto marcado.
+      latlngA = coordenadasDeExtremo(APP.data, ROUTE_ORIGIN);
+      latlngB = coordenadasDeExtremo(APP.data, ROUTE_DESTINO);
     }
     if (!latlngA || !latlngB) return;
     const line = L.polyline([latlngA, latlngB], {
@@ -4717,7 +4747,8 @@ function etiquetaOpcion(res) {
   const cuenta = res.numTrasbordos === 0
     ? "directo"
     : `${res.numTrasbordos} trasbordo${res.numTrasbordos === 1 ? "" : "s"}`;
-  return { cuenta, codigos: codigos.length ? codigos : ["a pie"] };
+  const enBici = (res.totalPedaleandoMin || 0) > 0;
+  return { cuenta, codigos: codigos.length ? codigos : [enBici ? "en bici" : "a pie"] };
 }
 
 /** Las opciones disponibles, en fila y ordenadas por trasbordos: la
@@ -4801,6 +4832,12 @@ function construirFilasItinerario(res) {
       hito(leg.origen, { paradaId: leg.origen, llegada: leg.salida });
       filas.push({ tipo: "tramo", clase: "andando", leg });
       hito("_destino_", { destinoFinal: true, llegada: leg.llegada });
+    } else if (leg.tipo === "walk_todo") {
+      // La opción "ir directo": ni una parada de por medio, del punto de
+      // partida al destino en línea recta.
+      hito("_partida_", { partida: true, salida: leg.salida });
+      filas.push({ tipo: "tramo", clase: "andando", leg });
+      hito("_destino_", { destinoFinal: true, llegada: leg.llegada });
     }
   });
   return filas;
@@ -4844,10 +4881,12 @@ function itinerarioHtml(res) {
             ? Math.round(haversine(APP.data.paradas[leg.origen].lat, APP.data.paradas[leg.origen].lng,
                                    APP.data.paradas[leg.destino].lat, APP.data.paradas[leg.destino].lng))
             : null);
+      const enBici = leg.modo === "bici";
+      const verbo = enBici ? "Pedalea" : "Camina";
       return `<div class="${clases.join(" ")}">
         <div class="itin-hora"></div>
         <div class="itin-espina"></div>
-        <div class="itin-tramo"><div class="itin-andando">${icono("andar")}Camina${distM != null ? ` ${distM} m` : ""} · ${leg.llegada - leg.salida} min</div></div>
+        <div class="itin-tramo"><div class="itin-andando">${icono(enBici ? "bici" : "andar")}${verbo}${distM != null ? ` ${distM} m` : ""} · ${leg.llegada - leg.salida} min</div></div>
       </div>`;
     }
 
@@ -4908,19 +4947,31 @@ function renderRutaResultado(res, salidaDate, directo, opciones) {
   const enCuanto = salidaRealMin - salidaMin;
   if (enCuanto > 0) tags.push(`<span class="itin-tag${enCuanto <= 10 ? " ya" : ""}">Sal en ${fmtDur(enCuanto)}</span>`);
   else tags.push(`<span class="itin-tag ya">Sal ya</span>`);
-  tags.push(`<span class="itin-tag">${res.numTrasbordos} trasbordo${res.numTrasbordos === 1 ? "" : "s"}</span>`);
-  if (res.totalCaminandoMin > 0) tags.push(`<span class="itin-tag">${Math.round(res.totalCaminandoMin)} min a pie</span>`);
+  // "0 trasbordos" suena a autobús directo; una opción sin autobús ninguno
+  // se dice mejor con lo que de verdad es — a pie o en bici— y de cuánto.
+  if (res.lineas.length > 0) {
+    tags.push(`<span class="itin-tag">${res.numTrasbordos} trasbordo${res.numTrasbordos === 1 ? "" : "s"}</span>`);
+    if (res.totalCaminandoMin > 0) tags.push(`<span class="itin-tag">${Math.round(res.totalCaminandoMin)} min a pie</span>`);
+    if (res.totalPedaleandoMin > 0) tags.push(`<span class="itin-tag">${Math.round(res.totalPedaleandoMin)} min en bici</span>`);
+  } else {
+    tags.push(`<span class="itin-tag">${res.totalPedaleandoMin > 0 ? "todo en bici" : "todo a pie"}</span>`);
+  }
 
   // Con un municipio como extremo, la parada concreta la elige el
   // buscador: hay que decir cuál, o el itinerario no se puede seguir.
+  // Ninguna de las dos dice nada útil cuando la opción activa YA es ir
+  // directo: no hay parada intermedia que anunciar, y comparar el paseo
+  // consigo mismo no informa de nada.
+  const esDirecta = res.lineas.length === 0;
+
   let extremosHtml = "";
-  if (ROUTE_ORIGIN.type === "municipio" || ROUTE_DESTINO.type === "municipio") {
+  if (!esDirecta && (ROUTE_ORIGIN.type === "municipio" || ROUTE_DESTINO.type === "municipio")) {
     const pO = APP.data.paradas[res.origenStopId], pD = APP.data.paradas[res.destinoStopId];
     extremosHtml = `<div class="itin-extremos">Sale de <b>${escapeHtml(pO ? pO.nombre : "?")}</b> y llega a <b>${escapeHtml(pD ? pD.nombre : "?")}</b></div>`;
   }
 
   let avisoCaminar = "";
-  if (directo && directo.minutos < totalTransporteMin) {
+  if (!esDirecta && directo && directo.minutos < totalTransporteMin) {
     avisoCaminar = `<div class="itin-leg-warn">${icono("aviso")}<span>Ir caminando en línea recta (${Math.round(directo.distMetros)} m) tardaría solo ${fmtDur(directo.minutos)} — menos que esta ruta, que incluye ${fmtDur(esperaInicialMin)} de espera.</span></div>`;
   }
 
@@ -4969,19 +5020,21 @@ function renderRutaResultado(res, salidaDate, directo, opciones) {
   drawRouteOnMap(res);
 }
 
-/** Distancia/tiempo a pie en línea recta directamente entre origen y
- * destino, sin pasar por transporte público. Sirve para avisar cuando
- * la ruta en autobús calculada (con esperas incluidas) sale más lenta
- * que ir andando directamente. */
-function distanciaDirecta(appData, origin, destino) {
-  // Con un municipio entero por medio no tiene sentido comparar con "ir
-  // andando": no hay un punto concreto del que salir.
-  if (origin.type === "municipio" || destino.type === "municipio") return null;
+/** Distancia/tiempo en línea recta directamente entre origen y destino,
+ * sin pasar por transporte público — a pie, o en bicicleta al doble de
+ * velocidad. Un municipio se mide desde el centro de su núcleo (el mismo
+ * punto que usa el buscador de itinerarios para "voy a tal pueblo"), así
+ * que sirve igual para dos paradas concretas que para dos municipios
+ * enteros. Sirve para avisar cuando la ruta en autobús calculada (con
+ * esperas incluidas) sale más lenta que ir directo, y para ofrecerlo
+ * como una opción más cuando de verdad compite. */
+function distanciaDirecta(appData, origin, destino, modo) {
   const latlngA = coordenadasDeExtremo(appData, origin);
   const latlngB = coordenadasDeExtremo(appData, destino);
   if (!latlngA || !latlngB) return null;
   const distMetros = haversine(latlngA[0], latlngA[1], latlngB[0], latlngB[1]);
-  return { distMetros, minutos: walkMinutes(distMetros) };
+  const esBici = modo === "bici";
+  return { distMetros, minutos: esBici ? bikeMinutes(distMetros) : walkMinutes(distMetros), modo: esBici ? "bici" : "pie" };
 }
 
 async function onCalcularRuta() {
@@ -5008,11 +5061,49 @@ async function onCalcularRuta() {
   }
   const horaInput = document.getElementById("horaSalida").value;
   const salida = horaInput ? new Date(horaInput) : new Date();
-  const directo = distanciaDirecta(APP.data, ROUTE_ORIGIN, ROUTE_DESTINO);
+  const directo = distanciaDirecta(APP.data, ROUTE_ORIGIN, ROUTE_DESTINO, "pie");
 
   RUTA_OPCIONES = calcularOpcionesRuta(APP.data, ROUTING, ROUTE_ORIGIN, ROUTE_DESTINO, salida);
+
+  // Ir directo —a pie, o en bici si se ha activado— se ofrece como una
+  // opción más, no sólo como un aviso al pie de la ruta en autobús: a
+  // veces es la única manera (dos áreas sin conectar, un pueblo que sólo
+  // enlaza con muchos trasbordos) y a veces sencillamente compite. Va
+  // DETRÁS de las de autobús, así que nunca roba el puesto por defecto a
+  // una ruta en transporte público que sí exista.
+  [directo, MODO_BICI ? distanciaDirecta(APP.data, ROUTE_ORIGIN, ROUTE_DESTINO, "bici") : null]
+    .forEach(d => {
+      if (d && d.minutos <= UMBRAL_MIN_DIRECTO) RUTA_OPCIONES.push(construirOpcionDirecta(d, salida));
+    });
+
   RUTA_OPCION_ACTIVA = 0;
   renderRutaResultado(RUTA_OPCIONES[0] || null, salida, directo, RUTA_OPCIONES);
+}
+
+/** Una opción "ir directo": sin autobús, sólo el paseo o el pedaleo en
+ * línea recta de un extremo al otro. Con la misma forma que cualquier
+ * itinerario en autobús, para que encaje en el selector de opciones, el
+ * dibujo del mapa y la ficha del itinerario sin código aparte. */
+function construirOpcionDirecta(directo, salidaDate) {
+  const salidaMin = salidaDate.getHours() * 60 + salidaDate.getMinutes();
+  const llegadaAbs = salidaMin + directo.minutos;
+  const diasSalida = Math.floor(llegadaAbs / 1440);
+  const leg = {
+    tipo: "walk_todo", modo: directo.modo, distMetros: directo.distMetros,
+    salida: salidaMin, llegada: llegadaAbs
+  };
+  return {
+    legs: [leg],
+    llegadaMin: llegadaAbs - diasSalida * 1440,
+    diasSalida,
+    origenStopId: null,
+    destinoStopId: null,
+    totalCaminandoMin: directo.modo === "bici" ? 0 : directo.minutos,
+    totalPedaleandoMin: directo.modo === "bici" ? directo.minutos : 0,
+    numTrasbordos: 0,
+    lineas: [],
+    salidaMin
+  };
 }
 
 function nowForDatetimeLocal() {
@@ -5038,6 +5129,16 @@ function wireRuta() {
     const campo = document.getElementById("campoHora");
     campo.hidden = !campo.hidden;
     if (!campo.hidden) document.getElementById("horaSalida").focus();
+  });
+
+  const btnBici = document.getElementById("btnModoBici");
+  btnBici.classList.toggle("armed", MODO_BICI);
+  btnBici.addEventListener("click", () => {
+    setModoBici(!MODO_BICI);
+    btnBici.classList.toggle("armed", MODO_BICI);
+    // Si ya había un resultado en pantalla, se recalcula con el nuevo
+    // modo puesto; si no había nada que calcular, no pasa nada.
+    if (ROUTE_ORIGIN && ROUTE_DESTINO) onCalcularRuta();
   });
 }
 

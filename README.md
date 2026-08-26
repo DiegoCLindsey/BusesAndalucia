@@ -31,8 +31,10 @@ de Andalucía**, que no participan ni respaldan esto. Los horarios son
   **de municipio a municipio** (eligiéndolo en el buscador o tocando su
   círculo en el mapa). Enseña las combinaciones de líneas disponibles y se
   queda con la que llega antes de verdad —salvo que una con menos
-  trasbordos se quede a un cuarto de hora o menos, y entonces gana la
-  sencilla—, sin pedirte que elijas ningún criterio de optimización. El
+  trasbordos se quede a un cuarto de hora o menos, o que la más rápida
+  meta un rodeo desproporcionado y haya otra con menos vueltas, en cuyo
+  caso gana la sencilla o la más directa—, sin pedirte que elijas ningún
+  criterio de optimización. El
   itinerario se lee como una línea vertical: hora y
   sitio en cada punto, qué coges entre punto y punto, y cuánto esperas en
   cada trasbordo. Cuando no hay manera de llegar, dice por qué — y si se
@@ -315,6 +317,26 @@ no pasan por aquí.
   frontera— sigue disponible a un toque en las pestañas de arriba; sólo
   cambia cuál se enseña sin tocar nada, tanto en la pantalla de Ruta como
   en el cálculo de las rutas favoritas.
+
+- **Tampoco la que dé un rodeo desproporcionado.** RAPTOR persigue la
+  hora de llegada sin mirar el mapa: con bastantes trasbordos de margen,
+  a veces la que llega antes es una combinación que se va a dar una
+  vuelta por varios pueblos que no pintan nada en el camino. Cada
+  itinerario lleva ahora su `distanciaKm` (la suma de sus tramos, parada
+  a parada) y se compara con la línea recta entre origen y destino: si
+  una alternativa más rápida mete un rodeo desproporcionado —de largo,
+  más de tres veces la línea recta (`UMBRAL_RODEO_MAX`)— y hay otra con
+  menos rodeo entre las ya encontradas, gana ésta aunque tarde más. Caso
+  real, dentro de Sevilla: la combinación más rápida entre dos paradas a
+  9,2 km en línea recta daba un rodeo de 27,8 km (3 trasbordos, llega a
+  las 10:09); con menos rodeo hay una de 14,7 km y un solo trasbordo,
+  que llega a las 10:54 —45 minutos más tarde, la mitad de kilómetros—.
+  Es una preferencia sobre lo que RAPTOR ya ha encontrado, no una
+  búsqueda nueva: si la única combinación disponible da un rodeo grande
+  —no hay ninguna mejor entre las que se encontraron—, se enseña igual;
+  nunca deja sin ruta un trayecto que antes sí la tenía. Sin línea recta
+  con la que comparar (llamadas sin geografía real, como en las
+  pruebas), no penaliza nada.
 
 - **Vuelta a RAPTOR clásico: sin saltos a pie ni en bici a mitad de
   trayecto.** Se probó a dejar que el buscador enganchase una línea

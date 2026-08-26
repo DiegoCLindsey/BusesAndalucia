@@ -3907,6 +3907,13 @@ function coordenadasDeExtremo(appData, punto) {
   return [punto.lat, punto.lng];
 }
 
+/** La línea recta entre dos extremos, en km: el patrón contra el que se
+ * mide si una combinación da un rodeo grande o no (ver `mejorOpcion`). */
+function distanciaLineaRectaKm(appData, a, b) {
+  const latlngA = coordenadasDeExtremo(appData, a), latlngB = coordenadasDeExtremo(appData, b);
+  return latlngA && latlngB ? haversine(latlngA[0], latlngA[1], latlngB[0], latlngB[1]) / 1000 : 0;
+}
+
 /* ------------------------------------------------------------------ */
 /* Buscador de itinerarios (RAPTOR)                                     */
 /* ------------------------------------------------------------------ */
@@ -4099,6 +4106,26 @@ function reconstruir(rondas, padres, paradaId, ronda) {
 
 /** Envuelve un camino crudo en el resultado que espera la interfaz:
  * fusiona tramos, calcula esperas y añade los paseos de los extremos. */
+/** Cuántos km recorre de verdad un tramo: la suma parada a parada de un
+ * autobús (línea recta entre cada dos consecutivas, no el trazado real —
+ * de sobra para comparar rodeos, y sin depender de que el trazado esté
+ * cargado), o la línea recta del tramo si es un paseo. Sirve para que
+ * `mejorOpcion` sepa si una combinación da un rodeo grande, no sólo
+ * cuánto tarda. */
+function distanciaLegKm(leg) {
+  if (leg.distMetros != null) return leg.distMetros / 1000;
+  if (leg.tipo === "bus" && leg.paradasRuta && leg.paradasRuta.length >= 2) {
+    let km = 0;
+    for (let i = 1; i < leg.paradasRuta.length; i++) {
+      const a = CTAN.paradas[leg.paradasRuta[i - 1]], b = CTAN.paradas[leg.paradasRuta[i]];
+      if (a && b && a.lat != null && b.lat != null) km += haversine(a.lat, a.lng, b.lat, b.lng) / 1000;
+    }
+    return km;
+  }
+  const a = CTAN.paradas[leg.origen], b = CTAN.paradas[leg.destino];
+  return (a && b && a.lat != null && b.lat != null) ? haversine(a.lat, a.lng, b.lat, b.lng) / 1000 : 0;
+}
+
 function montarItinerario(crudos, o, de, destinoStopId, salidaMin, diaOffset) {
   crudos = crudos.map(l => ({ ...l, salida: l.salida + diaOffset, llegada: l.llegada + diaOffset }));
   salidaMin += diaOffset;
@@ -4144,7 +4171,8 @@ function montarItinerario(crudos, o, de, destinoStopId, salidaMin, diaOffset) {
     destinoStopId, totalCaminandoMin, totalPedaleandoMin,
     numTrasbordos: Math.max(0, legs.filter(l => l.tipo === "bus").length - 1),
     lineas: legs.filter(l => l.tipo === "bus").map(l => l.lineaSlug),
-    salidaMin: legs.length ? legs[0].salida : salidaMin
+    salidaMin: legs.length ? legs[0].salida : salidaMin,
+    distanciaKm: legs.reduce((suma, l) => suma + distanciaLegKm(l), 0)
   };
 }
 
@@ -4211,6 +4239,15 @@ function calcularOpcionesRuta(appData, routing, origin, destino, salida) {
 // no compensa la complicación de más; más, sí.
 const UMBRAL_MERECE_MAS_TRASBORDOS_MIN = 15;
 
+// Cuántas veces más larga que la línea recta puede ser una combinación
+// antes de considerarla "un rodeo grande". Un autobús nunca va en línea
+// recta —da la vuelta a la manzana, para en cada pueblo—, así que el
+// doble o el triple es normal y no cuenta; a partir de aquí, con RAPTOR
+// probando cada vez más trasbordos, empiezan a colarse combinaciones que
+// técnicamente llegan antes pero se van a dar una vuelta por tres
+// pueblos que no pintan nada en el camino.
+const UMBRAL_RODEO_MAX = 3;
+
 /** Cuál de las alternativas se enseña por defecto.
  *
  * `calcularOpcionesRuta` ya las da ordenadas de menos a más trasbordos,
@@ -4223,13 +4260,25 @@ const UMBRAL_MERECE_MAS_TRASBORDOS_MIN = 15;
  *
  * Se recomienda la más rápida de todas, pero sólo si de verdad compensa
  * el trasbordo de más: si la ganancia es de un par de minutos, gana la
- * simple. */
-function mejorOpcion(opciones) {
+ * simple. Y sólo si además no mete un rodeo desproporcionado que la
+ * opción actual no tuviera ya: RAPTOR persigue la hora de llegada sin
+ * mirar el mapa, así que con bastantes trasbordos de margen a veces sale
+ * la más rápida dando un rodeo por tres pueblos que no pintan nada en
+ * el camino. `distanciaLineaRectaKm` (opcional; sin ella no se penaliza
+ * nada, para que las llamadas sin geografía real —pruebas, sobre todo—
+ * se comporten exactamente igual que antes) es el patrón: pasos
+ * pequeños primero, y sólo se acepta un rodeo grande si de verdad no
+ * hay nada mejor. */
+function mejorOpcion(opciones, distanciaLineaRectaKm) {
   if (!opciones.length) return null;
   const llegadaDe = op => op.diasSalida * 1440 + op.llegadaMin;
+  const rodeoDe = op => (distanciaLineaRectaKm > 0 && op.distanciaKm != null)
+    ? op.distanciaKm / distanciaLineaRectaKm : 0;
   let mejor = opciones[0];
   opciones.forEach(op => {
-    if (llegadaDe(op) < llegadaDe(mejor) - UMBRAL_MERECE_MAS_TRASBORDOS_MIN) mejor = op;
+    if (llegadaDe(op) >= llegadaDe(mejor) - UMBRAL_MERECE_MAS_TRASBORDOS_MIN) return;
+    if (rodeoDe(op) > UMBRAL_RODEO_MAX && rodeoDe(op) > rodeoDe(mejor)) return;
+    mejor = op;
   });
   return mejor;
 }
@@ -4256,7 +4305,8 @@ function construirTramoDirecto(appData, desde, hasta, salidaTramoDate) {
     legs: [leg], llegadaMin: llegadaAbs - diasSalida * 1440, diasSalida,
     totalCaminandoMin: directo.modo === "bici" ? 0 : directo.minutos,
     totalPedaleandoMin: directo.modo === "bici" ? directo.minutos : 0,
-    numTrasbordos: 0, lineas: [], salidaMin
+    numTrasbordos: 0, lineas: [], salidaMin,
+    distanciaKm: directo.distMetros / 1000
   };
 }
 
@@ -4281,7 +4331,7 @@ function calcularRutaConTramos(appData, routing, puntos, salidaInicial, forzarDi
   const medianocheBase = new Date(salidaInicial.getFullYear(), salidaInicial.getMonth(), salidaInicial.getDate());
   let llegadaGlobalMin = salidaInicial.getHours() * 60 + salidaInicial.getMinutes();
   const legs = [];
-  let totalCaminandoMin = 0, totalPedaleandoMin = 0;
+  let totalCaminandoMin = 0, totalPedaleandoMin = 0, distanciaKm = 0;
   const lineas = [];
 
   for (let i = 0; i < puntos.length - 1; i++) {
@@ -4294,7 +4344,8 @@ function calcularRutaConTramos(appData, routing, puntos, salidaInicial, forzarDi
     const salidaTramo = new Date(medianocheBase.getTime() + llegadaGlobalMin * 60000);
     const elegida = forzarDirecto && forzarDirecto[i]
       ? construirTramoDirecto(appData, puntos[i], puntos[i + 1], salidaTramo)
-      : mejorOpcion(calcularOpcionesRuta(appData, routing, puntos[i], puntos[i + 1], salidaTramo));
+      : mejorOpcion(calcularOpcionesRuta(appData, routing, puntos[i], puntos[i + 1], salidaTramo),
+          distanciaLineaRectaKm(appData, puntos[i], puntos[i + 1]));
     if (!elegida) {
       const o = resolverExtremo(appData, puntos[i]), de = resolverExtremo(appData, puntos[i + 1]);
       const etiquetaO = o ? o.etiqueta : "el punto anterior", etiquetaD = de ? de.etiqueta : "el siguiente punto";
@@ -4307,6 +4358,7 @@ function calcularRutaConTramos(appData, routing, puntos, salidaInicial, forzarDi
     elegida.legs.forEach(l => legs.push({ ...l, salida: l.salida + offsetGlobal, llegada: l.llegada + offsetGlobal }));
     totalCaminandoMin += elegida.totalCaminandoMin;
     totalPedaleandoMin += elegida.totalPedaleandoMin;
+    distanciaKm += elegida.distanciaKm || 0;
     lineas.push(...elegida.lineas);
     llegadaGlobalMin = offsetGlobal + elegida.diasSalida * 1440 + elegida.llegadaMin;
   }
@@ -4320,7 +4372,7 @@ function calcularRutaConTramos(appData, routing, puntos, salidaInicial, forzarDi
     destinoStopId: ultimaLeg ? (ultimaLeg.tipo === "walk_tramo"
       ? (ultimaLeg.destinoPunto.type === "stop" ? ultimaLeg.destinoPunto.id : null)
       : ultimaLeg.destino) : null,
-    totalCaminandoMin, totalPedaleandoMin,
+    totalCaminandoMin, totalPedaleandoMin, distanciaKm,
     numTrasbordos: Math.max(0, legs.filter(l => l.tipo === "bus").length - 1),
     lineas,
     salidaMin: legs.length ? legs[0].salida : salidaInicial.getHours() * 60 + salidaInicial.getMinutes()
@@ -4409,7 +4461,8 @@ function motivoSinRuta(o, de) {
 
 /** La mejor de todas, según el mismo criterio que la pantalla de Ruta. */
 function computeRoute(appData, routing, origin, destino, salida) {
-  return mejorOpcion(calcularOpcionesRuta(appData, routing, origin, destino, salida));
+  return mejorOpcion(calcularOpcionesRuta(appData, routing, origin, destino, salida),
+    distanciaLineaRectaKm(appData, origin, destino));
 }
 
 function fmtHoraAbs(minAbs) {
@@ -5494,7 +5547,7 @@ async function onCalcularRuta() {
   // autobuses"— sino la más rápida de verdad, salvo que la simple se
   // quede a un cuarto de hora o menos (ahí no compensa complicarse). Las
   // demás siguen a un toque en las pestañas de arriba.
-  const elegida = mejorOpcion(RUTA_OPCIONES);
+  const elegida = mejorOpcion(RUTA_OPCIONES, distanciaLineaRectaKm(APP.data, ROUTE_ORIGIN, ROUTE_DESTINO));
   RUTA_OPCION_ACTIVA = RUTA_OPCIONES.indexOf(elegida);
   renderRutaResultado(elegida, salida, directo, RUTA_OPCIONES);
 }
@@ -5521,7 +5574,8 @@ function construirOpcionDirecta(directo, salidaDate) {
     totalPedaleandoMin: directo.modo === "bici" ? directo.minutos : 0,
     numTrasbordos: 0,
     lineas: [],
-    salidaMin
+    salidaMin,
+    distanciaKm: directo.distMetros / 1000
   };
 }
 

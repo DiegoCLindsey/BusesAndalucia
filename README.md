@@ -33,7 +33,10 @@ de Andalucía**, que no participan ni respaldan esto. Los horarios son
   queda con la de menos trasbordos, sin pedirte que elijas ningún criterio
   de optimización. El itinerario se lee como una línea vertical: hora y
   sitio en cada punto, qué coges entre punto y punto, y cuánto esperas en
-  cada trasbordo. Cuando no hay manera de llegar, dice por qué.
+  cada trasbordo. Cuando no hay manera de llegar, dice por qué — y si se
+  puede ir **directo, a pie o en bicicleta** (interruptor aparte, porque
+  no todo el mundo tiene una a mano), esa distancia también se ofrece como
+  una opción más, sin desplazar a la de autobús del puesto por defecto.
 - **Favoritos** — paradas, líneas y rutas guardadas, con recálculo automático.
 - **Avisos** — que te avise 5, 10 o 15 minutos antes de que salga tu
   autobús, mientras la app siga abierta.
@@ -61,8 +64,8 @@ como aplicación en el móvil.
 | `data/catalogo.json` | Las paradas, líneas y municipios de toda Andalucía (460 KB) |
 | `data/{1..9}/horarios.json` | Los horarios de un área: bloques, calendario, trazados y grafo a pie |
 | `fuentes/paradas_*.json` | Respuesta de `/paradas` de la API, para regenerar sin red |
-| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas) |
-| `package.json` | `npm test` lanza las siete suites |
+| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas, directo_pie_bici) |
+| `package.json` | `npm test` lanza las ocho suites |
 | `sw.js` | Service Worker: caché offline y notificaciones |
 | `manifest.json`, `icon.svg` | Instalación como PWA |
 | `build_from_gtfs.py` | Genera todo `data/` a partir del GTFS oficial |
@@ -270,7 +273,24 @@ no pasan por aquí.
   pedir demasiados cambios. El motor nunca descarta una combinación por lo
   que haya que esperar entre un autobús y el siguiente, aunque sean horas:
   sólo cuenta trasbordos, no tiempo perdido. Una consulta tarda unos pocos
-  milisegundos.
+  milisegundos. Ojo: RAPTOR encuentra el que *llega antes* con cada número
+  de trasbordos, no necesariamente el más sensato — con ocho autobuses de
+  margen a veces gana una combinación que serpentea por media provincia en
+  vez de una más directa que tarda un poco más. Para eso está la opción de
+  ir directo (siguiente punto): compara sin necesidad de fiarse a ciegas.
+
+- **Ir directo, a pie o en bicicleta, es una opción más.** La misma
+  distancia en línea recta (a 3 km/h; al doble si se activa la bicicleta)
+  que ya avisaba de "caminando sería más rápido" se ofrece ahora como un
+  itinerario seleccionable más, con la misma pinta que uno en autobús —
+  útil para comparar contra una combinación que da un rodeo raro, y
+  necesario cuando no hay autobús ninguno que sirva (dos áreas sin
+  conectar a poca distancia, un cruce que sólo un urbano municipal
+  resuelve). Va siempre al final de la lista, así que nunca le quita el
+  puesto por defecto a una ruta en transporte público que sí exista; sólo
+  se ofrece si tarda seis horas o menos (más de eso no es una alternativa
+  seria, sólo ruido). La bicicleta es opt-in —no todo el mundo tiene una a
+  mano— y se recuerda entre visitas.
 
 - **Sentido de circulación.** Es el final del bloque que coges, no la
   cabecera de la línea. Así todos los recorridos que pasan por tu parada

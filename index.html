@@ -3700,7 +3700,15 @@ const MAX_VECINOS_A_PIE = 10;    // ramas por parada: de sobra sin dispersar la 
 // y ahorrarse un trasbordo entero: más radio que a pie, no sólo más rápido
 // en el mismo radio.
 const RADIO_BICI_M = 2500;
-const MAX_VECINOS_BICI = 12;
+// El radio en bici cubre casi 17 veces más área que a pie (2500 frente a
+// 600 m), así que un tope de vecinos pensado para el radio a pie deja
+// fuera precisamente las paradas que ese radio más grande quería
+// alcanzar: en un centro con mucha densidad de paradas —Plaza de Armas,
+// en Sevilla— más de dos docenas caen dentro de los 2,5 km, y la que
+// engancha la línea buena podía quedarse en el puesto 16. El tope sube
+// para que cubrir un centro concurrido no cueste dejar fuera la parada
+// que de verdad servía.
+const MAX_VECINOS_BICI = 40;
 
 function construirIndiceGeo(radioM) {
   const indice = { celdas: new Map(), lado: radioM / 111320 };

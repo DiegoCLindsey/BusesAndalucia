@@ -6,7 +6,12 @@
  * media de esperas sumadas (50 + 8 + 85 + 18 min), cuando había una con
  * un trasbordo más que llegaba una hora antes. La de menos trasbordos
  * seguía disponible a un toque en las pestañas de arriba — el problema
- * era sólo cuál se enseñaba SIN tocar nada.
+ * era sólo cuál se enseñaba SIN tocar nada. (Ese mismo caso quedó
+ * arreglado de raíz al ampliar MAX_VECINOS_BICI —ver
+ * tests/bici_entre_paradas.mjs—, así que hoy Guillena a Carmona encuentra
+ * una única combinación dominante y ya no sirve para probar esto: el
+ * caso 1 de abajo usa otro par de paradas que sigue dando varias
+ * alternativas de verdad.)
  *
  * `mejorOpcion()` no siempre elige la más rápida a machamartillo: si la
  * ganancia es de un par de minutos, no compensa la complicación de un
@@ -54,12 +59,13 @@ const ok = (cond, txt, extra) => {
 };
 
 /* ------------------------------------------------------------------ */
-/* 1. El caso real: Guillena a Carmona, con la bici activada            */
+/* 1. Un caso real con varias alternativas: Camas a Castilleja de la    */
+/*    Cuesta (dos pueblos del Aljarafe), con la bici activada           */
 /* ------------------------------------------------------------------ */
 const r = await page.evaluate(() => {
-  const salida = new Date('2026-08-26T14:29:00');
-  const origen = { type: 'municipio', nombre: 'Guillena' };
-  const destino = { type: 'municipio', nombre: 'Carmona' };
+  const salida = new Date('2026-08-26T08:00:00');
+  const origen = { type: 'stop', id: '1_2327' };   // Rues (Gasolinera), Camas
+  const destino = { type: 'stop', id: '1_2377' };  // Hacienda San Ignacio (V), Castilleja de la Cuesta
   const resumen = res => !res ? null : {
     trasbordos: res.numTrasbordos,
     llegada: fmtHoraAbs(res.diasSalida * 1440 + res.llegadaMin)
@@ -77,8 +83,8 @@ console.log('');
 ok(r.opciones.length >= 2, 'hay más de una combinación entre las que elegir', r.opciones.length);
 ok(r.elegida.trasbordos > r.opciones[0].trasbordos,
   'la elegida no es la de menos trasbordos...', `${r.opciones[0].trasbordos} → ${r.elegida.trasbordos}`);
-ok(r.elegida.llegada === '18:19' && r.opciones[0].llegada === '19:19',
-  '...sino la que llega antes de verdad (18:19, no 19:19)', JSON.stringify(r));
+ok(r.elegida.llegada === '08:44' && r.opciones[0].llegada === '09:33',
+  '...sino la que llega antes de verdad (08:44, no 09:33)', JSON.stringify(r));
 
 /* ------------------------------------------------------------------ */
 /* 2. Sin diferencia real, gana la simple                               */

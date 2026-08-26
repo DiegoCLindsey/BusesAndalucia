@@ -8,8 +8,8 @@
  * autobús que haga ese trozo. El caso real que lo motivó: Guillena a
  * Mairena del Alcor encontraba una combinación de cinco trasbordos que
  * serpenteaba por medio Sevilla; con la bici puesta, una de las
- * alternativas baja a cuatro trasbordos y llega una hora antes,
- * pedaleando cuatro tramos cortos entre parada y parada.
+ * alternativas baja de trasbordos y llega antes, pedaleando varios
+ * tramos cortos entre parada y parada.
  *
  * Esto sacó a la luz un fallo real en el motor: un salto a pie/bici podía
  * encadenarse con otro sin que hubiera autobús de por medio, si la

@@ -1,0 +1,157 @@
+/* Puntos de ruta: obligar al itinerario a pasar por un punto concreto
+ * entre el origen y el destino.
+ *
+ * Pidió esto el propio usuario, en el mismo mensaje en que pidió volver
+ * a RAPTOR clásico: en vez de que el motor intente enganchar una línea
+ * mejor solo con distancias en línea recta (lo que se acaba de quitar,
+ * ver tests/motor.mjs y el revert de la bici a mitad de trayecto), que
+ * sea la propia persona quien decida por dónde pasa.
+ *
+ * `calcularRutaConTramos()` no busca una combinación conjunta óptima:
+ * encadena un RAPTOR clásico por cada tramo —origen→punto 1, punto
+ * 1→punto 2, …, punto N→destino—, cada uno con su propia `mejorOpcion()`
+ * de siempre, y pega los itinerarios uno detrás de otro. Cada punto
+ * añadido es una parada obligatoria, no una simple preferencia: puede
+ * incluso empeorar el viaje (más trasbordos que sin forzarlo), y eso es
+ * lo esperado, no un fallo.
+ *
+ *   npm i -D playwright && npx playwright install chromium
+ *   python3 -m http.server 8765 &
+ *   node tests/puntos_de_ruta.mjs
+ */
+import fs from 'fs';
+
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+
+function servirLeafletLocal(page) {
+  const dir = process.env.LEAFLET_DIR;
+  if (!dir) return Promise.resolve();
+  return Promise.all([
+    page.route('**/leaflet@*/dist/leaflet.js', r =>
+      r.fulfill({ contentType: 'application/javascript', body: fs.readFileSync(dir + '/leaflet.js', 'utf8') })),
+    page.route('**/leaflet@*/dist/leaflet.css', r =>
+      r.fulfill({ contentType: 'text/css', body: fs.readFileSync(dir + '/leaflet.css', 'utf8') }))
+  ]);
+}
+
+const BASE = process.env.BASE_URL || 'http://127.0.0.1:8765';
+const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
+const page = await browser.newPage({ viewport: { width: 412, height: 900 } });
+const errores = [];
+page.on('pageerror', e => errores.push('PAGEERROR: ' + e.message));
+page.on('console', m => {
+  if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errores.push('CONSOLE: ' + m.text());
+});
+await servirLeafletLocal(page);
+await page.route('**/tile.openstreetmap.org/**', r => r.fulfill({ contentType: 'image/png', body: Buffer.from('') }));
+await page.addInitScript(() => {
+  try { localStorage.setItem('ctanConsorcioV1', JSON.stringify({ id: 1 })); } catch (e) { }
+});
+await page.goto(BASE + '/index.html', { waitUntil: 'networkidle' });
+await page.waitForFunction(() => typeof CTAN !== 'undefined' && CTAN.cargado && CTAN.horarios.has(1), null, { timeout: 30000 });
+
+let fallos = 0;
+const ok = (cond, txt, extra) => {
+  console.log((cond ? '  ok   ' : 'FALLA  ') + txt + (extra !== undefined ? '   → ' + extra : ''));
+  if (!cond) fallos++;
+};
+
+/* ------------------------------------------------------------------ */
+/* 1. calcularRutaConTramos: el itinerario pasa de verdad por el punto  */
+/* ------------------------------------------------------------------ */
+const r1 = await page.evaluate(() => {
+  const idPor = n => Object.entries(APP.data.paradas).find(([, p]) => p.nombre.toUpperCase() === n.toUpperCase())[0];
+  const guillena = { type: 'stop', id: idPor('AV ANDALUCIA (ARROYO)') };
+  const plazaArmas = { type: 'stop', id: '1_3023' };  // Plaza De Armas, Sevilla
+  const carmona = { type: 'municipio', nombre: 'Carmona' };
+  const salida = new Date('2026-08-26T14:29:00');
+
+  const res = calcularRutaConTramos(APP.data, ROUTING, [guillena, plazaArmas, carmona], salida);
+  const coherente = res => {
+    let t = -Infinity, ok = true;
+    res.legs.forEach(l => { if (l.salida < t || l.llegada < l.salida) ok = false; t = l.llegada; });
+    return ok;
+  };
+  // Alguna de las líneas cambia justo en la parada del punto intermedio:
+  // el bus que llega a Plaza de Armas y el que sale de ahí son legs
+  // distintos, con la parada exacta de por medio.
+  const pasaPorElPunto = res.legs.some(l => l.tipo === 'bus' && l.destino === '1_3023')
+    || res.legs.some(l => l.tipo === 'bus' && l.origen === '1_3023');
+  return res ? {
+    trasbordos: res.numTrasbordos,
+    llegada: fmtHoraAbs(res.diasSalida * 1440 + res.llegadaMin),
+    coherente: coherente(res),
+    numLegs: res.legs.length,
+    pasaPorElPunto
+  } : null;
+});
+console.log(JSON.stringify(r1, null, 1));
+ok(!!r1, 'Guillena → Plaza de Armas → Carmona encuentra un itinerario combinado', JSON.stringify(r1));
+ok(r1 && r1.coherente, 'el itinerario combinado no retrocede en el tiempo en ningún tramo');
+ok(r1 && r1.pasaPorElPunto, 'y de verdad pasa por la parada intermedia (no la ignora)');
+ok(r1 && r1.numLegs > 2, 'con más de dos tramos: no es una simple línea directa', r1 && r1.numLegs);
+
+/* ------------------------------------------------------------------ */
+/* 2. Un tramo imposible da un motivo que dice CUÁL de los dos falla    */
+/* ------------------------------------------------------------------ */
+const r2 = await page.evaluate(async () => {
+  await asegurarHorarios([2]);  // Bahía de Cádiz, para el tramo imposible
+  const guillena = { type: 'municipio', nombre: 'Guillena' };
+  const cadiz = { type: 'municipio', nombre: 'Cádiz' };
+  const carmona = { type: 'municipio', nombre: 'Carmona' };
+  const salida = new Date('2026-08-26T14:29:00');
+  const res = calcularRutaConTramos(APP.data, ROUTING, [guillena, cadiz, carmona], salida);
+  return { res, motivo: RUTA_SIN_RESULTADO };
+});
+ok(r2.res === null, 'con un punto de otra área metropolitana, no hay itinerario combinado', JSON.stringify(r2.res));
+ok(/Guillena/.test(r2.motivo) && /Cádiz/.test(r2.motivo),
+  'y el motivo nombra los dos extremos del tramo que falla, no el viaje entero', r2.motivo);
+
+/* ------------------------------------------------------------------ */
+/* 3. La pantalla de Ruta: añadir, calcular y quitar un punto intermedio */
+/* ------------------------------------------------------------------ */
+await page.evaluate(() => irAPantalla('screenRuta'));
+await page.waitForTimeout(300);
+
+await page.locator('#origenInput').fill('Av Andalucia (Arroyo)');
+await page.locator('#origenInput').dispatchEvent('change');
+await page.locator('#destinoInput').fill('Municipio: Carmona');
+await page.locator('#destinoInput').dispatchEvent('change');
+await page.evaluate(() => {
+  document.getElementById('horaSalida').value = '2026-08-26T14:29';
+});
+
+await page.click('#btnAnadirParada');
+const filasTrasAnadir = await page.locator('.waypoint-row').count();
+ok(filasTrasAnadir === 1, 'pulsar "Añadir parada intermedia" añade una fila', filasTrasAnadir);
+
+await page.locator('.waypoint-row input').first().fill('Plaza De Armas');
+await page.locator('.waypoint-row input').first().dispatchEvent('change');
+const estadoInput = await page.evaluate(() => ROUTE_WAYPOINTS[0]);
+ok(estadoInput && estadoInput.type === 'stop', 'escribir el nombre de una parada la resuelve', JSON.stringify(estadoInput));
+
+await page.click('#btnCalcularRuta');
+await page.waitForTimeout(600);
+
+const r3 = await page.evaluate(() => ({
+  opciones: RUTA_OPCIONES.length,
+  pills: document.querySelectorAll('.opcion-pill').length,
+  trasbordos: RUTA_OPCIONES[0] ? RUTA_OPCIONES[0].numTrasbordos : null,
+  hayResultado: !!document.querySelector('.itin-horas')
+}));
+ok(r3.hayResultado, 'con el punto intermedio puesto, la pantalla enseña un itinerario', JSON.stringify(r3));
+ok(r3.opciones === 1 && r3.pills === 0,
+  'sin pestañas de alternativas: con puntos obligatorios sólo hay un itinerario posible', JSON.stringify(r3));
+
+// Quitar el punto intermedio: la búsqueda vuelve a ser la de siempre.
+await page.locator('.waypoint-row button[title*="Quitar"]').click();
+await page.waitForTimeout(200);
+const filasTrasQuitar = await page.locator('.waypoint-row').count();
+ok(filasTrasQuitar === 0, 'el botón de quitar borra la fila', filasTrasQuitar);
+const waypointsTrasQuitar = await page.evaluate(() => ROUTE_WAYPOINTS.length);
+ok(waypointsTrasQuitar === 0, 'y el estado interno también queda vacío', waypointsTrasQuitar);
+
+ok(errores.length === 0, 'sin errores en consola', JSON.stringify(errores));
+console.log(fallos ? `\n${fallos} comprobaciones fallidas` : '\nTodo correcto');
+await browser.close();
+process.exit(fallos ? 1 : 0);

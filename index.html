@@ -824,6 +824,17 @@
   .marca-extremo svg{width:15px; height:15px;}
   .marca-extremo.origen{background:var(--amber); color:#1B1200;}
   .marca-extremo.destino{background:var(--brand-2); color:var(--brand-ink);}
+  .marca-extremo.waypoint{
+    width:22px; height:22px; background:var(--text-soft); color:var(--card);
+    font-size:11px; font-weight:700;
+  }
+  .waypoint-row{position:relative; padding-left:26px;}
+  .waypoint-row::before{
+    content:attr(data-num); position:absolute; left:0; top:34px;
+    width:20px; height:20px; border-radius:50%; background:var(--text-soft);
+    color:var(--card); font-size:11px; font-weight:700;
+    display:grid; place-items:center;
+  }
 
   .btn-chip.solo-ico{padding:9px; width:38px; height:38px; flex:none;}
   .btn-chip.solo-ico svg{width:17px; height:17px;}
@@ -1007,6 +1018,10 @@
           <button class="btn-chip solo-ico" id="origenPin" type="button" data-ico="lapiz" title="Marcar en el mapa"></button>
         </div>
         <div class="endpoint-status" id="origenStatus"></div>
+      </div>
+      <div id="rutaWaypoints"></div>
+      <div class="field-row">
+        <button class="btn-chip" id="btnAnadirParada" type="button" data-ico="mas" title="Obligar al itinerario a pasar por un punto concreto">Añadir parada intermedia</button>
       </div>
       <div class="field">
         <label class="field-label">Destino</label>
@@ -1220,7 +1235,8 @@ const ICONOS = {
   luna:      `<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/>`,
   cerca:     `<circle cx="12" cy="12" r="2.5"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4"/><path d="M5 19a10 10 0 0 1 0-14M19 5a10 10 0 0 1 0 14"/>`,
   aviso:     `<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/>`,
-  lista:     `<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>`
+  lista:     `<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>`,
+  mas:       `<path d="M12 5v14M5 12h14"/>`
 };
 
 /** Color real de un token del tema. Leaflet no entiende `var(--brand)`:
@@ -3748,6 +3764,12 @@ let ROUTE_ARM_MODE = null; // 'origen' | 'destino' | null
 let ROUTE_ORIGIN_MARKER = null;
 let ROUTE_DESTINO_MARKER = null;
 let ROUTE_PATH_LAYERS = [];
+// Puntos por los que el itinerario tiene que pasar sí o sí, en orden,
+// entre el origen y el destino: {type:'stop', id} | {type:'municipio',
+// nombre} | null (fila añadida, aún sin rellenar). Sin ninguno relleno,
+// la búsqueda es la de siempre.
+let ROUTE_WAYPOINTS = [];
+let ROUTE_WAYPOINT_MARKERS = [];  // marcadores del mapa, en paralelo a ROUTE_WAYPOINTS
 let PARADA_POR_NOMBRE = null;
 let RUTA_OPCIONES = [];      // combinaciones de líneas calculadas para la última consulta
 let RUTA_OPCION_ACTIVA = 0;  // cuál se está enseñando (0 = la de menos trasbordos)
@@ -4195,6 +4217,61 @@ function mejorOpcion(opciones) {
     if (llegadaDe(op) < llegadaDe(mejor) - UMBRAL_MERECE_MAS_TRASBORDOS_MIN) mejor = op;
   });
   return mejor;
+}
+
+/** Una ruta con puntos intermedios obligatorios: origen → punto 1 →
+ * punto 2 → … → destino. Cada tramo es una búsqueda RAPTOR clásica
+ * independiente —la de `calcularOpcionesRuta`, con su misma `mejorOpcion`
+ * de siempre—, encadenada con la siguiente: la llegada de un tramo es la
+ * salida del que viene después. No hay una búsqueda conjunta que
+ * optimice el conjunto entero; cada punto añadido es una parada por la
+ * que el itinerario pasa sí o sí, no una simple preferencia.
+ *
+ * Devuelve el mismo formato que un itinerario normal (para que encaje
+ * sin más en el resto de la pantalla de Ruta), o `null` si algún tramo
+ * no tiene combinación — con `RUTA_SIN_RESULTADO` explicando cuál. */
+function calcularRutaConTramos(appData, routing, puntos, salidaInicial) {
+  if (puntos.length < 2) return null;
+  const medianocheBase = new Date(salidaInicial.getFullYear(), salidaInicial.getMonth(), salidaInicial.getDate());
+  let llegadaGlobalMin = salidaInicial.getHours() * 60 + salidaInicial.getMinutes();
+  const legs = [];
+  let totalCaminandoMin = 0, totalPedaleandoMin = 0;
+  const lineas = [];
+
+  for (let i = 0; i < puntos.length - 1; i++) {
+    // La hora de salida de este tramo es la de llegada del anterior,
+    // pero `calcularOpcionesRuta` cuenta sus propios días desde la
+    // medianoche de la fecha que se le pase: el desfase de días ya
+    // transcurridos hay que sumarlo a mano a las horas que devuelva,
+    // para que encajen con las del resto de tramos.
+    const offsetGlobal = Math.floor(llegadaGlobalMin / 1440) * 1440;
+    const salidaTramo = new Date(medianocheBase.getTime() + llegadaGlobalMin * 60000);
+    const opciones = calcularOpcionesRuta(appData, routing, puntos[i], puntos[i + 1], salidaTramo);
+    const elegida = mejorOpcion(opciones);
+    if (!elegida) {
+      const o = resolverExtremo(appData, puntos[i]), de = resolverExtremo(appData, puntos[i + 1]);
+      const etiquetaO = o ? o.etiqueta : "el punto anterior", etiquetaD = de ? de.etiqueta : "el siguiente punto";
+      RUTA_SIN_RESULTADO = `Entre ${etiquetaO} y ${etiquetaD}: ${RUTA_SIN_RESULTADO || "no hay ninguna combinación."}`;
+      return null;
+    }
+    elegida.legs.forEach(l => legs.push({ ...l, salida: l.salida + offsetGlobal, llegada: l.llegada + offsetGlobal }));
+    totalCaminandoMin += elegida.totalCaminandoMin;
+    totalPedaleandoMin += elegida.totalPedaleandoMin;
+    lineas.push(...elegida.lineas);
+    llegadaGlobalMin = offsetGlobal + elegida.diasSalida * 1440 + elegida.llegadaMin;
+  }
+
+  const diasSalida = Math.floor(llegadaGlobalMin / 1440);
+  const primerBus = legs.find(l => l.tipo === "bus");
+  return {
+    legs, llegadaMin: llegadaGlobalMin - diasSalida * 1440, diasSalida,
+    origenStopId: primerBus ? primerBus.origen : null,
+    destinoStopId: legs.length ? legs[legs.length - 1].destino : null,
+    totalCaminandoMin, totalPedaleandoMin,
+    numTrasbordos: Math.max(0, legs.filter(l => l.tipo === "bus").length - 1),
+    lineas,
+    salidaMin: legs.length ? legs[0].salida : salidaInicial.getHours() * 60 + salidaInicial.getMinutes()
+  };
 }
 
 /** Cuando no sale nada, por qué. Un "no se ha encontrado ninguna ruta" a
@@ -4686,6 +4763,134 @@ function wireGeoButton(btnId, which) {
   });
 }
 
+/* ------------------------------------------------------------------ */
+/* Puntos de ruta intermedios                                          */
+/* ------------------------------------------------------------------ */
+/** Igual que `placeEndpointMarker`, pero para un punto intermedio: un
+ * círculo numerado en vez de la chincheta o la bandera. Sólo se dibuja
+ * para paradas — un municipio no es un sitio, es una zona, y no lleva
+ * marcador propio aquí (a diferencia de origen/destino, que sí resaltan
+ * el aro del municipio en el mapa de red). */
+function actualizarMarcadoresWaypoints() {
+  if (!CURRENT_ROUTE_MAP) return;
+  ROUTE_WAYPOINT_MARKERS.forEach(m => { if (m) CURRENT_ROUTE_MAP.removeLayer(m); });
+  ROUTE_WAYPOINT_MARKERS = ROUTE_WAYPOINTS.map((wp, i) => {
+    if (!wp) return null;
+    const latlng = coordenadasDeExtremo(APP.data, wp);
+    if (!latlng) return null;
+    const icon = L.divIcon({
+      className: "", html: `<span class="marca-extremo waypoint">${i + 1}</span>`,
+      iconSize: [22, 22], iconAnchor: [11, 20]
+    });
+    return L.marker(latlng, { icon, zIndexOffset: 850 }).addTo(CURRENT_ROUTE_MAP);
+  });
+}
+
+function setWaypoint(i, point) {
+  ROUTE_WAYPOINTS[i] = point;
+  renderWaypointsUI();
+}
+
+function addWaypoint() {
+  ROUTE_WAYPOINTS.push(null);
+  renderWaypointsUI();
+}
+
+function removeWaypoint(i) {
+  ROUTE_WAYPOINTS.splice(i, 1);
+  renderWaypointsUI();
+}
+
+/** El mismo selector de municipio de origen/destino, pero para una fila
+ * de punto intermedio (por índice, no por "origen"/"destino"). */
+function abrirSelectorMunicipioWaypoint(i) {
+  openModal(container => {
+    container.innerHTML = `
+      <h3 class="detail-title">Parada intermedia ${i + 1}</h3>
+      <div class="detail-meta">Elige un municipio: valdrá cualquiera de sus paradas.</div>
+      <div class="field" style="margin-top:10px;">
+        <input type="text" class="input" id="filtroMunicipioModal" placeholder="Buscar municipio…">
+      </div>
+      <div id="listaMunicipioModal"></div>`;
+    const lista = container.querySelector("#listaMunicipioModal");
+    const pintar = () => {
+      const texto = normalize(container.querySelector("#filtroMunicipioModal").value.trim());
+      lista.innerHTML = "";
+      GRAFO.lista
+        .filter(m => !texto || normalize(m).includes(texto))
+        .sort((a, b) => {
+          if (!texto) return 0;
+          const pa = normalize(a).startsWith(texto) ? 0 : 1;
+          const pb = normalize(b).startsWith(texto) ? 0 : 1;
+          return pa - pb || a.localeCompare(b, "es");
+        })
+        .forEach(m => {
+          const nodo = GRAFO.municipios.get(m);
+          const row = document.createElement("div");
+          row.className = "linea-row";
+          row.innerHTML = `<span class="linea-row-name">${escapeHtml(m)}
+            <span class="linea-row-muni">${nodo.paradas.length} paradas · ${nodo.lineas.size} línea${nodo.lineas.size === 1 ? "" : "s"}</span>
+          </span>`;
+          row.addEventListener("click", () => {
+            setWaypoint(i, { type: "municipio", nombre: m });
+            closeModal();
+          });
+          lista.appendChild(row);
+        });
+    };
+    container.querySelector("#filtroMunicipioModal").addEventListener("input", pintar);
+    pintar();
+  });
+}
+
+/** Redibuja toda la lista de puntos intermedios a partir de
+ * `ROUTE_WAYPOINTS`. Se llama entera cada vez que se añade, se quita o
+ * se elige uno por el selector de municipio; el campo de texto de cada
+ * fila resuelve su propio cambio sin repintar nada (para no perder el
+ * foco a media escritura). */
+function renderWaypointsUI() {
+  const cont = document.getElementById("rutaWaypoints");
+  if (!cont) return;
+  cont.innerHTML = "";
+  ROUTE_WAYPOINTS.forEach((wp, i) => {
+    const row = document.createElement("div");
+    row.className = "field waypoint-row";
+    row.dataset.num = i + 1;
+    row.innerHTML = `
+      <label class="field-label">Parada intermedia ${i + 1}</label>
+      <div class="endpoint-row">
+        <input type="text" class="input" list="listaParadas" placeholder="Parada o municipio…" value="${wp ? escapeHtml(textoDeExtremo(wp)) : ""}">
+        <button class="btn-chip solo-ico" type="button" data-ico="municipio" title="Elegir un municipio entero"></button>
+        <button class="btn-chip solo-ico" type="button" data-ico="cerrar" title="Quitar esta parada intermedia"></button>
+      </div>
+      <div class="endpoint-status"></div>`;
+    const input = row.querySelector("input");
+    const [btnMuni, btnQuitar] = row.querySelectorAll("button");
+    const status = row.querySelector(".endpoint-status");
+    status.textContent = wp ? describeEndpoint(wp) : "";
+    input.addEventListener("change", e => {
+      const texto = e.target.value.trim();
+      if (!texto) return;
+      const punto = interpretarBusquedaExtremo(texto);
+      if (punto) {
+        ROUTE_WAYPOINTS[i] = punto;
+        status.textContent = describeEndpoint(punto);
+        actualizarMarcadoresWaypoints();
+      } else {
+        status.textContent = "No se reconoce; elige una parada o un municipio de la lista.";
+      }
+    });
+    btnMuni.addEventListener("click", () => abrirSelectorMunicipioWaypoint(i));
+    btnQuitar.addEventListener("click", () => removeWaypoint(i));
+    // El SVG de los botones no llega solo: los que se pintan en el HTML de
+    // arranque los rellena `pintarIconosDeclarados()`, pero ésta fila nace
+    // después, así que hay que rellenarlos aquí.
+    row.querySelectorAll("[data-ico]").forEach(el => el.insertAdjacentHTML("afterbegin", icono(el.dataset.ico)));
+    cont.appendChild(row);
+  });
+  actualizarMarcadoresWaypoints();
+}
+
 function clearRoutePathLayers() {
   if (!CURRENT_ROUTE_MAP) return;
   ROUTE_PATH_LAYERS.forEach(l => CURRENT_ROUTE_MAP.removeLayer(l));
@@ -5037,7 +5242,11 @@ function renderRutaResultado(res, salidaDate, directo, opciones) {
     avisoCaminar = `<div class="itin-leg-warn">${icono("aviso")}<span>Ir caminando en línea recta (${Math.round(directo.distMetros)} m) tardaría solo ${fmtDur(directo.minutos)} — menos que esta ruta, que incluye ${fmtDur(esperaInicialMin)} de espera.</span></div>`;
   }
 
-  const puedeGuardar = ROUTE_ORIGIN && ROUTE_DESTINO && ROUTE_ORIGIN.type === "stop" && ROUTE_DESTINO.type === "stop";
+  // Los favoritos sólo guardan origen y destino: con puntos de paso
+  // obligatorios de por medio, recalcularla más tarde los perdería sin
+  // avisar, así que mejor no ofrecer guardarla.
+  const puedeGuardar = ROUTE_ORIGIN && ROUTE_DESTINO && ROUTE_ORIGIN.type === "stop" && ROUTE_DESTINO.type === "stop" &&
+    !ROUTE_WAYPOINTS.some(Boolean);
   const favBtnHtml = puedeGuardar
     ? `<button type="button" class="btn-chip${esFavoritoRuta(ROUTE_ORIGIN.id, ROUTE_DESTINO.id) ? " armed" : ""}" id="btnFavRuta" style="margin-top:12px;">${icono("estrella")}${esFavoritoRuta(ROUTE_ORIGIN.id, ROUTE_DESTINO.id) ? "Guardada" : "Guardar esta ruta"}</button>`
     : "";
@@ -5107,8 +5316,13 @@ async function onCalcularRuta() {
     if (cajaOpciones) cajaOpciones.innerHTML = "";
     return;
   }
-  const faltan = areasDeExtremo(ROUTE_ORIGIN).concat(areasDeExtremo(ROUTE_DESTINO))
-    .filter(idc => !tieneHorarios(idc));
+  // Los puntos intermedios rellenos (los añadidos pero aún vacíos no
+  // cuentan) obligan al itinerario a pasar por ahí; sin ninguno, la
+  // búsqueda es la de siempre.
+  const waypoints = ROUTE_WAYPOINTS.filter(Boolean);
+  const extremos = [ROUTE_ORIGIN, ...waypoints, ROUTE_DESTINO];
+
+  const faltan = [...new Set(extremos.flatMap(areasDeExtremo))].filter(idc => !tieneHorarios(idc));
   resultBox.innerHTML = `<div class="card"><p class="empty">${faltan.length
     ? "Cargando los horarios de " + escapeHtml(nombreDeArea(faltan[0])) + "…"
     : "Calculando ruta…"}</p></div>`;
@@ -5123,6 +5337,20 @@ async function onCalcularRuta() {
   }
   const horaInput = document.getElementById("horaSalida").value;
   const salida = horaInput ? new Date(horaInput) : new Date();
+
+  if (waypoints.length) {
+    // Con puntos de paso obligatorios no hay "opciones entre las que
+    // elegir": es un único itinerario, tramo a tramo, y no compite con
+    // "ir directo" (que precisamente se saltaría los puntos por los que
+    // se pidió pasar).
+    RUTA_SIN_RESULTADO = null;
+    const combinada = calcularRutaConTramos(APP.data, ROUTING, extremos, salida);
+    RUTA_OPCIONES = combinada ? [combinada] : [];
+    RUTA_OPCION_ACTIVA = 0;
+    renderRutaResultado(combinada, salida, null, RUTA_OPCIONES);
+    return;
+  }
+
   const directo = distanciaDirecta(APP.data, ROUTE_ORIGIN, ROUTE_DESTINO, "pie");
 
   RUTA_OPCIONES = calcularOpcionesRuta(APP.data, ROUTING, ROUTE_ORIGIN, ROUTE_DESTINO, salida);
@@ -5190,6 +5418,7 @@ function wireRuta() {
   wireGeoButton("destinoGeo", "destino");
   document.getElementById("origenPin").addEventListener("click", () => armClickMode("origen"));
   document.getElementById("destinoPin").addEventListener("click", () => armClickMode("destino"));
+  document.getElementById("btnAnadirParada").addEventListener("click", addWaypoint);
   document.getElementById("btnCalcularRuta").addEventListener("click", onCalcularRuta);
   document.getElementById("horaSalida").value = nowForDatetimeLocal();
   // La hora sólo aparece si de verdad la vas a cambiar: por defecto es

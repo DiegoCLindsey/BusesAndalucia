@@ -39,6 +39,9 @@ de Andalucía**, que no participan ni respaldan esto. Los horarios son
   puede ir **directo, a pie o en bicicleta** (interruptor aparte, porque
   no todo el mundo tiene una a mano), esa distancia también se ofrece como
   una opción más, sin desplazar a la de autobús del puesto por defecto.
+  También se pueden añadir **puntos de ruta intermedios** —una parada o
+  un municipio por el que el itinerario tiene que pasar sí o sí— entre el
+  origen y el destino.
 - **Favoritos** — paradas, líneas y rutas guardadas, con recálculo automático.
 - **Avisos** — que te avise 5, 10 o 15 minutos antes de que salga tu
   autobús, mientras la app siga abierta.
@@ -66,8 +69,8 @@ como aplicación en el móvil.
 | `data/catalogo.json` | Las paradas, líneas y municipios de toda Andalucía (460 KB) |
 | `data/{1..9}/horarios.json` | Los horarios de un área: bloques, calendario, trazados y grafo a pie |
 | `fuentes/paradas_*.json` | Respuesta de `/paradas` de la API, para regenerar sin red |
-| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas, directo_pie_bici, mejor_opcion) |
-| `package.json` | `npm test` lanza las nueve suites |
+| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas, directo_pie_bici, mejor_opcion, puntos_de_ruta) |
+| `package.json` | `npm test` lanza las diez suites |
 | `sw.js` | Service Worker: caché offline y notificaciones |
 | `manifest.json`, `icon.svg` | Instalación como PWA |
 | `build_from_gtfs.py` | Genera todo `data/` a partir del GTFS oficial |
@@ -326,6 +329,27 @@ no pasan por aquí.
   se ha tocado: es una alternativa aparte, sencilla de entender, y sigue
   ahí. Lo que sustituye a los saltos automáticos es dejar que sea la
   persona quien decida por dónde pasar: ver "Puntos de ruta", más abajo.
+
+- **Puntos de ruta: un RAPTOR clásico por tramo, encadenado.** Se puede
+  añadir una o varias paradas —o municipios— por los que el itinerario
+  tiene que pasar sí o sí, en el orden en que se añaden. No hay una
+  búsqueda conjunta que optimice el trayecto entero con esos puntos de
+  por medio: `calcularRutaConTramos()` parte el viaje en tramos —origen →
+  punto 1, punto 1 → punto 2, …, punto N → destino— y resuelve cada uno
+  con la búsqueda de siempre (`calcularOpcionesRuta` + `mejorOpcion`),
+  encadenando la llegada de un tramo con la salida del siguiente. Es
+  deliberadamente simple: cada punto añadido es una parada obligatoria,
+  no una preferencia, así que puede incluso empeorar el viaje frente a no
+  forzarlo —más trasbordos, más espera—, y eso es lo esperado: la persona
+  ha pedido pasar por ahí, no que se le busque el atajo. Por eso mismo no
+  compite con "ir directo" (que precisamente se saltaría el punto exigido)
+  ni tiene pestañas de alternativas: con un tramo obligatorio de por
+  medio sólo hay un itinerario que ofrecer. Si algún tramo no tiene
+  combinación, el aviso dice cuál de los dos extremos falla ("Entre
+  Guillena y Cádiz: …"), no que el viaje entero sea imposible. No admite
+  puntos marcados a mano en el mapa ni la propia ubicación —sólo
+  paradas y municipios—, ni guardar como favorita una ruta que los use
+  (los favoritos sólo recuerdan origen y destino).
 
 - **Sentido de circulación.** Es el final del bloque que coges, no la
   cabecera de la línea. Así todos los recorridos que pasan por tu parada

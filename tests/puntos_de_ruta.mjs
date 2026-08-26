@@ -15,6 +15,16 @@
  * incluso empeorar el viaje (más trasbordos que sin forzarlo), y eso es
  * lo esperado, no un fallo.
  *
+ * Dos añadidos posteriores, en el mismo mensaje del usuario:
+ *  - "Añadir a la ruta" en el globo de una parada o de un municipio en
+ *    el mapa: empuja ese punto al final de la lista de puntos de ruta,
+ *    sin tener que ir a rellenar una fila a mano.
+ *  - "Ir andando desde el punto anterior", en cada fila: fuerza ESE
+ *    tramo a resolverse en línea recta (`construirTramoDirecto`, el
+ *    mismo cálculo que ya usa "ir directo" para el viaje entero) en vez
+ *    de buscarle autobús. Con la bicicleta activada, el tiempo se
+ *    recalcula solo, a la mitad.
+ *
  *   npm i -D playwright && npx playwright install chromium
  *   python3 -m http.server 8765 &
  *   node tests/puntos_de_ruta.mjs
@@ -143,6 +153,26 @@ ok(r3.hayResultado, 'con el punto intermedio puesto, la pantalla enseña un itin
 ok(r3.opciones === 1 && r3.pills === 0,
   'sin pestañas de alternativas: con puntos obligatorios sólo hay un itinerario posible', JSON.stringify(r3));
 
+/* ------------------------------------------------------------------ */
+/* 3b. "Ir andando desde el punto anterior": el botón de la fila         */
+/* ------------------------------------------------------------------ */
+const armedAntes = await page.locator('.waypoint-andando').first().evaluate(el => el.classList.contains('armed'));
+ok(!armedAntes, 'el botón "ir andando" empieza apagado');
+
+await page.locator('.waypoint-andando').first().click();
+const armedDespues = await page.locator('.waypoint-andando').first().evaluate(el => el.classList.contains('armed'));
+const estadoTrasClick = await page.evaluate(() => ROUTE_WAYPOINTS_ANDANDO[0]);
+ok(armedDespues && estadoTrasClick === true, 'un toque lo enciende, en la fila y en el estado interno');
+
+await page.click('#btnCalcularRuta');
+await page.waitForTimeout(600);
+const r3b = await page.evaluate(() => ({
+  primeraLeg: RUTA_OPCIONES[0] ? RUTA_OPCIONES[0].legs[0].tipo : null,
+  modo: RUTA_OPCIONES[0] ? RUTA_OPCIONES[0].legs[0].modo : null
+}));
+ok(r3b.primeraLeg === 'walk_tramo', 'con el botón encendido, el primer tramo se fuerza a ir directo', JSON.stringify(r3b));
+ok(r3b.modo === 'pie', 'a pie, porque la bicicleta no está activada', r3b.modo);
+
 // Quitar el punto intermedio: la búsqueda vuelve a ser la de siempre.
 await page.locator('.waypoint-row button[title*="Quitar"]').click();
 await page.waitForTimeout(200);
@@ -150,6 +180,75 @@ const filasTrasQuitar = await page.locator('.waypoint-row').count();
 ok(filasTrasQuitar === 0, 'el botón de quitar borra la fila', filasTrasQuitar);
 const waypointsTrasQuitar = await page.evaluate(() => ROUTE_WAYPOINTS.length);
 ok(waypointsTrasQuitar === 0, 'y el estado interno también queda vacío', waypointsTrasQuitar);
+
+/* ------------------------------------------------------------------ */
+/* 4. En bici, el tramo forzado tarda la mitad                          */
+/* ------------------------------------------------------------------ */
+const r4 = await page.evaluate(() => {
+  const idPor = n => Object.entries(APP.data.paradas).find(([, p]) => p.nombre.toUpperCase() === n.toUpperCase())[0];
+  const guillena = { type: 'stop', id: idPor('AV ANDALUCIA (ARROYO)') };
+  const plazaArmas = { type: 'stop', id: '1_3023' };
+  const carmona = { type: 'municipio', nombre: 'Carmona' };
+  const salida = new Date('2026-08-26T14:29:00');
+
+  const minutosDe = res => res.legs[0].llegada - res.legs[0].salida;
+  MODO_BICI = false;
+  const aPie = calcularRutaConTramos(APP.data, ROUTING, [guillena, plazaArmas, carmona], salida, [true, false]);
+  MODO_BICI = true;
+  const enBici = calcularRutaConTramos(APP.data, ROUTING, [guillena, plazaArmas, carmona], salida, [true, false]);
+  MODO_BICI = false;
+
+  return {
+    aPie: { modo: aPie.legs[0].modo, min: minutosDe(aPie) },
+    enBici: { modo: enBici.legs[0].modo, min: minutosDe(enBici) }
+  };
+});
+console.log(JSON.stringify(r4, null, 1));
+ok(r4.aPie.modo === 'pie' && r4.enBici.modo === 'bici', 'el modo del tramo forzado sigue al interruptor de bicicleta', JSON.stringify(r4));
+ok(r4.enBici.min === Math.max(1, Math.round(r4.aPie.min / 2)),
+  'y la bici tarda la mitad que a pie, para el mismo tramo', `${r4.aPie.min} → ${r4.enBici.min}`);
+
+/* ------------------------------------------------------------------ */
+/* 5. "Añadir a la ruta" en el globo de una parada                      */
+/* ------------------------------------------------------------------ */
+await page.evaluate(() => { ROUTE_WAYPOINTS = []; ROUTE_WAYPOINTS_ANDANDO = []; renderWaypointsUI(); });
+const r5 = await page.evaluate(() => {
+  const idPor = n => Object.entries(APP.data.paradas).find(([, p]) => p.nombre.toUpperCase() === n.toUpperCase())[0];
+  const id = idPor('PLAZA DE ARMAS');
+  const wrap = buildStopPopupContent(id);
+  const botones = [...wrap.querySelectorAll('.stop-popup-actions button')].map(b => b.textContent);
+  const btnAdd = [...wrap.querySelectorAll('.stop-popup-actions button')].find(b => /Añadir a la ruta/.test(b.textContent));
+  btnAdd.click();
+  return { botones, waypoints: ROUTE_WAYPOINTS };
+});
+ok(r5.botones.includes('Añadir a la ruta'), 'el globo de una parada trae la acción "Añadir a la ruta"', JSON.stringify(r5.botones));
+ok(r5.waypoints.length === 1 && r5.waypoints[0].type === 'stop', 'pulsarla añade esa parada como punto de ruta', JSON.stringify(r5.waypoints));
+
+/* ------------------------------------------------------------------ */
+/* 6. Lo mismo desde el globo de un municipio en el mapa de red         */
+/* ------------------------------------------------------------------ */
+const r6 = await page.evaluate(() => {
+  ROUTE_WAYPOINTS = []; ROUTE_WAYPOINTS_ANDANDO = []; renderWaypointsUI();
+  const wrap = accionesDeMunicipio('Carmona', 'ruta');
+  const botones = [...wrap.querySelectorAll('button')].map(b => b.textContent);
+  const btnAdd = [...wrap.querySelectorAll('button')].find(b => /Añadir a la ruta/.test(b.textContent));
+  btnAdd.click();
+  return { botones, waypoints: ROUTE_WAYPOINTS };
+});
+ok(r6.botones.includes('Añadir a la ruta'), 'el globo de un municipio también trae "Añadir a la ruta"', JSON.stringify(r6.botones));
+ok(r6.waypoints.length === 1 && r6.waypoints[0].type === 'municipio' && r6.waypoints[0].nombre === 'Carmona',
+  'pulsarla añade el municipio entero como punto de ruta', JSON.stringify(r6.waypoints));
+// El globo de un municipio fuera de la pantalla de Ruta (modo distinto de
+// "ruta") no ofrece nada de esto: no tiene sentido añadir puntos de paso
+// si no se está mirando la calculadora de ruta.
+const r6b = await page.evaluate(() => {
+  const wrap = accionesDeMunicipio('Carmona', 'lineas');
+  return [...wrap.querySelectorAll('button')].map(b => b.textContent);
+});
+ok(!r6b.includes('Añadir a la ruta'), 'pero no fuera de la pantalla de Ruta', JSON.stringify(r6b));
+
+// Limpio para no dejar puntos de ruta puestos de una prueba a la siguiente.
+await page.evaluate(() => { ROUTE_WAYPOINTS = []; ROUTE_WAYPOINTS_ANDANDO = []; renderWaypointsUI(); });
 
 ok(errores.length === 0, 'sin errores en consola', JSON.stringify(errores));
 console.log(fallos ? `\n${fallos} comprobaciones fallidas` : '\nTodo correcto');

@@ -2751,6 +2751,17 @@ function accionesDeMunicipio(municipio, modo) {
       cerrar();
     });
     acciones.appendChild(btnDestino);
+
+    const btnWaypoint = document.createElement("button");
+    btnWaypoint.type = "button";
+    btnWaypoint.className = "btn-chip";
+    btnWaypoint.innerHTML = icono("mas") + "Añadir a la ruta";
+    btnWaypoint.title = "Obligar al itinerario a pasar por aquí";
+    btnWaypoint.addEventListener("click", () => {
+      addWaypointConPunto(punto);
+      cerrar();
+    });
+    acciones.appendChild(btnWaypoint);
   } else {
     const btnIr = document.createElement("button");
     btnIr.type = "button";
@@ -3770,6 +3781,10 @@ let ROUTE_PATH_LAYERS = [];
 // la búsqueda es la de siempre.
 let ROUTE_WAYPOINTS = [];
 let ROUTE_WAYPOINT_MARKERS = [];  // marcadores del mapa, en paralelo a ROUTE_WAYPOINTS
+// Por cada punto de ROUTE_WAYPOINTS, si el tramo que llega hasta él (desde
+// el punto anterior) se fuerza a ir directo —a pie o en bici, según
+// MODO_BICI— en vez de buscarle autobús. En paralelo a ROUTE_WAYPOINTS.
+let ROUTE_WAYPOINTS_ANDANDO = [];
 let PARADA_POR_NOMBRE = null;
 let RUTA_OPCIONES = [];      // combinaciones de líneas calculadas para la última consulta
 let RUTA_OPCION_ACTIVA = 0;  // cuál se está enseñando (0 = la de menos trasbordos)
@@ -4219,6 +4234,32 @@ function mejorOpcion(opciones) {
   return mejor;
 }
 
+/** Un tramo forzado a ir en línea recta —a pie, o en bici si el
+ * interruptor está activado—, sin buscarle autobús. Es el mismo cálculo
+ * que "ir directo" ya usa para el viaje entero (`distanciaDirecta`),
+ * aplicado a un tramo cualquiera dentro de una ruta con puntos de paso;
+ * por eso el resultado no lleva ni parada de origen ni de llegada
+ * garantizada —`origenPunto`/`destinoPunto` guardan el punto tal cual,
+ * parada o municipio, para poder dibujarlo y nombrarlo igual. */
+function construirTramoDirecto(appData, desde, hasta, salidaTramoDate) {
+  const directo = distanciaDirecta(appData, desde, hasta, MODO_BICI ? "bici" : "pie");
+  if (!directo) return null;
+  const salidaMin = salidaTramoDate.getHours() * 60 + salidaTramoDate.getMinutes();
+  const llegadaAbs = salidaMin + directo.minutos;
+  const diasSalida = Math.floor(llegadaAbs / 1440);
+  const leg = {
+    tipo: "walk_tramo", modo: directo.modo, distMetros: directo.distMetros,
+    origenPunto: desde, destinoPunto: hasta,
+    salida: salidaMin, llegada: llegadaAbs
+  };
+  return {
+    legs: [leg], llegadaMin: llegadaAbs - diasSalida * 1440, diasSalida,
+    totalCaminandoMin: directo.modo === "bici" ? 0 : directo.minutos,
+    totalPedaleandoMin: directo.modo === "bici" ? directo.minutos : 0,
+    numTrasbordos: 0, lineas: [], salidaMin
+  };
+}
+
 /** Una ruta con puntos intermedios obligatorios: origen → punto 1 →
  * punto 2 → … → destino. Cada tramo es una búsqueda RAPTOR clásica
  * independiente —la de `calcularOpcionesRuta`, con su misma `mejorOpcion`
@@ -4227,10 +4268,15 @@ function mejorOpcion(opciones) {
  * optimice el conjunto entero; cada punto añadido es una parada por la
  * que el itinerario pasa sí o sí, no una simple preferencia.
  *
+ * `forzarDirecto[i]` (opcional, uno por tramo) fuerza el tramo i a ir
+ * directo —`construirTramoDirecto`— en vez de buscarle autobús: es lo
+ * que activa "ir andando desde el punto anterior" en una fila de punto
+ * de ruta.
+ *
  * Devuelve el mismo formato que un itinerario normal (para que encaje
  * sin más en el resto de la pantalla de Ruta), o `null` si algún tramo
  * no tiene combinación — con `RUTA_SIN_RESULTADO` explicando cuál. */
-function calcularRutaConTramos(appData, routing, puntos, salidaInicial) {
+function calcularRutaConTramos(appData, routing, puntos, salidaInicial, forzarDirecto) {
   if (puntos.length < 2) return null;
   const medianocheBase = new Date(salidaInicial.getFullYear(), salidaInicial.getMonth(), salidaInicial.getDate());
   let llegadaGlobalMin = salidaInicial.getHours() * 60 + salidaInicial.getMinutes();
@@ -4246,12 +4292,16 @@ function calcularRutaConTramos(appData, routing, puntos, salidaInicial) {
     // para que encajen con las del resto de tramos.
     const offsetGlobal = Math.floor(llegadaGlobalMin / 1440) * 1440;
     const salidaTramo = new Date(medianocheBase.getTime() + llegadaGlobalMin * 60000);
-    const opciones = calcularOpcionesRuta(appData, routing, puntos[i], puntos[i + 1], salidaTramo);
-    const elegida = mejorOpcion(opciones);
+    const elegida = forzarDirecto && forzarDirecto[i]
+      ? construirTramoDirecto(appData, puntos[i], puntos[i + 1], salidaTramo)
+      : mejorOpcion(calcularOpcionesRuta(appData, routing, puntos[i], puntos[i + 1], salidaTramo));
     if (!elegida) {
       const o = resolverExtremo(appData, puntos[i]), de = resolverExtremo(appData, puntos[i + 1]);
       const etiquetaO = o ? o.etiqueta : "el punto anterior", etiquetaD = de ? de.etiqueta : "el siguiente punto";
-      RUTA_SIN_RESULTADO = `Entre ${etiquetaO} y ${etiquetaD}: ${RUTA_SIN_RESULTADO || "no hay ninguna combinación."}`;
+      const motivo = (forzarDirecto && forzarDirecto[i])
+        ? "no se puede calcular la distancia entre estos dos puntos."
+        : (RUTA_SIN_RESULTADO || "no hay ninguna combinación.");
+      RUTA_SIN_RESULTADO = `Entre ${etiquetaO} y ${etiquetaD}: ${motivo}`;
       return null;
     }
     elegida.legs.forEach(l => legs.push({ ...l, salida: l.salida + offsetGlobal, llegada: l.llegada + offsetGlobal }));
@@ -4263,10 +4313,13 @@ function calcularRutaConTramos(appData, routing, puntos, salidaInicial) {
 
   const diasSalida = Math.floor(llegadaGlobalMin / 1440);
   const primerBus = legs.find(l => l.tipo === "bus");
+  const ultimaLeg = legs[legs.length - 1];
   return {
     legs, llegadaMin: llegadaGlobalMin - diasSalida * 1440, diasSalida,
     origenStopId: primerBus ? primerBus.origen : null,
-    destinoStopId: legs.length ? legs[legs.length - 1].destino : null,
+    destinoStopId: ultimaLeg ? (ultimaLeg.tipo === "walk_tramo"
+      ? (ultimaLeg.destinoPunto.type === "stop" ? ultimaLeg.destinoPunto.id : null)
+      : ultimaLeg.destino) : null,
     totalCaminandoMin, totalPedaleandoMin,
     numTrasbordos: Math.max(0, legs.filter(l => l.tipo === "bus").length - 1),
     lineas,
@@ -4610,6 +4663,17 @@ function buildStopPopupContent(id) {
   });
   acciones.appendChild(btnDestino);
 
+  const btnWaypoint = document.createElement("button");
+  btnWaypoint.type = "button";
+  btnWaypoint.className = "btn-chip";
+  btnWaypoint.innerHTML = icono("mas") + "Añadir a la ruta";
+  btnWaypoint.title = "Obligar al itinerario a pasar por aquí";
+  btnWaypoint.addEventListener("click", () => {
+    addWaypointConPunto({ type: "stop", id });
+    CURRENT_ROUTE_MAP.closePopup();
+  });
+  acciones.appendChild(btnWaypoint);
+
   wrap.appendChild(acciones);
   return wrap;
 }
@@ -4793,11 +4857,32 @@ function setWaypoint(i, point) {
 
 function addWaypoint() {
   ROUTE_WAYPOINTS.push(null);
+  ROUTE_WAYPOINTS_ANDANDO.push(false);
+  renderWaypointsUI();
+}
+
+/** Añade un punto ya resuelto directamente, sin pasar por una fila
+ * vacía: lo que usa "Añadir a la ruta" desde el globo de una parada o de
+ * un municipio en el mapa. */
+function addWaypointConPunto(point) {
+  ROUTE_WAYPOINTS.push(point);
+  ROUTE_WAYPOINTS_ANDANDO.push(false);
   renderWaypointsUI();
 }
 
 function removeWaypoint(i) {
   ROUTE_WAYPOINTS.splice(i, 1);
+  ROUTE_WAYPOINTS_ANDANDO.splice(i, 1);
+  renderWaypointsUI();
+}
+
+/** El botón "ir andando desde el punto anterior" de una fila: fuerza el
+ * tramo que LLEGA a ese punto a resolverse en línea recta —a pie, o en
+ * bici si el interruptor está activado— en vez de buscarle autobús. Es
+ * el mismo cálculo que ya usa "ir directo" para el viaje entero
+ * (`distanciaDirecta`), aplicado sólo a ese tramo. */
+function toggleWaypointAndando(i) {
+  ROUTE_WAYPOINTS_ANDANDO[i] = !ROUTE_WAYPOINTS_ANDANDO[i];
   renderWaypointsUI();
 }
 
@@ -4856,6 +4941,7 @@ function renderWaypointsUI() {
     const row = document.createElement("div");
     row.className = "field waypoint-row";
     row.dataset.num = i + 1;
+    const andando = !!ROUTE_WAYPOINTS_ANDANDO[i];
     row.innerHTML = `
       <label class="field-label">Parada intermedia ${i + 1}</label>
       <div class="endpoint-row">
@@ -4863,10 +4949,13 @@ function renderWaypointsUI() {
         <button class="btn-chip solo-ico" type="button" data-ico="municipio" title="Elegir un municipio entero"></button>
         <button class="btn-chip solo-ico" type="button" data-ico="cerrar" title="Quitar esta parada intermedia"></button>
       </div>
-      <div class="endpoint-status"></div>`;
+      <div class="endpoint-status"></div>
+      <button class="btn-chip waypoint-andando${andando ? " armed" : ""}" type="button" data-ico="andar" style="margin-top:6px;"
+        title="En vez de buscarle autobús, ir en línea recta desde el punto anterior">Ir andando desde el punto anterior</button>`;
     const input = row.querySelector("input");
-    const [btnMuni, btnQuitar] = row.querySelectorAll("button");
+    const [btnMuni, btnQuitar] = row.querySelectorAll(".endpoint-row button");
     const status = row.querySelector(".endpoint-status");
+    const btnAndando = row.querySelector(".waypoint-andando");
     status.textContent = wp ? describeEndpoint(wp) : "";
     input.addEventListener("change", e => {
       const texto = e.target.value.trim();
@@ -4882,6 +4971,7 @@ function renderWaypointsUI() {
     });
     btnMuni.addEventListener("click", () => abrirSelectorMunicipioWaypoint(i));
     btnQuitar.addEventListener("click", () => removeWaypoint(i));
+    btnAndando.addEventListener("click", () => toggleWaypointAndando(i));
     // El SVG de los botones no llega solo: los que se pintan en el HTML de
     // arranque los rellena `pintarIconosDeclarados()`, pero ésta fila nace
     // después, así que hay que rellenarlos aquí.
@@ -4991,6 +5081,12 @@ function drawRouteOnMap(res) {
       // se resolvieron, sea parada, municipio o punto marcado.
       latlngA = coordenadasDeExtremo(APP.data, ROUTE_ORIGIN);
       latlngB = coordenadasDeExtremo(APP.data, ROUTE_DESTINO);
+    } else if (leg.tipo === "walk_tramo") {
+      // Un tramo forzado a ir directo dentro de una ruta con puntos de
+      // paso: sus extremos son el punto tal cual (parada o municipio),
+      // no necesariamente el origen/destino globales de la ruta.
+      latlngA = coordenadasDeExtremo(APP.data, leg.origenPunto);
+      latlngB = coordenadasDeExtremo(APP.data, leg.destinoPunto);
     }
     if (!latlngA || !latlngB) return;
     const line = L.polyline([latlngA, latlngB], {
@@ -5105,6 +5201,19 @@ function construirFilasItinerario(res) {
       hito("_partida_", { partida: true, salida: leg.salida });
       filas.push({ tipo: "tramo", clase: "andando", leg });
       hito("_destino_", { destinoFinal: true, llegada: leg.llegada });
+    } else if (leg.tipo === "walk_tramo") {
+      // Un tramo de una ruta con puntos de paso, forzado a ir en línea
+      // recta ("ir andando desde el punto anterior"): sus extremos son
+      // el punto tal cual —parada o municipio—, no necesariamente una
+      // parada con horarios, así que el hito no siempre tiene
+      // `paradaId`. Con una parada sí lo lleva, para que el hito se
+      // funda con el de la línea de autobús que venga antes o después
+      // (misma parada, misma clave) en vez de salir duplicado.
+      const clave = p => p.type === "stop" ? p.id : "muni:" + p.nombre;
+      const idDe = p => p.type === "stop" ? p.id : null;
+      hito(clave(leg.origenPunto), { paradaId: idDe(leg.origenPunto), punto: leg.origenPunto, llegada: leg.salida });
+      filas.push({ tipo: "tramo", clase: "andando", leg });
+      hito(clave(leg.destinoPunto), { paradaId: idDe(leg.destinoPunto), punto: leg.destinoPunto, llegada: leg.llegada });
     }
   });
   return filas;
@@ -5120,9 +5229,14 @@ function itinerarioHtml(res) {
     if (fila.tipo === "hito") {
       clases.push("extremo");
       const p = fila.paradaId ? APP.data.paradas[fila.paradaId] : null;
+      // Un hito de un tramo forzado a ir directo puede caer en un
+      // municipio entero (sin una parada concreta que lo represente):
+      // `fila.punto` trae el municipio tal cual para poder nombrarlo.
       const nombre = fila.partida ? "Tu punto de partida"
         : fila.destinoFinal ? "Tu destino"
-        : (p ? p.nombre : fila.paradaId);
+        : p ? p.nombre
+        : (fila.punto && fila.punto.type === "municipio") ? fila.punto.nombre
+        : fila.paradaId;
       const municipio = fila.paradaId ? municipioDeParada(fila.paradaId) : null;
       const esperaMin = (fila.llegada != null && fila.salida != null) ? fila.salida - fila.llegada : 0;
       const horas = fila.llegada != null && fila.salida != null && esperaMin > 0
@@ -5318,9 +5432,17 @@ async function onCalcularRuta() {
   }
   // Los puntos intermedios rellenos (los añadidos pero aún vacíos no
   // cuentan) obligan al itinerario a pasar por ahí; sin ninguno, la
-  // búsqueda es la de siempre.
-  const waypoints = ROUTE_WAYPOINTS.filter(Boolean);
+  // búsqueda es la de siempre. Los índices rellenos son los que hacen
+  // falta también para `forzarTramos`: sin ellos, un hueco vacío entre
+  // dos puntos rellenos desalinearía qué "ir andando" pertenece a cuál.
+  const indicesConPunto = ROUTE_WAYPOINTS.map((wp, i) => i).filter(i => ROUTE_WAYPOINTS[i]);
+  const waypoints = indicesConPunto.map(i => ROUTE_WAYPOINTS[i]);
   const extremos = [ROUTE_ORIGIN, ...waypoints, ROUTE_DESTINO];
+  // Un booleano por tramo: el que llega a cada punto de paso (según se
+  // haya marcado "ir andando desde el punto anterior" en su fila), y el
+  // último —el que llega al destino— nunca forzado: ese botón sólo vive
+  // en las filas de puntos de ruta.
+  const forzarTramos = [...indicesConPunto.map(i => !!ROUTE_WAYPOINTS_ANDANDO[i]), false];
 
   const faltan = [...new Set(extremos.flatMap(areasDeExtremo))].filter(idc => !tieneHorarios(idc));
   resultBox.innerHTML = `<div class="card"><p class="empty">${faltan.length
@@ -5344,7 +5466,7 @@ async function onCalcularRuta() {
     // "ir directo" (que precisamente se saltaría los puntos por los que
     // se pidió pasar).
     RUTA_SIN_RESULTADO = null;
-    const combinada = calcularRutaConTramos(APP.data, ROUTING, extremos, salida);
+    const combinada = calcularRutaConTramos(APP.data, ROUTING, extremos, salida, forzarTramos);
     RUTA_OPCIONES = combinada ? [combinada] : [];
     RUTA_OPCION_ACTIVA = 0;
     renderRutaResultado(combinada, salida, null, RUTA_OPCIONES);

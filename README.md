@@ -41,7 +41,11 @@ de Andalucía**, que no participan ni respaldan esto. Los horarios son
   una opción más, sin desplazar a la de autobús del puesto por defecto.
   También se pueden añadir **puntos de ruta intermedios** —una parada o
   un municipio por el que el itinerario tiene que pasar sí o sí— entre el
-  origen y el destino.
+  origen y el destino, bien a mano o directamente desde "Añadir a la
+  ruta" en el globo de una parada o un municipio del mapa. Cada punto
+  admite además "ir andando desde el punto anterior", para forzar ese
+  tramo en línea recta en vez de esperar a que el buscador le encuentre
+  autobús.
 - **Favoritos** — paradas, líneas y rutas guardadas, con recálculo automático.
 - **Avisos** — que te avise 5, 10 o 15 minutos antes de que salga tu
   autobús, mientras la app siga abierta.
@@ -350,6 +354,25 @@ no pasan por aquí.
   puntos marcados a mano en el mapa ni la propia ubicación —sólo
   paradas y municipios—, ni guardar como favorita una ruta que los use
   (los favoritos sólo recuerdan origen y destino).
+
+- **Añadir un punto de ruta sin ir a rellenar una fila a mano.** El globo
+  que se abre al tocar una parada o un municipio en el mapa —el mismo
+  que ya tiene "Marcar origen" y "Marcar destino"— trae también "Añadir
+  a la ruta": empuja ese punto al final de la lista de puntos de ruta
+  directamente, sin pasar por el botón "Añadir parada intermedia" ni
+  escribir el nombre. Sólo aparece en el mapa de la pantalla de Ruta —en
+  cualquier otro sitio no tendría con qué encadenarse.
+
+- **"Ir andando desde el punto anterior", tramo a tramo.** Cada fila de
+  punto de ruta lleva su propio interruptor: en vez de buscarle autobús
+  al tramo que llega hasta ese punto, lo resuelve en línea recta —el
+  mismo cálculo que ya usa "ir directo" para el viaje entero
+  (`distanciaDirecta`), aplicado sólo a ese tramo—. Con la bicicleta
+  activada, el tiempo se recalcula solo, a la mitad, sin tocar el
+  interruptor del tramo: sigue el mismo `MODO_BICI` global que todo lo
+  demás. Es la salida de mano cuando forzar un punto de paso hace que el
+  buscador encuentre una combinación en autobús rarísima para cubrir
+  cuatro manzanas: se le dice que no se moleste.
 
 - **Sentido de circulación.** Es el final del bloque que coges, no la
   cabecera de la línea. Así todos los recorridos que pasan por tu parada

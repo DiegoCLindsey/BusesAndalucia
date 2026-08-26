@@ -2151,9 +2151,9 @@ function montarCatalogo(cat) {
   APP.data = { paradas: CTAN.paradas, lineas: CTAN.lineas, municipios: CTAN.municipios };
   construirGrafo();
   // Con las coordenadas de las 5.009 paradas ya está todo lo que hace
-  // falta para calcular trasbordos a pie: no hay que esperar a que se
-  // bajen los horarios de ningún área.
-  construirIndiceAPie();
+  // falta para calcular trasbordos a pie o en bici: no hay que esperar a
+  // que se bajen los horarios de ningún área.
+  construirIndicesDeCercania();
 }
 
 /** Baja los horarios de un área y los suma a lo que ya hay en memoria.
@@ -3679,40 +3679,59 @@ function wireLineSearch() {
  * cruce con más de diez paradas alrededor. */
 let ROUTING = { vecinos: {} };
 
-/** Índice espacial de las paradas del catálogo (las 5.009, de las nueve
- * áreas), para encontrar vecinas a pie sin depender de un grafo
- * precalculado. Se reconstruye una vez, al montar el catálogo —las
- * coordenadas no cambian después—, así que sirve desde el primer
- * segundo, sin esperar a que se bajen los horarios de ningún área. */
-let INDICE_A_PIE = null;
-let CACHE_VECINOS_A_PIE = new Map();
+/** Dos índices espaciales de las paradas del catálogo (las 5.009, de las
+ * nueve áreas), para encontrar vecinas a pie o en bici sin depender de un
+ * grafo precalculado. Se reconstruyen una vez, al montar el catálogo —las
+ * coordenadas no cambian después—, así que sirven desde el primer
+ * segundo, sin esperar a que se bajen los horarios de ningún área.
+ *
+ * Van por separado porque el radio cambia con el modo, no sólo la
+ * velocidad: en bici vale la pena rodear más para llegar a una parada, así
+ * que hace falta mirar más lejos, no sólo tardar menos en el mismo sitio.
+ * La rejilla de cada índice tiene el tamaño de su radio (para que un barrido
+ * de las 9 celdas de alrededor cubra siempre el círculo entero). */
+let INDICE_PIE = null;
+let INDICE_BICI = null;
+let CACHE_VECINOS_PIE = new Map();
+let CACHE_VECINOS_BICI = new Map();
 const RADIO_A_PIE_M = 600;       // doce minutos a pie, como una esquina más allá
 const MAX_VECINOS_A_PIE = 10;    // ramas por parada: de sobra sin dispersar la búsqueda
+// En bici merece la pena rodear una parada floja para enganchar una mejor
+// y ahorrarse un trasbordo entero: más radio que a pie, no sólo más rápido
+// en el mismo radio.
+const RADIO_BICI_M = 2500;
+const MAX_VECINOS_BICI = 12;
 
-function construirIndiceAPie() {
-  INDICE_A_PIE = { celdas: new Map(), lado: RADIO_A_PIE_M / 111320 };
-  CACHE_VECINOS_A_PIE = new Map();
-  const anchoLng = lat => INDICE_A_PIE.lado / Math.max(0.2, Math.cos(lat * Math.PI / 180));
-  const clave = (lat, lng) => Math.floor(lat / INDICE_A_PIE.lado) + "|" + Math.floor(lng / anchoLng(lat));
+function construirIndiceGeo(radioM) {
+  const indice = { celdas: new Map(), lado: radioM / 111320 };
+  const anchoLng = lat => indice.lado / Math.max(0.2, Math.cos(lat * Math.PI / 180));
+  const clave = (lat, lng) => Math.floor(lat / indice.lado) + "|" + Math.floor(lng / anchoLng(lat));
   Object.entries(CTAN.paradas).forEach(([id, p]) => {
     if (p.lat == null || p.lng == null) return;
     const k = clave(p.lat, p.lng);
-    if (!INDICE_A_PIE.celdas.has(k)) INDICE_A_PIE.celdas.set(k, []);
-    INDICE_A_PIE.celdas.get(k).push(id);
+    if (!indice.celdas.has(k)) indice.celdas.set(k, []);
+    indice.celdas.get(k).push(id);
   });
+  return indice;
 }
 
-/** Paradas a las que se puede ir andando desde una, en línea recta a
- * 3 km/h (la misma velocidad que decide cuánto se tarda en llegar a la
- * primera parada o desde la última): [[paradaId, minutos], …], las más
- * cercanas primero. Memoizado por parada — las coordenadas no cambian
- * en lo que dura la sesión. */
-function vecinosAPie(paradaId) {
-  if (CACHE_VECINOS_A_PIE.has(paradaId)) return CACHE_VECINOS_A_PIE.get(paradaId);
+function construirIndicesDeCercania() {
+  INDICE_PIE = construirIndiceGeo(RADIO_A_PIE_M);
+  INDICE_BICI = construirIndiceGeo(RADIO_BICI_M);
+  CACHE_VECINOS_PIE = new Map();
+  CACHE_VECINOS_BICI = new Map();
+}
+
+/** El núcleo compartido: paradas dentro de un radio, en línea recta,
+ * ordenadas por cercanía y con el tiempo ya calculado para ese modo.
+ * Memoizado por parada — las coordenadas no cambian en lo que dura la
+ * sesión, así que el resultado tampoco. */
+function vecinosCerca(paradaId, indice, cache, radioM, maxVecinos, modo) {
+  if (cache.has(paradaId)) return cache.get(paradaId);
   const resultado = [];
-  const p = INDICE_A_PIE && CTAN.paradas[paradaId];
+  const p = indice && CTAN.paradas[paradaId];
   if (p && p.lat != null) {
-    const { celdas, lado } = INDICE_A_PIE;
+    const { celdas, lado } = indice;
     const anchoLng = lado / Math.max(0.2, Math.cos(p.lat * Math.PI / 180));
     const cx = Math.floor(p.lat / lado), cy = Math.floor(p.lng / anchoLng);
     const cerca = [];
@@ -3722,15 +3741,38 @@ function vecinosAPie(paradaId) {
           if (otroId === paradaId) return;
           const q = CTAN.paradas[otroId];
           const d = haversine(p.lat, p.lng, q.lat, q.lng);
-          if (d <= RADIO_A_PIE_M) cerca.push([otroId, d]);
+          if (d <= radioM) cerca.push([otroId, d]);
         });
       }
     }
     cerca.sort((a, b) => a[1] - b[1]);
-    cerca.slice(0, MAX_VECINOS_A_PIE).forEach(([id, d]) => resultado.push([id, walkMinutes(d)]));
+    const minutosDe = modo === "bici" ? bikeMinutes : walkMinutes;
+    cerca.slice(0, maxVecinos).forEach(([id, d]) => resultado.push([id, minutosDe(d), modo]));
   }
-  CACHE_VECINOS_A_PIE.set(paradaId, resultado);
+  cache.set(paradaId, resultado);
   return resultado;
+}
+
+/** Paradas a las que se puede ir andando desde una, en línea recta a
+ * 3 km/h (la misma velocidad que decide cuánto se tarda en llegar a la
+ * primera parada o desde la última): [[paradaId, minutos, "pie"], …], las
+ * más cercanas primero. */
+function vecinosAPie(paradaId) {
+  return vecinosCerca(paradaId, INDICE_PIE, CACHE_VECINOS_PIE, RADIO_A_PIE_M, MAX_VECINOS_A_PIE, "pie");
+}
+
+/** Lo mismo, pero al doble de velocidad y con más alcance: [[paradaId,
+ * minutos, "bici"], …]. */
+function vecinosEnBici(paradaId) {
+  return vecinosCerca(paradaId, INDICE_BICI, CACHE_VECINOS_BICI, RADIO_BICI_M, MAX_VECINOS_BICI, "bici");
+}
+
+/** El trasbordo que de verdad usa el buscador de itinerarios: a pie
+ * siempre, o en bici —más lejos y más rápido— si el interruptor está
+ * activado. Con esto una parada a 1,5 km, inalcanzable a pie, puede
+ * ahorrarse un trasbordo entero con un salto en bici. */
+function vecinosDeTransporte(paradaId) {
+  return MODO_BICI ? vecinosEnBici(paradaId) : vecinosAPie(paradaId);
 }
 let CURRENT_ROUTE_MAP = null;
 let ROUTE_MARKERS = {};
@@ -3901,23 +3943,45 @@ function raptor(routing, origenes, activos, destinoIds) {
   const rondas = [new Map()];       // rondas[k] -> parada -> llegada en <=k buses
   const padres = [new Map()];       // rondas[k] -> parada -> de dónde vino
 
-  // Un salto a pie desde las paradas que acaban de mejorar: la parada de
-  // enfrente, la de la esquina, el otro andén. Nunca encadenados, para no
-  // convertir la búsqueda en un paseo por media provincia. Se calcula al
-  // vuelo (distancia en línea recta a 3 km/h), no de un grafo cargado de
-  // antemano: así funciona igual entre dos paradas recién llegadas de un
-  // área que aún no tenía horarios.
+  // Un salto a pie —o en bici, con la bicicleta activada— desde las
+  // paradas que acaban de mejorar: la parada de enfrente, la de la
+  // esquina, el otro andén, o con la bici algo más allá si con eso se
+  // engancha una línea mejor y se ahorra un trasbordo entero. Nunca
+  // encadenados, para no convertir la búsqueda en un paseo por media
+  // provincia. Se calcula al vuelo (distancia en línea recta), no de un
+  // grafo cargado de antemano: así funciona igual entre dos paradas
+  // recién llegadas de un área que aún no tenía horarios.
   const saltosAPie = (k, desdeParadas) => {
     const alcanzadas = new Set();
+    // La hora de salida de cada parada se congela ANTES de repartir los
+    // saltos: si se leyera en vivo de `rondas[k]`, una parada que también
+    // estuviera en `desdeParadas` podría heredar a media vuelta la hora
+    // mejorada por el salto de otra y encadenar un segundo salto sin que
+    // hubiera autobús de por medio — justo lo que este método existe
+    // para evitar.
+    const salidaDe = new Map(desdeParadas.map(id => [id, rondas[k].get(id)]));
     desdeParadas.forEach(paradaId => {
-      const desde = rondas[k].get(paradaId);
-      vecinosAPie(paradaId).forEach(([vecino, minutos]) => {
+      const desde = salidaDe.get(paradaId);
+      vecinosDeTransporte(paradaId).forEach(([vecino, minutos, modo]) => {
+        // Si la parada de llegada es TAMBIÉN una de las que ha traído un
+        // autobús esta ronda, su propio historial no se toca: si se
+        // dejara mejorar, se reconstruiría con dos versiones de "cómo
+        // llegué aquí" a la vez — la que de verdad se usó para saltar
+        // más allá, y la que quedaría grabada encima — y el itinerario
+        // saldría con una espera negativa o un salto que no cuadra.
+        if (salidaDe.has(vecino)) return;
         const cand = desde + minutos;
         const actual = rondas[k].get(vecino);
         if (actual === undefined || cand < actual) {
           rondas[k].set(vecino, cand);
           if (!mejor.has(vecino) || cand < mejor.get(vecino)) mejor.set(vecino, cand);
-          if (padres[k]) padres[k].set(vecino, { tipo: "pie", desde: paradaId, minutos });
+          // La hora de salida se guarda tal cual (no sólo el nombre de la
+          // parada): si esa parada mejora más tarde en la misma ronda por
+          // otro salto —llega antes en bici desde un tercer sitio—, este
+          // tramo no puede heredar esa hora nueva sin haber pasado por
+          // ella de verdad. Sin esto la reconstrucción podía enseñar un
+          // salto que salía después de haber llegado.
+          if (padres[k]) padres[k].set(vecino, { tipo: "pie", desde: paradaId, desdeLlegada: desde, minutos, modo });
           alcanzadas.add(vecino);
         }
       });
@@ -4001,8 +4065,13 @@ function reconstruir(rondas, padres, paradaId, ronda) {
     const padre = padres[k] && padres[k].get(actual);
     if (!padre) { k--; continue; }
     if (padre.tipo === "pie") {
-      crudos.push({ tipo: "walk", origen: padre.desde, destino: actual,
-        salida: rondas[k].get(padre.desde), llegada: rondas[k].get(actual) });
+      // La salida es la que se congeló al calcular este salto
+      // (`desdeLlegada`), no la que tenga ahora `padre.desde` en
+      // `rondas[k]`: esa parada puede haber mejorado después, por otro
+      // salto ajeno a este, y usar su hora actual desharía la congelación
+      // que evita los saltos encadenados.
+      crudos.push({ tipo: "walk", origen: padre.desde, destino: actual, modo: padre.modo,
+        salida: padre.desdeLlegada, llegada: rondas[k].get(actual) });
       actual = padre.desde;
     } else {
       const { ruta, viaje, subidaPos, bajadaPos } = padre;
@@ -4021,8 +4090,8 @@ function reconstruir(rondas, padres, paradaId, ronda) {
   // arrancaría en un sitio al que nadie ha dicho cómo se llega.
   const inicial = padres[0] && padres[0].get(actual);
   if (inicial && inicial.tipo === "pie") {
-    crudos.push({ tipo: "walk", origen: inicial.desde, destino: actual,
-      salida: rondas[0].get(inicial.desde), llegada: rondas[0].get(actual) });
+    crudos.push({ tipo: "walk", origen: inicial.desde, destino: actual, modo: inicial.modo,
+      salida: inicial.desdeLlegada, llegada: rondas[0].get(actual) });
   }
   crudos.reverse();
   return crudos;
@@ -4035,6 +4104,7 @@ function montarItinerario(crudos, o, de, destinoStopId, salidaMin, diaOffset) {
   salidaMin += diaOffset;
   const legs = [];
   let totalCaminandoMin = 0;
+  let totalPedaleandoMin = 0;
 
   const arranque = crudos.length ? crudos[0].origen : destinoStopId;
   const seed = o.seeds.find(s => s.stopId === arranque);
@@ -4048,7 +4118,8 @@ function montarItinerario(crudos, o, de, destinoStopId, salidaMin, diaOffset) {
   crudos.forEach(leg => {
     if (leg.tipo === "walk") {
       legs.push({ ...leg });
-      totalCaminandoMin += leg.llegada - leg.salida;
+      if (leg.modo === "bici") totalPedaleandoMin += leg.llegada - leg.salida;
+      else totalCaminandoMin += leg.llegada - leg.salida;
       return;
     }
     const previa = legs[legs.length - 1];
@@ -4070,7 +4141,7 @@ function montarItinerario(crudos, o, de, destinoStopId, salidaMin, diaOffset) {
   return {
     legs, llegadaMin: tFinal - diasSalida * 1440, diasSalida,
     origenStopId: primerBus ? primerBus.origen : destinoStopId,
-    destinoStopId, totalCaminandoMin,
+    destinoStopId, totalCaminandoMin, totalPedaleandoMin,
     numTrasbordos: Math.max(0, legs.filter(l => l.tipo === "bus").length - 1),
     lineas: legs.filter(l => l.tipo === "bus").map(l => l.lineaSlug),
     salidaMin: legs.length ? legs[0].salida : salidaMin
@@ -4169,7 +4240,7 @@ function saltosMinimos(origenIds, destinoIds) {
     frente.push(id);
   };
   origenIds.forEach(id => anotar(id, 0));
-  origenIds.forEach(id => vecinosAPie(id).forEach(([v]) => anotar(v, 0)));
+  origenIds.forEach(id => vecinosDeTransporte(id).forEach(([v]) => anotar(v, 0)));
   if (frente.some(id => meta.has(id))) return 0;
 
   for (let saltos = 1; saltos <= 8 && frente.length; saltos++) {
@@ -4181,7 +4252,7 @@ function saltosMinimos(origenIds, destinoIds) {
           if (vistas.has(q)) continue;
           vistas.set(q, saltos);
           siguiente.push(q);
-          vecinosAPie(q).forEach(([v]) => {
+          vecinosDeTransporte(q).forEach(([v]) => {
             if (!vistas.has(v)) { vistas.set(v, saltos); siguiente.push(v); }
           });
         }

@@ -942,7 +942,6 @@
   <div class="headline">
     <h1><span class="marca-ico" id="marcaIco"></span><span class="marca-texto">Próxima Salida</span></h1>
     <div class="header-actions">
-      <button class="btn-icon" id="btnConsorcio" type="button" title="Cambiar de área" hidden></button>
       <button class="btn-icon solo-ico" id="btnTema" type="button" title="Cambiar tema"></button>
       <button class="btn-icon" id="btnAbrirFavoritos" type="button">Favoritos</button>
     </div>
@@ -2149,6 +2148,10 @@ function montarCatalogo(cat) {
   // Vista de compatibilidad: buena parte de la interfaz lee de aquí.
   APP.data = { paradas: CTAN.paradas, lineas: CTAN.lineas, municipios: CTAN.municipios };
   construirGrafo();
+  // Con las coordenadas de las 5.009 paradas ya está todo lo que hace
+  // falta para calcular trasbordos a pie: no hay que esperar a que se
+  // bajen los horarios de ningún área.
+  construirIndiceAPie();
 }
 
 /** Baja los horarios de un área y los suma a lo que ya hay en memoria.
@@ -2283,6 +2286,21 @@ function areaMasCercana(lat, lng) {
     if (d < mejorD) { mejor = c.id; mejorD = d; }
   });
   return mejor;
+}
+
+/** Todas las áreas al alcance de un punto, no sólo la más cercana: cerca
+ * de una frontera —el Aljarafe con Huelva, la Bahía de Cádiz con el Campo
+ * de Gibraltar— hay paradas de dos consorcios a la vez, y las dos tienen
+ * que estar disponibles sin haber tocado antes una parada o una línea
+ * suya. 25 km de holgura sobre el rectángulo del área es de sobra para
+ * cubrir eso sin bajar horarios que no hacen falta. */
+const RADIO_AREAS_CERCA_M = 25000;
+function areasEnRango(lat, lng, radioM) {
+  if (!APP.indice) return [];
+  const radio = radioM == null ? RADIO_AREAS_CERCA_M : radioM;
+  return APP.indice.consorcios
+    .filter(c => distanciaABbox(lat, lng, c.bbox) <= radio)
+    .map(c => c.id);
 }
 
 /* ------------------------------------------------------------------ */
@@ -3650,13 +3668,68 @@ function wireLineSearch() {
 /* ------------------------------------------------------------------ */
 /* Pestaña "Calculadora de ruta"                                       */
 /* ------------------------------------------------------------------ */
-/** Grafo a pie: qué paradas están lo bastante cerca como para cambiar de
- * autobús andando. Viene con los horarios del área (`vecinos` en
- * horarios.json), calculado de las coordenadas del GTFS. Antes era un
- * fichero suelto, ctas_routing.json, que sólo tenía Sevilla: en las otras
- * ocho áreas el buscador no podía enlazar dos líneas que paran en la misma
- * plaza pero en aceras distintas, y por eso perdía viajes que existen. */
+/** `ROUTING` se mantiene por compatibilidad con quien todavía lea
+ * `.vecinos` (llegan del `vecinos` de cada horarios.json, precalculado en
+ * el servidor sobre un radio y un tope de vecinas fijos). El buscador de
+ * itinerarios YA NO lee de aquí: usa `vecinosAPie()`, calculado al vuelo
+ * con la distancia en línea recta de cada parada, así que no depende de
+ * que esa área tenga los horarios bajados ni se queda corto en un
+ * cruce con más de diez paradas alrededor. */
 let ROUTING = { vecinos: {} };
+
+/** Índice espacial de las paradas del catálogo (las 5.009, de las nueve
+ * áreas), para encontrar vecinas a pie sin depender de un grafo
+ * precalculado. Se reconstruye una vez, al montar el catálogo —las
+ * coordenadas no cambian después—, así que sirve desde el primer
+ * segundo, sin esperar a que se bajen los horarios de ningún área. */
+let INDICE_A_PIE = null;
+let CACHE_VECINOS_A_PIE = new Map();
+const RADIO_A_PIE_M = 600;       // doce minutos a pie, como una esquina más allá
+const MAX_VECINOS_A_PIE = 10;    // ramas por parada: de sobra sin dispersar la búsqueda
+
+function construirIndiceAPie() {
+  INDICE_A_PIE = { celdas: new Map(), lado: RADIO_A_PIE_M / 111320 };
+  CACHE_VECINOS_A_PIE = new Map();
+  const anchoLng = lat => INDICE_A_PIE.lado / Math.max(0.2, Math.cos(lat * Math.PI / 180));
+  const clave = (lat, lng) => Math.floor(lat / INDICE_A_PIE.lado) + "|" + Math.floor(lng / anchoLng(lat));
+  Object.entries(CTAN.paradas).forEach(([id, p]) => {
+    if (p.lat == null || p.lng == null) return;
+    const k = clave(p.lat, p.lng);
+    if (!INDICE_A_PIE.celdas.has(k)) INDICE_A_PIE.celdas.set(k, []);
+    INDICE_A_PIE.celdas.get(k).push(id);
+  });
+}
+
+/** Paradas a las que se puede ir andando desde una, en línea recta a
+ * 3 km/h (la misma velocidad que decide cuánto se tarda en llegar a la
+ * primera parada o desde la última): [[paradaId, minutos], …], las más
+ * cercanas primero. Memoizado por parada — las coordenadas no cambian
+ * en lo que dura la sesión. */
+function vecinosAPie(paradaId) {
+  if (CACHE_VECINOS_A_PIE.has(paradaId)) return CACHE_VECINOS_A_PIE.get(paradaId);
+  const resultado = [];
+  const p = INDICE_A_PIE && CTAN.paradas[paradaId];
+  if (p && p.lat != null) {
+    const { celdas, lado } = INDICE_A_PIE;
+    const anchoLng = lado / Math.max(0.2, Math.cos(p.lat * Math.PI / 180));
+    const cx = Math.floor(p.lat / lado), cy = Math.floor(p.lng / anchoLng);
+    const cerca = [];
+    for (let i = -1; i <= 1; i++) {
+      for (let j = -1; j <= 1; j++) {
+        (celdas.get((cx + i) + "|" + (cy + j)) || []).forEach(otroId => {
+          if (otroId === paradaId) return;
+          const q = CTAN.paradas[otroId];
+          const d = haversine(p.lat, p.lng, q.lat, q.lng);
+          if (d <= RADIO_A_PIE_M) cerca.push([otroId, d]);
+        });
+      }
+    }
+    cerca.sort((a, b) => a[1] - b[1]);
+    cerca.slice(0, MAX_VECINOS_A_PIE).forEach(([id, d]) => resultado.push([id, walkMinutes(d)]));
+  }
+  CACHE_VECINOS_A_PIE.set(paradaId, resultado);
+  return resultado;
+}
 let CURRENT_ROUTE_MAP = null;
 let ROUTE_MARKERS = {};
 let ROUTE_CAPA = null;   // capa de red del mapa de rutas (municipios + paradas)
@@ -3799,12 +3872,15 @@ function raptor(routing, origenes, activos, destinoIds) {
 
   // Un salto a pie desde las paradas que acaban de mejorar: la parada de
   // enfrente, la de la esquina, el otro andén. Nunca encadenados, para no
-  // convertir la búsqueda en un paseo por media provincia.
+  // convertir la búsqueda en un paseo por media provincia. Se calcula al
+  // vuelo (distancia en línea recta a 3 km/h), no de un grafo cargado de
+  // antemano: así funciona igual entre dos paradas recién llegadas de un
+  // área que aún no tenía horarios.
   const saltosAPie = (k, desdeParadas) => {
     const alcanzadas = new Set();
     desdeParadas.forEach(paradaId => {
       const desde = rondas[k].get(paradaId);
-      (routing.vecinos[paradaId] || []).forEach(([vecino, minutos]) => {
+      vecinosAPie(paradaId).forEach(([vecino, minutos]) => {
         const cand = desde + minutos;
         const actual = rondas[k].get(vecino);
         if (actual === undefined || cand < actual) {
@@ -4024,7 +4100,7 @@ function calcularOpcionesRuta(appData, routing, origin, destino, salida) {
     });
     return buenas;
   }
-  RUTA_SIN_RESULTADO = motivoSinRuta(routing, o, de);
+  RUTA_SIN_RESULTADO = motivoSinRuta(o, de);
   return [];
 }
 
@@ -4038,7 +4114,7 @@ function calcularOpcionesRuta(appData, routing, origin, destino, salida) {
  * que encadenar como mínimo para llegar. */
 let RUTA_SIN_RESULTADO = null;
 
-function saltosMinimos(routing, origenIds, destinoIds) {
+function saltosMinimos(origenIds, destinoIds) {
   const meta = new Set(destinoIds);
   const vistas = new Map();
   let frente = [];
@@ -4048,7 +4124,7 @@ function saltosMinimos(routing, origenIds, destinoIds) {
     frente.push(id);
   };
   origenIds.forEach(id => anotar(id, 0));
-  origenIds.forEach(id => (routing.vecinos[id] || []).forEach(([v]) => anotar(v, 0)));
+  origenIds.forEach(id => vecinosAPie(id).forEach(([v]) => anotar(v, 0)));
   if (frente.some(id => meta.has(id))) return 0;
 
   for (let saltos = 1; saltos <= 8 && frente.length; saltos++) {
@@ -4060,7 +4136,7 @@ function saltosMinimos(routing, origenIds, destinoIds) {
           if (vistas.has(q)) continue;
           vistas.set(q, saltos);
           siguiente.push(q);
-          (routing.vecinos[q] || []).forEach(([v]) => {
+          vecinosAPie(q).forEach(([v]) => {
             if (!vistas.has(v)) { vistas.set(v, saltos); siguiente.push(v); }
           });
         }
@@ -4072,8 +4148,8 @@ function saltosMinimos(routing, origenIds, destinoIds) {
   return null;
 }
 
-function motivoSinRuta(routing, o, de) {
-  const saltos = saltosMinimos(routing, o.stopIds, de.stopIds);
+function motivoSinRuta(o, de) {
+  const saltos = saltosMinimos(o.stopIds, de.stopIds);
   if (saltos === 0) return "Están tan cerca que se llega andando: no hace falta coger nada.";
   if (saltos === null) return "No hay ninguna combinación de autobuses metropolitanos que una estas dos paradas. Si el trayecto pasa por dentro de Sevilla, hará falta metro, tranvía o un urbano de TUSSAM, que no están en estos horarios.";
   if (saltos > MAX_RONDAS) return `El trayecto necesitaría ${saltos - 1} trasbordos, más de los que merece la pena hacer en autobús. Si cruza Sevilla por dentro, el metro o un urbano de TUSSAM lo resuelven en mucho menos, pero no están en estos horarios.`;
@@ -5211,11 +5287,16 @@ async function renderFavoritosTab() {
 /* Área de referencia                                                   */
 /* ------------------------------------------------------------------ */
 /** Las nueve áreas están siempre disponibles: el catálogo entero se carga
- * al arrancar y los horarios de cada una llegan cuando hacen falta. El
- * "área de referencia" no limita nada, sólo dice desde dónde se está
- * mirando: de qué consorcio son los avisos, qué horarios se precargan y
- * qué fecha de datos se cita en el pie. Se adivina por la ubicación y se
- * puede cambiar a mano desde la cabecera. */
+ * al arrancar, todas las paradas dentro de un radio de la ubicación se
+ * bajan solas, y cualquier parada o línea que se abra o cualquier ruta
+ * que se calcule trae las suyas si hacían falta. No hay pantalla ni botón
+ * para "elegir área": la aplicación decide qué necesita y lo pide.
+ *
+ * El "área de referencia" no limita nada, sólo dice desde dónde se está
+ * mirando: de qué consorcio son los avisos que se precargan, qué
+ * encuadre abre el mapa y qué fecha de datos se cita en el pie. Se
+ * adivina por la ubicación (o por la última con la que se abrió, hasta
+ * que la ubicación diga otra cosa) y no se puede tocar a mano. */
 function consorcioGuardado() {
   const guardado = leerCache(LS_CONSORCIO);
   return guardado && guardado.id ? guardado.id : null;
@@ -5229,73 +5310,18 @@ function distanciaABbox(lat, lng, bbox) {
   return Math.hypot(dLat * 111320, dLng * 111320 * Math.cos(lat * Math.PI / 180));
 }
 
-/** Fija el área de referencia y baja sus horarios. Ya no hay pantalla de
- * bienvenida que obligue a elegir: si no se ha elegido nunca, se coge la
- * del último uso y, si tampoco, la primera del índice hasta que la
- * ubicación diga otra cosa. */
-async function activarConsorcio(idc, recordar) {
+/** Fija el área de referencia y baja sus horarios. No hay pantalla de
+ * bienvenida que obligue a elegir: se coge la del último uso y, si
+ * tampoco hay, la primera del índice hasta que la ubicación diga otra
+ * cosa. */
+async function activarConsorcio(idc) {
   const cab = (APP.indice.consorcios || []).find(c => c.id === idc);
   CTAN.id = idc;
   CTAN.nombre = cab ? cab.nombre : null;
   CTAN.codigo = cab ? cab.codigo : null;
-  if (recordar !== false) guardarCache(LS_CONSORCIO, { id: idc });
-  const btn = document.getElementById("btnConsorcio");
-  if (btn) { btn.hidden = false; btn.textContent = CTAN.codigo || CTAN.nombre || ""; }
+  guardarCache(LS_CONSORCIO, { id: idc });
   pintarPie();
   await asegurarHorarios(idc);
-}
-
-/** Pantalla de elección. Con ubicación se sugiere la más cercana: en la
- * práctica casi siempre es la acertada, y así se entra de un toque. */
-function pintarSelectorConsorcio(indice) {
-  openModal(container => {
-    container.innerHTML = `
-      <h3 class="detail-title">¿Dónde coges el autobús?</h3>
-      <div class="detail-meta">Desde dónde miras. Marca de qué consorcio se
-        enseñan los avisos y qué horarios se tienen ya bajados; las paradas y
-        las líneas de las nueve áreas están disponibles en cualquier caso.</div>
-      <div id="listaConsorcios" class="cabecera-list" style="margin-top:12px;"></div>`;
-    const lista = container.querySelector("#listaConsorcios");
-
-    const pintar = (ubicacion) => {
-      const orden = indice.consorcios.slice();
-      if (ubicacion) {
-        orden.forEach(c => { c._d = distanciaABbox(ubicacion.lat, ubicacion.lng, c.bbox); });
-        orden.sort((a, b) => a._d - b._d);
-      }
-      lista.innerHTML = "";
-      orden.forEach((c, i) => {
-        const cerca = ubicacion && i === 0 && c._d < 60000;
-        const fila = document.createElement("div");
-        fila.className = "salida-fila";
-        fila.innerHTML = `
-          <span class="home-fav-code${cerca ? " es-fav" : ""}">${escapeHtml(c.codigo)}</span>
-          <span class="salida-cuerpo">
-            <span class="salida-hacia">${escapeHtml(c.nombre)}</span>
-            <span class="salida-parada">${c.lineas} líneas · ${c.paradas} paradas${cerca ? " · estás aquí" : ""}</span>
-          </span>`;
-        fila.addEventListener("click", async () => {
-          closeModal();
-          if (!tieneHorarios(c.id)) setStatus("Cargando " + c.nombre + "…");
-          try {
-            await activarConsorcio(c.id);
-            setStatus("");
-            renderTodoTrasCambio();
-          } catch (e) {
-            setStatus("No se han podido cargar los horarios de " + c.nombre + ".", true);
-          }
-        });
-        lista.appendChild(fila);
-      });
-    };
-    pintar(UBICACION);
-    if (!UBICACION && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        pos => pintar({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => { /* sin ubicación se queda el orden del índice */ },
-        { timeout: 8000 });
-    }
-  });
 }
 
 /** El aviso legal de la API obliga a citar la fuente con esta fórmula, a
@@ -5558,19 +5584,18 @@ function pedirUbicacionInicio() {
       // Saber dónde estás cambia QUÉ parada se enseña de cada línea, así
       // que el listado se rehace entero, no sólo se le añade la distancia.
       renderHomeFavSalidas();
-      // Y dice en qué área estás. Si nunca se eligió una a mano, esa pasa a
-      // ser la de referencia; si se eligió, se respeta y sólo se bajan los
-      // horarios de donde estás, que es lo que hace falta para enseñar las
-      // paradas de al lado.
+      // La más cercana pasa a ser el área de referencia (avisos, mapa, pie).
+      // Pero no es la única que se baja: todo lo que está a un radio
+      // razonable de la ubicación se carga solo, para que una parada del
+      // otro lado de una frontera de consorcio ya tenga horarios cuando se
+      // toque, sin haber tenido que abrirla antes a mano.
       const cerca = areaMasCercana(UBICACION.lat, UBICACION.lng);
       if (!cerca) return;
-      if (!consorcioGuardado() && cerca !== CTAN.id) {
-        activarConsorcio(cerca, false)
-          .then(repintarTrasCambioDeArea)
-          .catch(() => { /* se sigue con lo que hubiera */ });
-      } else {
-        asegurarHorarios(cerca).then(renderHomeFavSalidas).catch(() => {});
+      if (cerca !== CTAN.id) {
+        activarConsorcio(cerca).then(repintarTrasCambioDeArea).catch(() => { /* se sigue con lo que hubiera */ });
       }
+      asegurarHorarios(areasEnRango(UBICACION.lat, UBICACION.lng))
+        .then(renderHomeFavSalidas).catch(() => {});
     },
     () => {
       // Sin ubicación no se deja la pantalla muerta: se manda a Ruta, que
@@ -5646,7 +5671,12 @@ function lineasFavoritasValidas() {
     .map(fl => fl.slug));
 }
 
-function candidatasDeSeguimiento() {
+/** Con líneas favoritas guardadas, una parada favorita por la que no pasa
+ * ninguna de ellas se enseña por defecto, o se enseñaría todo lo que para
+ * en ella —de cualquier línea— cada vez que se sigue una línea nueva.
+ * Sólo entra en la lista si no se sigue ninguna línea (ahí es lo único
+ * que hay que enseñar) o si se ha pedido explícitamente con "ver más". */
+function candidatasDeSeguimiento(incluirOtrasLineas = VER_TODAS_SALIDAS) {
   const candidatas = [];   // {paradaId, lineaSlug|null}
   const vistas = new Set();
   const anotar = (paradaId, lineaSlug) => {
@@ -5687,12 +5717,15 @@ function candidatasDeSeguimiento() {
   // Una parada favorita por la que pasa una línea que sigo ya está
   // contada arriba, y con la línea que me importa: sacarla otra vez con
   // todo lo que para en ella llenaría la pantalla de autobuses que no
-  // pienso coger. Las demás sí traen lo suyo, sea de quien sea.
-  misParadas.forEach(id => {
-    const nodo = GRAFO.paradas.get(id);
-    const laCubreUnaFavorita = nodo && [...nodo.lineas].some(slug => favoritas.has(slug));
-    if (!laCubreUnaFavorita) anotar(id, null);
-  });
+  // pienso coger. Las demás sí traen lo suyo, sea de quien sea — pero
+  // sólo si toca enseñarlas (ver arriba).
+  if (!favoritas.size || incluirOtrasLineas) {
+    misParadas.forEach(id => {
+      const nodo = GRAFO.paradas.get(id);
+      const laCubreUnaFavorita = nodo && [...nodo.lineas].some(slug => favoritas.has(slug));
+      if (!laCubreUnaFavorita) anotar(id, null);
+    });
+  }
 
   if (!candidatas.length && UBICACION) {
     Object.entries(APP.data.paradas)
@@ -5751,10 +5784,10 @@ function pintarFiltroMunicipio(contenedor, onCambio) {
  * más cercana. Sin eso, marcar la M-177 como favorita llenaba la pantalla
  * con la misma línea vista desde cuatro paradas repartidas por media
  * provincia, y ninguna era necesariamente la de casa. */
-function salidasVigiladas() {
+function salidasVigiladas(incluirOtrasLineas) {
   const mejores = new Map();   // lineaSlug|sentido -> la salida en la parada más cercana
 
-  candidatasDeSeguimiento().forEach(({ paradaId, lineaSlug }) => {
+  candidatasDeSeguimiento(incluirOtrasLineas).forEach(({ paradaId, lineaSlug }) => {
     const parada = APP.data.paradas[paradaId];
     if (!parada) return;
     const municipio = municipioDeParada(paradaId);
@@ -5858,13 +5891,17 @@ function renderHomeFavSalidas() {
   const box = document.getElementById("homeFavSalidas");
   if (!box) return;
   const hayFavoritos = FAVORITOS.lineas.length > 0 || FAVORITOS.paradas.length > 0;
-  const candidatas = candidatasDeSeguimiento();
+  const favoritas = lineasFavoritasValidas();
+  // La versión completa —con las paradas favoritas sin línea seguida, si
+  // tocara enseñarlas— dice qué áreas hacen falta y cuánto hay detrás de
+  // "ver más", se pulse o no.
+  const candidatasCompleta = candidatasDeSeguimiento(true);
 
   // Las paradas que se van a enseñar pueden ser de un área cuyos horarios
   // aún no están (cerca de un límite provincial, o con un favorito de otra
   // punta). Sin ellos la parada saldría muda, así que se piden y se
   // repinta cuando lleguen.
-  const faltan = [...new Set(candidatas.map(c => areaDeParada(c.paradaId)))]
+  const faltan = [...new Set(candidatasCompleta.map(c => areaDeParada(c.paradaId)))]
     .filter(idc => idc != null && !tieneHorarios(idc));
   if (faltan.length && !PIDIENDO_HORARIOS_INICIO) {
     PIDIENDO_HORARIOS_INICIO = true;
@@ -5873,7 +5910,7 @@ function renderHomeFavSalidas() {
       .then(() => { PIDIENDO_HORARIOS_INICIO = false; renderHomeFavSalidas(); });
   }
 
-  if (!candidatas.length) {
+  if (!candidatasCompleta.length) {
     box.innerHTML = hayFavoritos ? "" : `<div class="card home-fav-card">
       <h2 class="home-fav-title">Tus próximas salidas</h2>
       <p class="empty">Comparte tu ubicación para ver lo que pasa por las paradas que tienes al lado, o guarda una línea o una parada con la estrella.</p>
@@ -5881,9 +5918,13 @@ function renderHomeFavSalidas() {
     return;
   }
 
-  const salidas = salidasVigiladas();
-  const visibles = VER_TODAS_SALIDAS ? salidas : resumirSalidas(salidas);
-  const ocultas = salidas.length - visibles.length;
+  // Con líneas favoritas de por medio, las paradas sin ninguna de ellas se
+  // quedan fuera del resumen: sólo entran al pulsar "ver más". Sin ninguna
+  // línea seguida no hay nada que priorizar, así que la base ya las trae.
+  const salidasBase = salidasVigiladas(false);
+  const salidasCompleta = favoritas.size ? salidasVigiladas(true) : salidasBase;
+  const visibles = VER_TODAS_SALIDAS ? salidasCompleta : resumirSalidas(salidasBase);
+  const ocultas = salidasCompleta.length - visibles.length;
 
   const filas = visibles.map(sal => `
     <div class="salida-fila" data-stop-id="${escapeHtml(sal.paradaId)}">
@@ -6048,14 +6089,12 @@ async function init() {
   // se estaba usando y los de las áreas donde tienes algo guardado. El
   // resto llega cuando se abre una parada o una línea de por allí.
   const referencia = consorcioGuardado() || APP.indice.consorcios[0].id;
-  activarConsorcio(referencia, !!consorcioGuardado())
+  activarConsorcio(referencia)
     .then(() => { renderHomeFavSalidas(); renderListadoLineas(); })
     .catch(() => setStatus("No se han podido cargar los horarios del área.", true));
   asegurarHorarios(areasDeFavoritos())
     .then(() => { renderHomeFavSalidas(); renderQuickFavs(); })
     .catch(e => console.warn("No se han podido cargar los horarios de tus favoritos", e));
-  document.getElementById("btnConsorcio").addEventListener("click",
-    () => pintarSelectorConsorcio(APP.indice));
   buildMunicipioOptions();
   wireTabs();
   wireLineSearch();

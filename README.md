@@ -42,9 +42,12 @@ de Andalucía**, que no participan ni respaldan esto. Los horarios son
 
 Las nueve áreas están siempre disponibles: al abrir se carga el catálogo de
 toda Andalucía —las 5.009 paradas, las 432 líneas, los 234 municipios— y los
-horarios de cada área se bajan cuando hacen falta: los del sitio donde estás
-al arrancar, y los de cualquier parada o línea que abras. Así se puede mirar
-una parada de Almería sin haber bajado antes los cinco megas de las nueve.
+horarios de cada área se bajan cuando hacen falta: los de dentro de 25 km de
+donde estás al arrancar (por si tu parada más cercana es de la provincia de
+al lado), los de tus favoritos, y los de cualquier parada, línea o ruta que
+abras. No hay pantalla ni botón para "elegir área": la aplicación decide
+sola qué necesita y lo pide. Así se puede mirar una parada de Almería sin
+haber bajado antes los cinco megas de las nueve.
 
 Funciona sin conexión una vez cargada (Service Worker) y se puede instalar
 como aplicación en el móvil.
@@ -58,8 +61,8 @@ como aplicación en el móvil.
 | `data/catalogo.json` | Las paradas, líneas y municipios de toda Andalucía (460 KB) |
 | `data/{1..9}/horarios.json` | Los horarios de un área: bloques, calendario, trazados y grafo a pie |
 | `fuentes/paradas_*.json` | Respuesta de `/paradas` de la API, para regenerar sin red |
-| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía) |
-| `package.json` | `npm test` lanza las cinco suites |
+| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango) |
+| `package.json` | `npm test` lanza las seis suites |
 | `sw.js` | Service Worker: caché offline y notificaciones |
 | `manifest.json`, `icon.svg` | Instalación como PWA |
 | `build_from_gtfs.py` | Genera todo `data/` a partir del GTFS oficial |
@@ -130,31 +133,39 @@ no pasan por aquí.
   buscar, para pintar el mapa y para reconocer un favorito, y se carga
   entero al abrir. Los **horarios** de cada área (`data/{id}/horarios.json`,
   de 107 KB a 1,5 MB) son casi cinco megas entre las nueve y llegan a
-  demanda: el área donde estás al arrancar, las de tus favoritos, y la de
-  cualquier parada o línea que abras. Se suman a lo que ya hay en memoria,
-  no lo sustituyen, así que una ruta puede cruzar de un área a otra.
+  demanda: las de dentro de 25 km de donde estás al arrancar, las de tus
+  favoritos, y la de cualquier parada o línea que abras o cualquier ruta
+  que calcules. Se suman a lo que ya hay en memoria, no lo sustituyen, así
+  que una ruta puede cruzar de un área a otra. No hay ni pantalla ni botón
+  para "elegir área": la aplicación decide sola qué necesita y lo pide.
   Los horarios no se guardan en `localStorage` —el de Sevilla solo se comería
   la cuota— sino en la caché del Service Worker, que es la que hace que la
   aplicación abra sin cobertura.
-- **Área de referencia.** Ya no limita nada: sólo dice desde dónde se está
-  mirando (de qué consorcio son los avisos, qué horarios se precargan, qué
-  encuadre abre el mapa). Se adivina por la ubicación y se cambia desde la
-  cabecera.
+- **Área de referencia.** No limita nada, sólo dice desde dónde se está
+  mirando: de qué consorcio son los avisos que se precargan, qué encuadre
+  abre el mapa y qué fecha de datos se cita en el pie. Se adivina por la
+  ubicación (o por la última con la que se abrió, mientras tanto) y no hay
+  forma de tocarla a mano — no tendría sentido, si las nueve áreas están
+  siempre disponibles.
 - **Identificador de parada.** Es el del GTFS, con el prefijo del área:
   `1_2112` es «C Atilano de Acevedo» en Sevilla y `4_2112` es el «Hotel Las
   Pedrizas» en Málaga. El prefijo estuvo un tiempo recortado y con eso
   1.075 de 3.146 números chocaban entre áreas — bastaba para que una
   parada guardada enseñase los horarios de otra provincia. Al ser únicos,
   los favoritos son de toda Andalucía y no hay una caja por área.
-- **Trasbordos a pie.** Qué paradas están lo bastante cerca como para
-  cambiar de autobús andando (600 m, doce minutos a 3 km/h, como mucho
-  diez vecinas por parada) se calcula de las coordenadas del GTFS y viaja
-  en `vecinos`, dentro de los datos del área. Antes venía de un fichero
-  suelto que sólo tenía Sevilla: en las otras ocho áreas el buscador no
-  podía enlazar dos líneas que paran en la misma plaza pero en aceras
-  distintas, y perdía viajes que existen. Sobre 59 pares de paradas al
-  azar, Granada pasa de encontrar 19 itinerarios a encontrar 50, y Málaga
-  de 43 a 59.
+- **Trasbordos a pie, calculados al vuelo.** Qué paradas están lo bastante
+  cerca como para cambiar de autobús andando (600 m, doce minutos a
+  3 km/h, como mucho diez vecinas por parada) se mide en el navegador,
+  sobre un índice espacial de las 5.009 paradas del catálogo — no depende
+  de que el área tenga los horarios bajados, porque las coordenadas están
+  siempre. Antes era un grafo precalculado en el servidor y repartido por
+  áreas (`vecinos`, dentro de cada `horarios.json`); ese cálculo se
+  conserva en los datos por compatibilidad, pero ya no es lo que usa el
+  motor de rutas. Y antes de eso, un fichero suelto que sólo tenía
+  Sevilla: en las otras ocho áreas el buscador no podía enlazar dos
+  líneas que paran en la misma plaza pero en aceras distintas, y perdía
+  viajes que existen. Sobre 59 pares de paradas al azar, Granada pasa de
+  encontrar 19 itinerarios a encontrar 50, y Málaga de 43 a 59.
 - **Municipio de cada parada.** No está en el GTFS, lo da el endpoint
   `/paradas` de la API. Antes se deducía a ojo —zona A para anclar la
   capital, núcleo urbano más cercano de un catálogo escrito a mano,
@@ -177,7 +188,11 @@ no pasan por aquí.
      sus 3 próximas salidas, de la línea que sean. Si por tu parada pasa
      una línea tuya, ya está contada arriba y con la línea que te importa:
      sacarla otra vez con todo lo que para en ella llenaría la pantalla de
-     autobuses que no piensas coger.
+     autobuses que no piensas coger. Y si sigues alguna línea (aunque sea
+     de otra parada), esta parada se queda fuera del resumen: sólo entra
+     al pulsar "ver más", para no tapar lo que de verdad sigues con
+     autobuses que no piensas coger. Sin ninguna línea seguida no hay nada
+     que priorizar, así que aquí sí se enseña de entrada.
   3. **Sin nada guardado**, las paradas que tienes al lado.
 
   Después se poda: de cada línea y sentido queda una sola parada, la más

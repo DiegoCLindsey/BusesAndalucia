@@ -4206,6 +4206,34 @@ function calcularOpcionesRuta(appData, routing, origin, destino, salida) {
   return [];
 }
 
+// Cuánto tiene que ganar una alternativa con más trasbordos para que
+// merezca la pena enseñarla por delante de una más simple. Menos de esto
+// no compensa la complicación de más; más, sí.
+const UMBRAL_MERECE_MAS_TRASBORDOS_MIN = 15;
+
+/** Cuál de las alternativas se enseña por defecto.
+ *
+ * `calcularOpcionesRuta` ya las da ordenadas de menos a más trasbordos,
+ * y la primera solía ser la que se enseñaba — pero con radios de
+ * trasbordo más generosos (más rondas, la bici) "la de menos trasbordos"
+ * puede llevar una espera de tres cuartos de hora escondida detrás de
+ * "sólo tres autobuses": Guillena a Carmona la daba por defecto con casi
+ * dos horas y media de esperas sumadas, cuando había una con un
+ * trasbordo más que llegaba una hora antes.
+ *
+ * Se recomienda la más rápida de todas, pero sólo si de verdad compensa
+ * el trasbordo de más: si la ganancia es de un par de minutos, gana la
+ * simple. */
+function mejorOpcion(opciones) {
+  if (!opciones.length) return null;
+  const llegadaDe = op => op.diasSalida * 1440 + op.llegadaMin;
+  let mejor = opciones[0];
+  opciones.forEach(op => {
+    if (llegadaDe(op) < llegadaDe(mejor) - UMBRAL_MERECE_MAS_TRASBORDOS_MIN) mejor = op;
+  });
+  return mejor;
+}
+
 /** Cuando no sale nada, por qué. Un "no se ha encontrado ninguna ruta" a
  * secas invita a pensar que la aplicación falla, y no siempre es lo mismo:
  * a veces el trayecto pide más trasbordos de los que tiene sentido ofrecer,
@@ -4286,9 +4314,9 @@ function motivoSinRuta(o, de) {
   return "Hoy ya no queda ningún autobús que haga este trayecto, ni mañana a esta hora.";
 }
 
-/** La mejor de todas: la que menos trasbordos tiene. */
+/** La mejor de todas, según el mismo criterio que la pantalla de Ruta. */
 function computeRoute(appData, routing, origin, destino, salida) {
-  return calcularOpcionesRuta(appData, routing, origin, destino, salida)[0] || null;
+  return mejorOpcion(calcularOpcionesRuta(appData, routing, origin, destino, salida));
 }
 
 function fmtHoraAbs(minAbs) {
@@ -5139,16 +5167,23 @@ async function onCalcularRuta() {
   // Ir directo —a pie, o en bici si se ha activado— se ofrece como una
   // opción más, no sólo como un aviso al pie de la ruta en autobús: a
   // veces es la única manera (dos áreas sin conectar, un pueblo que sólo
-  // enlaza con muchos trasbordos) y a veces sencillamente compite. Va
-  // DETRÁS de las de autobús, así que nunca roba el puesto por defecto a
-  // una ruta en transporte público que sí exista.
+  // enlaza con muchos trasbordos) y a veces sencillamente compite. Se
+  // añade al final de la lista de trasbordos, aunque puede acabar siendo
+  // la que se enseña por defecto si de verdad es la más rápida (ver
+  // mejorOpcion, debajo).
   [directo, MODO_BICI ? distanciaDirecta(APP.data, ROUTE_ORIGIN, ROUTE_DESTINO, "bici") : null]
     .forEach(d => {
       if (d && d.minutos <= UMBRAL_MIN_DIRECTO) RUTA_OPCIONES.push(construirOpcionDirecta(d, salida));
     });
 
-  RUTA_OPCION_ACTIVA = 0;
-  renderRutaResultado(RUTA_OPCIONES[0] || null, salida, directo, RUTA_OPCIONES);
+  // La que se enseña por defecto no es la de menos trasbordos a secas —
+  // esa puede llevar una espera enorme escondida detrás de "sólo tres
+  // autobuses"— sino la más rápida de verdad, salvo que la simple se
+  // quede a un cuarto de hora o menos (ahí no compensa complicarse). Las
+  // demás siguen a un toque en las pestañas de arriba.
+  const elegida = mejorOpcion(RUTA_OPCIONES);
+  RUTA_OPCION_ACTIVA = RUTA_OPCIONES.indexOf(elegida);
+  renderRutaResultado(elegida, salida, directo, RUTA_OPCIONES);
 }
 
 /** Una opción "ir directo": sin autobús, sólo el paseo o el pedaleo en

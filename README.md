@@ -64,8 +64,8 @@ como aplicación en el móvil.
 | `data/catalogo.json` | Las paradas, líneas y municipios de toda Andalucía (460 KB) |
 | `data/{1..9}/horarios.json` | Los horarios de un área: bloques, calendario, trazados y grafo a pie |
 | `fuentes/paradas_*.json` | Respuesta de `/paradas` de la API, para regenerar sin red |
-| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas, directo_pie_bici, bici_entre_paradas) |
-| `package.json` | `npm test` lanza las nueve suites |
+| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas, directo_pie_bici, bici_entre_paradas, mejor_opcion) |
+| `package.json` | `npm test` lanza las diez suites |
 | `sw.js` | Service Worker: caché offline y notificaciones |
 | `manifest.json`, `icon.svg` | Instalación como PWA |
 | `build_from_gtfs.py` | Genera todo `data/` a partir del GTFS oficial |
@@ -307,6 +307,21 @@ no pasan por aquí.
   RAPTOR—, que se arregló congelando la hora de salida de cada parada
   antes de repartir los saltos y sin dejar que una parada que ya hubiera
   llegado en autobús esa ronda cambie de historia por un salto ajeno.
+
+- **La opción por defecto no siempre es la de menos trasbordos.** RAPTOR
+  ordena las alternativas por número de trasbordos, pero la primera de la
+  lista no siempre es la más rápida de verdad: con más autobuses de margen
+  a veces aparece una combinación que gana un trasbordo y pierde muchísimo
+  más tiempo esperando. Caso real: Guillena a Carmona daba por defecto una
+  de tres trasbordos con casi dos horas y media de esperas sumadas (50 + 8
+  + 85 + 18 min, llegada a las 19:19), habiendo una de cuatro trasbordos
+  que llegaba a las 18:19 — una hora antes. Ahora se enseña de entrada la
+  que llega antes de verdad, salvo que la diferencia sea de un cuarto de
+  hora o menos: ahí no compensa complicar el viaje con un trasbordo más y
+  gana la sencilla. La de menos trasbordos —y cualquier otra de la
+  frontera— sigue disponible a un toque en las pestañas de arriba; sólo
+  cambia cuál se enseña sin tocar nada, tanto en la pantalla de Ruta como
+  en el cálculo de las rutas favoritas.
 
 - **Sentido de circulación.** Es el final del bloque que coges, no la
   cabecera de la línea. Así todos los recorridos que pasan por tu parada

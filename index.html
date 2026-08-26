@@ -3679,36 +3679,17 @@ function wireLineSearch() {
  * cruce con más de diez paradas alrededor. */
 let ROUTING = { vecinos: {} };
 
-/** Dos índices espaciales de las paradas del catálogo (las 5.009, de las
- * nueve áreas), para encontrar vecinas a pie o en bici sin depender de un
- * grafo precalculado. Se reconstruyen una vez, al montar el catálogo —las
- * coordenadas no cambian después—, así que sirven desde el primer
- * segundo, sin esperar a que se bajen los horarios de ningún área.
- *
- * Van por separado porque el radio cambia con el modo, no sólo la
- * velocidad: en bici vale la pena rodear más para llegar a una parada, así
- * que hace falta mirar más lejos, no sólo tardar menos en el mismo sitio.
- * La rejilla de cada índice tiene el tamaño de su radio (para que un barrido
- * de las 9 celdas de alrededor cubra siempre el círculo entero). */
+/** Índice espacial de las paradas del catálogo (las 5.009, de las nueve
+ * áreas), para encontrar vecinas a pie sin depender de un grafo
+ * precalculado. Se reconstruye una vez, al montar el catálogo —las
+ * coordenadas no cambian después—, así que sirve desde el primer
+ * segundo, sin esperar a que se bajen los horarios de ningún área. La
+ * rejilla tiene el tamaño del radio (para que un barrido de las 9 celdas
+ * de alrededor cubra siempre el círculo entero). */
 let INDICE_PIE = null;
-let INDICE_BICI = null;
 let CACHE_VECINOS_PIE = new Map();
-let CACHE_VECINOS_BICI = new Map();
 const RADIO_A_PIE_M = 600;       // doce minutos a pie, como una esquina más allá
 const MAX_VECINOS_A_PIE = 10;    // ramas por parada: de sobra sin dispersar la búsqueda
-// En bici merece la pena rodear una parada floja para enganchar una mejor
-// y ahorrarse un trasbordo entero: más radio que a pie, no sólo más rápido
-// en el mismo radio.
-const RADIO_BICI_M = 2500;
-// El radio en bici cubre casi 17 veces más área que a pie (2500 frente a
-// 600 m), así que un tope de vecinos pensado para el radio a pie deja
-// fuera precisamente las paradas que ese radio más grande quería
-// alcanzar: en un centro con mucha densidad de paradas —Plaza de Armas,
-// en Sevilla— más de dos docenas caen dentro de los 2,5 km, y la que
-// engancha la línea buena podía quedarse en el puesto 16. El tope sube
-// para que cubrir un centro concurrido no cueste dejar fuera la parada
-// que de verdad servía.
-const MAX_VECINOS_BICI = 40;
 
 function construirIndiceGeo(radioM) {
   const indice = { celdas: new Map(), lado: radioM / 111320 };
@@ -3725,21 +3706,20 @@ function construirIndiceGeo(radioM) {
 
 function construirIndicesDeCercania() {
   INDICE_PIE = construirIndiceGeo(RADIO_A_PIE_M);
-  INDICE_BICI = construirIndiceGeo(RADIO_BICI_M);
   CACHE_VECINOS_PIE = new Map();
-  CACHE_VECINOS_BICI = new Map();
 }
 
-/** El núcleo compartido: paradas dentro de un radio, en línea recta,
- * ordenadas por cercanía y con el tiempo ya calculado para ese modo.
- * Memoizado por parada — las coordenadas no cambian en lo que dura la
- * sesión, así que el resultado tampoco. */
-function vecinosCerca(paradaId, indice, cache, radioM, maxVecinos, modo) {
-  if (cache.has(paradaId)) return cache.get(paradaId);
+/** Paradas a las que se puede ir andando desde una, en línea recta a
+ * 3 km/h (la misma velocidad que decide cuánto se tarda en llegar a la
+ * primera parada o desde la última): [[paradaId, minutos, "pie"], …], las
+ * más cercanas primero. Memoizado por parada — las coordenadas no cambian
+ * en lo que dura la sesión, así que el resultado tampoco. */
+function vecinosAPie(paradaId) {
+  if (CACHE_VECINOS_PIE.has(paradaId)) return CACHE_VECINOS_PIE.get(paradaId);
   const resultado = [];
-  const p = indice && CTAN.paradas[paradaId];
+  const p = INDICE_PIE && CTAN.paradas[paradaId];
   if (p && p.lat != null) {
-    const { celdas, lado } = indice;
+    const { celdas, lado } = INDICE_PIE;
     const anchoLng = lado / Math.max(0.2, Math.cos(p.lat * Math.PI / 180));
     const cx = Math.floor(p.lat / lado), cy = Math.floor(p.lng / anchoLng);
     const cerca = [];
@@ -3749,38 +3729,15 @@ function vecinosCerca(paradaId, indice, cache, radioM, maxVecinos, modo) {
           if (otroId === paradaId) return;
           const q = CTAN.paradas[otroId];
           const d = haversine(p.lat, p.lng, q.lat, q.lng);
-          if (d <= radioM) cerca.push([otroId, d]);
+          if (d <= RADIO_A_PIE_M) cerca.push([otroId, d]);
         });
       }
     }
     cerca.sort((a, b) => a[1] - b[1]);
-    const minutosDe = modo === "bici" ? bikeMinutes : walkMinutes;
-    cerca.slice(0, maxVecinos).forEach(([id, d]) => resultado.push([id, minutosDe(d), modo]));
+    cerca.slice(0, MAX_VECINOS_A_PIE).forEach(([id, d]) => resultado.push([id, walkMinutes(d), "pie"]));
   }
-  cache.set(paradaId, resultado);
+  CACHE_VECINOS_PIE.set(paradaId, resultado);
   return resultado;
-}
-
-/** Paradas a las que se puede ir andando desde una, en línea recta a
- * 3 km/h (la misma velocidad que decide cuánto se tarda en llegar a la
- * primera parada o desde la última): [[paradaId, minutos, "pie"], …], las
- * más cercanas primero. */
-function vecinosAPie(paradaId) {
-  return vecinosCerca(paradaId, INDICE_PIE, CACHE_VECINOS_PIE, RADIO_A_PIE_M, MAX_VECINOS_A_PIE, "pie");
-}
-
-/** Lo mismo, pero al doble de velocidad y con más alcance: [[paradaId,
- * minutos, "bici"], …]. */
-function vecinosEnBici(paradaId) {
-  return vecinosCerca(paradaId, INDICE_BICI, CACHE_VECINOS_BICI, RADIO_BICI_M, MAX_VECINOS_BICI, "bici");
-}
-
-/** El trasbordo que de verdad usa el buscador de itinerarios: a pie
- * siempre, o en bici —más lejos y más rápido— si el interruptor está
- * activado. Con esto una parada a 1,5 km, inalcanzable a pie, puede
- * ahorrarse un trasbordo entero con un salto en bici. */
-function vecinosDeTransporte(paradaId) {
-  return MODO_BICI ? vecinosEnBici(paradaId) : vecinosAPie(paradaId);
 }
 let CURRENT_ROUTE_MAP = null;
 let ROUTE_MARKERS = {};
@@ -3951,14 +3908,12 @@ function raptor(routing, origenes, activos, destinoIds) {
   const rondas = [new Map()];       // rondas[k] -> parada -> llegada en <=k buses
   const padres = [new Map()];       // rondas[k] -> parada -> de dónde vino
 
-  // Un salto a pie —o en bici, con la bicicleta activada— desde las
-  // paradas que acaban de mejorar: la parada de enfrente, la de la
-  // esquina, el otro andén, o con la bici algo más allá si con eso se
-  // engancha una línea mejor y se ahorra un trasbordo entero. Nunca
-  // encadenados, para no convertir la búsqueda en un paseo por media
-  // provincia. Se calcula al vuelo (distancia en línea recta), no de un
-  // grafo cargado de antemano: así funciona igual entre dos paradas
-  // recién llegadas de un área que aún no tenía horarios.
+  // Un salto a pie desde las paradas que acaban de mejorar: la parada de
+  // enfrente, la de la esquina, el otro andén. Nunca encadenados, para no
+  // convertir la búsqueda en un paseo por media provincia. Se calcula al
+  // vuelo (distancia en línea recta), no de un grafo cargado de
+  // antemano: así funciona igual entre dos paradas recién llegadas de un
+  // área que aún no tenía horarios.
   const saltosAPie = (k, desdeParadas) => {
     const alcanzadas = new Set();
     // La hora de salida de cada parada se congela ANTES de repartir los
@@ -3970,7 +3925,7 @@ function raptor(routing, origenes, activos, destinoIds) {
     const salidaDe = new Map(desdeParadas.map(id => [id, rondas[k].get(id)]));
     desdeParadas.forEach(paradaId => {
       const desde = salidaDe.get(paradaId);
-      vecinosDeTransporte(paradaId).forEach(([vecino, minutos, modo]) => {
+      vecinosAPie(paradaId).forEach(([vecino, minutos, modo]) => {
         // Si la parada de llegada es TAMBIÉN una de las que ha traído un
         // autobús esta ronda, su propio historial no se toca: si se
         // dejara mejorar, se reconstruiría con dos versiones de "cómo
@@ -3985,7 +3940,7 @@ function raptor(routing, origenes, activos, destinoIds) {
           if (!mejor.has(vecino) || cand < mejor.get(vecino)) mejor.set(vecino, cand);
           // La hora de salida se guarda tal cual (no sólo el nombre de la
           // parada): si esa parada mejora más tarde en la misma ronda por
-          // otro salto —llega antes en bici desde un tercer sitio—, este
+          // otro salto —llega antes a pie desde un tercer sitio—, este
           // tramo no puede heredar esa hora nueva sin haber pasado por
           // ella de verdad. Sin esto la reconstrucción podía enseñar un
           // salto que salía después de haber llegado.
@@ -4276,7 +4231,7 @@ function saltosMinimos(origenIds, destinoIds) {
     frente.push(id);
   };
   origenIds.forEach(id => anotar(id, 0));
-  origenIds.forEach(id => vecinosDeTransporte(id).forEach(([v]) => anotar(v, 0)));
+  origenIds.forEach(id => vecinosAPie(id).forEach(([v]) => anotar(v, 0)));
   if (frente.some(id => meta.has(id))) return 0;
 
   for (let saltos = 1; saltos <= 8 && frente.length; saltos++) {
@@ -4288,7 +4243,7 @@ function saltosMinimos(origenIds, destinoIds) {
           if (vistas.has(q)) continue;
           vistas.set(q, saltos);
           siguiente.push(q);
-          vecinosDeTransporte(q).forEach(([v]) => {
+          vecinosAPie(q).forEach(([v]) => {
             if (!vistas.has(v)) { vistas.set(v, saltos); siguiente.push(v); }
           });
         }

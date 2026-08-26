@@ -1,5 +1,6 @@
 /* Cuál alternativa se enseña por defecto: la más rápida de verdad, no
- * la de menos trasbordos a secas.
+ * la de menos trasbordos a secas — pero tampoco la que dé un rodeo
+ * enorme para ganar unos minutos.
  *
  * Salió de un caso real: Guillena a Carmona daba por defecto una
  * combinación de "sólo" tres trasbordos que llevaba casi dos horas y
@@ -10,7 +11,12 @@
  *
  * `mejorOpcion()` no siempre elige la más rápida a machamartillo: si la
  * ganancia es de un par de minutos, no compensa la complicación de un
- * trasbordo más, y gana la simple. Este fichero comprueba las dos cosas.
+ * trasbordo más, y gana la simple. Tampoco elige una que técnicamente
+ * llega antes pero recorre varias veces la línea recta —RAPTOR persigue
+ * la hora de llegada sin mirar el mapa, así que con bastantes trasbordos
+ * de margen a veces sale la más rápida dando un rodeo por pueblos que no
+ * pintan nada en el camino—: ahí se prefiere una combinación con menos
+ * rodeo aunque tarde algo más. Este fichero comprueba las tres cosas.
  *
  *   npm i -D playwright && npx playwright install chromium
  *   python3 -m http.server 8765 &
@@ -97,7 +103,62 @@ ok(umbral.marginal, 'un minuto de diferencia no compensa un trasbordo más: gana
 ok(umbral.meritoria, 'veinte minutos sí compensan: gana la más rápida');
 
 /* ------------------------------------------------------------------ */
-/* 3. Las rutas favoritas usan el mismo criterio                        */
+/* 3. Sin línea recta que comparar, ningún cambio de comportamiento     */
+/* ------------------------------------------------------------------ */
+const sinGeografia = await page.evaluate(() => {
+  const base = { numTrasbordos: 0, diasSalida: 0, llegadaMin: 600, legs: [], lineas: [], distanciaKm: 1 };
+  const masRapidaConRodeo = { ...base, numTrasbordos: 1, llegadaMin: 580, distanciaKm: 900 };  // rodeo altísimo
+  // Sin pasarle distanciaLineaRectaKm, mejorOpcion() no tiene con qué
+  // medir el rodeo: se comporta exactamente como antes de este cambio.
+  return mejorOpcion([base, masRapidaConRodeo]) === masRapidaConRodeo;
+});
+ok(sinGeografia, 'sin pasarle la línea recta, un rodeo enorme no penaliza (se sigue mirando sólo el tiempo)');
+
+/* ------------------------------------------------------------------ */
+/* 4. Con línea recta, un rodeo desproporcionado pierde frente a uno    */
+/*    razonable, aunque tarde algo más                                  */
+/* ------------------------------------------------------------------ */
+const conGeografia = await page.evaluate(() => {
+  // 10 km en línea recta. Una opción da un rodeo de x3,5 (35 km) y llega
+  // 20 min antes que otra que da un rodeo de x1,5 (15 km) — de sobra
+  // para que, sólo por tiempo, ganase la primera.
+  const rodeoGrande = { numTrasbordos: 1, diasSalida: 0, llegadaMin: 580, legs: [], lineas: [], distanciaKm: 35 };
+  const rodeoRazonable = { numTrasbordos: 0, diasSalida: 0, llegadaMin: 600, legs: [], lineas: [], distanciaKm: 15 };
+  return {
+    soloTiempo: mejorOpcion([rodeoRazonable, rodeoGrande]) === rodeoGrande,
+    conRodeo: mejorOpcion([rodeoRazonable, rodeoGrande], 10) === rodeoRazonable
+  };
+});
+ok(conGeografia.soloTiempo, 'sin mirar el rodeo, ganaría la más rápida (para contrastar con lo de abajo)');
+ok(conGeografia.conRodeo, 'mirando el rodeo, gana la de x1,5 aunque tarde 20 min más que la de x3,5');
+
+/* ------------------------------------------------------------------ */
+/* 5. Un caso real: Av De Palomares Centro a Tráfico, en Sevilla        */
+/* ------------------------------------------------------------------ */
+const r5 = await page.evaluate(() => {
+  const salida = new Date('2026-08-26T08:00:00');
+  const origen = { type: 'stop', id: '1_2921' };  // Av De Palomares Centro
+  const destino = { type: 'stop', id: '1_2520' }; // Trafico (V)
+  const distRecta = distanciaLineaRectaKm(APP.data, origen, destino);
+  const opciones = calcularOpcionesRuta(APP.data, ROUTING, origen, destino, salida);
+  const resumen = op => ({
+    trasbordos: op.numTrasbordos, llegada: fmtHoraAbs(op.diasSalida * 1440 + op.llegadaMin),
+    km: Math.round(op.distanciaKm * 10) / 10
+  });
+  return {
+    distRecta: Math.round(distRecta * 10) / 10,
+    sinRodeo: resumen(mejorOpcion(opciones)),
+    conRodeo: resumen(mejorOpcion(opciones, distRecta))
+  };
+});
+console.log(JSON.stringify(r5, null, 1));
+ok(r5.sinRodeo.trasbordos === 3 && r5.sinRodeo.llegada === '10:09',
+  'sin mirar el rodeo: la de 3 trasbordos, 27,8 km para 9,2 km en línea recta', JSON.stringify(r5));
+ok(r5.conRodeo.trasbordos === 1 && r5.conRodeo.llegada === '10:54',
+  'mirando el rodeo: la de 1 trasbordo y la mitad de km, aunque llegue 45 min más tarde', JSON.stringify(r5));
+
+/* ------------------------------------------------------------------ */
+/* 6. Las rutas favoritas usan el mismo criterio                        */
 /* ------------------------------------------------------------------ */
 const favorito = await page.evaluate(() => {
   const idPor = n => Object.entries(APP.data.paradas).find(([, p]) => p.nombre.toUpperCase() === n.toUpperCase())[0];

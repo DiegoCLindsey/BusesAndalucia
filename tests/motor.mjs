@@ -98,10 +98,18 @@ const r = await page.evaluate(async () => {
       });
   }
 
-  // Un par sin combinación razonable tiene que explicarse, no quedarse mudo.
+  // Dos paradas de la misma área, con pocas líneas de por medio, tienen
+  // que explicarse igual que antes — pero ya no vale cualquier par: desde
+  // que el buscador prueba hasta ocho autobuses (antes cuatro), pares que
+  // sólo pedían trasbordos de más ahora SÍ encuentran combinación (es la
+  // corrección: no descartar un viaje porque haga falta esperar o
+  // cambiar varias veces). El que de verdad no tiene combinación es el
+  // que cruza a otra área metropolitana: Sevilla y Cádiz son redes
+  // independientes en estos datos, así que Plaza de Armas a la estación
+  // de Arcos de la Frontera sigue sin poder ser.
   calcularOpcionesRuta(APP.data, routing,
-    { type: 'stop', id: paradaPorNombre('POLIGONO (JUNTO A RENAULT) TORREBLANCA') },
-    { type: 'stop', id: paradaPorNombre('C  PASCUAL MARQUEZ  DIA') },
+    { type: 'stop', id: paradaPorNombre('PLAZA DE ARMAS') },
+    { type: 'stop', id: paradaPorNombre('Estación De Autobuses Arcos') },
     new Date('2026-08-18T09:00:00'));
   const motivo = RUTA_SIN_RESULTADO;
 
@@ -131,6 +139,9 @@ ok(r.paradasCubiertas >= 1080, 'y cubre casi todas las paradas', r.paradasCubier
 ok(r.incoherentes === 0, 'ningún itinerario retrocede en el tiempo', r.incoherentes);
 ok(typeof r.motivo === 'string' && r.motivo.length > 20,
   'cuando no hay ruta, se explica por qué', r.motivo);
+ok(typeof r.motivo === 'string' && /Sevilla/.test(r.motivo) && /Cádiz/.test(r.motivo),
+  'y si es porque cruza a otra área metropolitana, lo dice con las dos áreas de por medio',
+  r.motivo);
 ok(r.ms < 500, 'la búsqueda es instantánea', r.ms + ' ms');
 ok(errores.length === 0, 'sin errores en consola', JSON.stringify(errores));
 

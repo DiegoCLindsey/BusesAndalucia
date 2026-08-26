@@ -3849,7 +3849,13 @@ function coordenadasDeExtremo(appData, punto) {
  *
  * Sustituye al barrido de conexiones anterior, que dependía de un grafo
  * de enlaces inventado emparejando horas y por eso perdía viajes enteros. */
-const MAX_RONDAS = 4;           // como mucho cuatro autobuses: 3 trasbordos
+// Ocho autobuses (siete trasbordos) es mucho para un trayecto normal, pero
+// hay pueblos que sólo se enlazan así: "El Viso del Alcor" a "Villamanrique
+// de la Condesa", los dos dentro del área de Sevilla, pide cinco. Con
+// cuatro se descartaban como "imposibles" trayectos que sí existen; con
+// ocho el coste es el mismo —un pueblo remoto no tiene tantas líneas que
+// probar— y se sigue sin encontrar nada que de verdad no exista.
+const MAX_RONDAS = 8;
 const MIN_TRASBORDO_MIN = 3;    // bajar, andar por el andén y subir
 
 /** Primer viaje de un bloque que se puede coger en `pos` a partir de `t`,
@@ -4104,15 +4110,29 @@ function calcularOpcionesRuta(appData, routing, origin, destino, salida) {
   return [];
 }
 
-/** Cuando no sale nada, por qué. Un "no se ha encontrado ninguna ruta"
- * a secas invita a pensar que la aplicación falla; casi siempre lo que
- * pasa es que el trayecto pide más trasbordos de los que tiene sentido
- * ofrecer, o que hay que cruzar Sevilla por dentro y el metro, el tranvía
- * y los urbanos de TUSSAM no están en estos horarios.
+/** Cuando no sale nada, por qué. Un "no se ha encontrado ninguna ruta" a
+ * secas invita a pensar que la aplicación falla, y no siempre es lo mismo:
+ * a veces el trayecto pide más trasbordos de los que tiene sentido ofrecer,
+ * a veces hay que cruzar una ciudad por dentro y el metro, el tranvía o un
+ * urbano municipal no están en estos horarios — y a veces, sencillamente,
+ * el origen y el destino son de dos áreas metropolitanas que esta
+ * aplicación no tiene conectadas entre sí: la Red de Consorcios publica
+ * nueve redes independientes, no una única red panandaluza. Un trayecto
+ * entre dos de ellas (Sevilla–Cádiz, Huelva–Almería…) necesita un autobús
+ * interurbano de largo o media distancia que no es de ningún consorcio
+ * metropolitano, así que no está en estos datos por más trasbordos que se
+ * permitan.
  *
  * Se cuenta a saltos, sin mirar la hora: cuántos autobuses distintos hay
  * que encadenar como mínimo para llegar. */
 let RUTA_SIN_RESULTADO = null;
+
+/** Las áreas a las que pertenecen estas paradas, para saber si el
+ * problema es "hacen falta más autobuses de los que se prueban" o
+ * "estas dos áreas no están conectadas en absoluto". */
+function areasDe(stopIds) {
+  return [...new Set([...stopIds].map(areaDeParada).filter(x => x != null))];
+}
 
 function saltosMinimos(origenIds, destinoIds) {
   const meta = new Set(destinoIds);
@@ -4151,8 +4171,22 @@ function saltosMinimos(origenIds, destinoIds) {
 function motivoSinRuta(o, de) {
   const saltos = saltosMinimos(o.stopIds, de.stopIds);
   if (saltos === 0) return "Están tan cerca que se llega andando: no hace falta coger nada.";
-  if (saltos === null) return "No hay ninguna combinación de autobuses metropolitanos que una estas dos paradas. Si el trayecto pasa por dentro de Sevilla, hará falta metro, tranvía o un urbano de TUSSAM, que no están en estos horarios.";
-  if (saltos > MAX_RONDAS) return `El trayecto necesitaría ${saltos - 1} trasbordos, más de los que merece la pena hacer en autobús. Si cruza Sevilla por dentro, el metro o un urbano de TUSSAM lo resuelven en mucho menos, pero no están en estos horarios.`;
+
+  if (saltos === null) {
+    // El primer sospechoso es que sean de áreas distintas: los nueve
+    // consorcios no se tocan entre sí en estos datos (ni comparten una
+    // sola parada ni hay ninguna a menos de 600 m de la de al lado), así
+    // que si origen y destino no comparten ninguna, no hay trasbordo que
+    // valga: no es que falten líneas, es que la conexión no existe.
+    const areasOrigen = areasDe(o.stopIds), areasDestino = areasDe(de.stopIds);
+    const comparten = areasOrigen.some(a => areasDestino.includes(a));
+    if (!comparten && areasOrigen.length && areasDestino.length) {
+      return `${nombreDeArea(areasOrigen[0])} y ${nombreDeArea(areasDestino[0])} son dos redes de autobús metropolitano independientes, y no están conectadas entre sí en estos datos. Hace falta un autobús interurbano de largo o media distancia — de la Junta o de una naviera privada — que no es de ningún consorcio metropolitano y por eso no aparece aquí.`;
+    }
+    return "No hay ninguna combinación de autobuses metropolitanos que una estas dos paradas. Si el trayecto pasa por dentro de una ciudad, hará falta su metro, tranvía o urbano municipal, que no están en estos horarios.";
+  }
+
+  if (saltos > MAX_RONDAS) return `El trayecto necesitaría ${saltos - 1} trasbordos, más de los que merece la pena hacer en autobús.`;
   return "Hoy ya no queda ningún autobús que haga este trayecto, ni mañana a esta hora.";
 }
 

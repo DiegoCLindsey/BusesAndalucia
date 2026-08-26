@@ -61,8 +61,8 @@ como aplicación en el móvil.
 | `data/catalogo.json` | Las paradas, líneas y municipios de toda Andalucía (460 KB) |
 | `data/{1..9}/horarios.json` | Los horarios de un área: bloques, calendario, trazados y grafo a pie |
 | `fuentes/paradas_*.json` | Respuesta de `/paradas` de la API, para regenerar sin red |
-| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango) |
-| `package.json` | `npm test` lanza las seis suites |
+| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas) |
+| `package.json` | `npm test` lanza las siete suites |
 | `sw.js` | Service Worker: caché offline y notificaciones |
 | `manifest.json`, `icon.svg` | Instalación como PWA |
 | `build_from_gtfs.py` | Genera todo `data/` a partir del GTFS oficial |
@@ -262,8 +262,15 @@ no pasan por aquí.
   así que la ronda en la que aparece el destino *es* su número de
   trasbordos: al terminar están todas las alternativas ordenadas de menos a
   más trasbordos, sin enumerar combinaciones de líneas a mano. Se admiten
-  hasta cuatro autobuses y un salto a pie entre medias (nunca encadenado).
-  Una consulta tarda unos pocos milisegundos.
+  hasta ocho autobuses y un salto a pie entre medias (nunca encadenado). Con
+  cuatro se descartaban como "imposibles" trayectos que sí existen —"El
+  Viso del Alcor" a "Villamanrique de la Condesa", los dos en el área de
+  Sevilla, pide cinco—: un pueblo remoto no tiene tantas líneas que probar,
+  así que subir el tope no cuesta nada y no se pierde ningún viaje real por
+  pedir demasiados cambios. El motor nunca descarta una combinación por lo
+  que haya que esperar entre un autobús y el siguiente, aunque sean horas:
+  sólo cuenta trasbordos, no tiempo perdido. Una consulta tarda unos pocos
+  milisegundos.
 
 - **Sentido de circulación.** Es el final del bloque que coges, no la
   cabecera de la línea. Así todos los recorridos que pasan por tu parada
@@ -296,11 +303,18 @@ no pasan por aquí.
   aparecía después de un tramo a pie, así que en el caso más común (cambiar
   de línea en la misma parada) el dato que más importa del trasbordo era
   justo el que faltaba.
-- **Lo que no está en los datos.** El consorcio publica los autobuses
-  metropolitanos; el metro, el tranvía y los urbanos de TUSSAM no. Cruzar
-  Sevilla por dentro para salir por el otro lado sale caro o directamente
-  imposible, y hay pares de paradas sin ninguna combinación razonable. En
-  vez de inventarse un itinerario de cuatro horas, la app lo dice.
+- **Lo que no está en los datos.** Cada consorcio publica sus autobuses
+  metropolitanos; el metro, el tranvía y los urbanos municipales no —
+  cruzar una ciudad por dentro para salir por el otro lado puede salir
+  caro o directamente imposible. Y las nueve áreas son islas entre sí: ni
+  una parada de un área está a menos de 600 m de una de otra, ni un solo
+  autobús cruza de una a otra en este GTFS. Un trayecto entre dos áreas
+  (Sevilla–Cádiz, Huelva–Almería…) necesita un autobús interurbano de
+  largo o media distancia que no es de ningún consorcio metropolitano, así
+  que no está aquí por muchos trasbordos que se admitan. En vez de
+  inventarse un itinerario o culpar a un TUSSAM que a lo mejor no viene a
+  cuento, la app dice cuál de las dos cosas es: "hace falta el transporte
+  urbano de la ciudad" o "estas dos áreas no están conectadas entre sí".
 - **Los avisos sólo suenan con la app viva.** No hay servidor propio que
   mande un push, así que el aviso lo dispara la propia página: funciona en
   segundo plano, pero si cierras la app del todo no puede sonar. El
@@ -309,5 +323,5 @@ no pasan por aquí.
 
 ## Licencia
 
-GPL-3.0. Los datos de horarios pertenecen al Consorcio de Transportes
-Metropolitano del Área de Sevilla.
+GPL-3.0. Los datos de horarios pertenecen a la Red de Consorcios de
+Transporte de Andalucía.

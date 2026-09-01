@@ -950,6 +950,159 @@
   .aviso-nota{font-size:11.5px; color:var(--text-mute); margin-top:6px;}
   .aviso-acciones{display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;}
 
+  /* ===== Sistema de Alertas Horarias ===== */
+
+  /* Paradas como círculos conectados */
+  .stops-circular-view{
+    position:relative; padding:20px 0;
+  }
+  .stops-list-circular{
+    display:flex; flex-direction:column; gap:0; position:relative;
+  }
+  .stop-item-circular{
+    display:flex; align-items:flex-start; gap:16px; margin-bottom:2px;
+  }
+  .stop-circle-wrapper{
+    flex:none; width:32px; height:100%; display:flex; flex-direction:column; align-items:center;
+    position:relative;
+  }
+  .stop-circle{
+    width:32px; height:32px; border-radius:50%; border:2px solid var(--brand);
+    background:var(--card); display:flex; align-items:center; justify-content:center;
+    font-size:13px; font-weight:700; color:var(--brand); flex:none;
+    cursor:pointer; transition:all .2s ease;
+  }
+  .stop-circle:hover{
+    background:var(--surface-strong); transform:scale(1.1);
+  }
+  .stop-circle.expanded{
+    background:var(--brand); color:var(--brand-ink); box-shadow:var(--glow);
+  }
+  .stop-circle.favorite{
+    border-color:var(--amber); color:var(--amber);
+  }
+  .stop-circle.favorite.expanded{
+    background:var(--amber);
+  }
+  .stop-connector{
+    flex:1; width:2px; background:var(--hairline); margin:2px 0;
+    position:absolute; top:32px; bottom:0;
+  }
+  .stop-item-circular.last .stop-connector{display:none;}
+  .stop-info{
+    flex:1; min-width:0; padding-top:4px;
+  }
+  .stop-name-circular{
+    font-size:14px; font-weight:700; color:var(--text); margin-bottom:2px;
+  }
+  .stop-municipality{
+    font-size:12px; color:var(--text-mute);
+  }
+  .stop-collapsed-indicator{
+    font-size:14px; color:var(--text-mute); font-weight:600; margin-bottom:8px;
+  }
+
+  /* Horarios en formato horizontal */
+  .horario-horizontal{
+    display:flex; flex-wrap:wrap; gap:8px; padding:8px 0; margin:8px 0;
+    align-items:center;
+  }
+  .time-slot{
+    display:inline-flex; align-items:baseline; gap:1px;
+    background:var(--surface); border:1px solid var(--hairline);
+    padding:6px 10px; border-radius:8px; cursor:pointer;
+    transition:all .2s ease; font-size:14px; font-weight:600;
+  }
+  .time-slot:hover{
+    border-color:var(--brand); background:var(--surface-strong);
+  }
+  .time-slot-hour{
+    color:var(--brand); font-weight:700;
+  }
+  .time-slot-min{
+    color:var(--text-soft); font-weight:600;
+  }
+
+  /* Modal de alertas */
+  .modal-alert{
+    background:var(--card); border-radius:var(--radius-sm);
+    padding:24px; max-width:400px;
+  }
+  .modal-alert-title{
+    font-size:18px; font-weight:700; margin-bottom:4px; color:var(--text);
+  }
+  .modal-alert-subtitle{
+    font-size:13px; color:var(--text-mute); margin-bottom:20px;
+  }
+  .alert-day-selector{
+    display:flex; flex-direction:column; gap:12px; margin-bottom:20px;
+  }
+  .day-option{
+    display:flex; align-items:center; gap:10px; cursor:pointer;
+    padding:10px; border-radius:10px; transition:background .2s ease;
+  }
+  .day-option:hover{
+    background:var(--surface);
+  }
+  .day-option input[type="radio"]{
+    cursor:pointer;
+  }
+  .day-weekdays{
+    display:grid; grid-template-columns:repeat(7, 1fr); gap:6px;
+    margin-top:8px; margin-bottom:12px;
+  }
+  .day-checkbox{
+    display:flex; flex-direction:column; align-items:center;
+    padding:8px; cursor:pointer; border:2px solid var(--hairline);
+    border-radius:10px; transition:all .2s ease; background:var(--surface);
+    font-size:12px; font-weight:600; color:var(--text-soft);
+  }
+  .day-checkbox input[type="checkbox"]{
+    cursor:pointer; margin-bottom:4px;
+  }
+  .day-checkbox input[type="checkbox"]:checked + span{
+    color:var(--brand);
+  }
+  .day-checkbox.checked{
+    background:var(--brand); color:var(--brand-ink);
+    border-color:var(--brand);
+  }
+  .day-checkbox.checked input{
+    accent-color:var(--brand-ink);
+  }
+
+  /* Mis Avisos */
+  .alerts-list{
+    display:flex; flex-direction:column; gap:12px;
+  }
+  .alert-item{
+    background:var(--surface); border:1px solid var(--hairline);
+    border-radius:var(--radius-sm); padding:14px; display:flex;
+    justify-content:space-between; align-items:center; gap:10px;
+  }
+  .alert-item-info{
+    flex:1; min-width:0;
+  }
+  .alert-item-line{
+    font-size:13px; color:var(--text-mute); margin-bottom:2px;
+  }
+  .alert-item-stop{
+    font-size:14px; font-weight:700; color:var(--text); margin-bottom:4px;
+  }
+  .alert-item-time{
+    font-size:15px; color:var(--brand); font-weight:700; font-variant-numeric:tabular-nums;
+  }
+  .alert-item-days{
+    font-size:12px; color:var(--text-soft); margin-top:4px;
+  }
+  .alert-item-actions{
+    display:flex; gap:6px; flex:none;
+  }
+  .alert-item-badge{
+    padding:4px 8px; background:var(--coral); color:white;
+    border-radius:6px; font-size:11px; font-weight:700;
+  }
+
   @media (prefers-reduced-motion: reduce){
     *, *::before, *::after{
       animation-duration:.01ms !important; animation-iteration-count:1 !important;
@@ -2936,6 +3089,513 @@ function renderPdfLinea(container, lineaSlug) {
   }
 }
 
+/* ================================================================
+   SISTEMA DE ALERTAS HORARIAS
+   ================================================================ */
+
+const ALERTAS_STORAGE_KEY = "app_horarios_alertas";
+const SEASON_CHECK_KEY = "app_alertas_season";
+
+/** Obtiene todas las alertas almacenadas */
+function obtenerAlertas() {
+  try {
+    const data = localStorage.getItem(ALERTAS_STORAGE_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Guarda alertas en localStorage */
+function guardarAlertas(alertas) {
+  try {
+    localStorage.setItem(ALERTAS_STORAGE_KEY, JSON.stringify(alertas));
+  } catch (e) {
+    console.error("Error guardando alertas:", e);
+  }
+}
+
+/** Crea una nueva alerta */
+function crearAlerta(stopId, lineSlug, hora, minutos, dayPattern, customDays) {
+  const alertas = obtenerAlertas();
+  const alerta = {
+    id: Date.now() + Math.random(),
+    stopId,
+    lineSlug,
+    hora,
+    minutos,
+    dayPattern,
+    customDays: customDays || [],
+    enabled: true,
+    seasonMarker: new Date().toISOString().split("T")[0].slice(0, 7),
+    createdAt: new Date().toISOString(),
+  };
+  alertas.push(alerta);
+  guardarAlertas(alertas);
+  return alerta;
+}
+
+/** Elimina una alerta por ID */
+function eliminarAlerta(alertaId) {
+  let alertas = obtenerAlertas();
+  alertas = alertas.filter(a => a.id !== alertaId);
+  guardarAlertas(alertas);
+}
+
+/** Toggle activar/desactivar una alerta */
+function toggleAlerta(alertaId) {
+  const alertas = obtenerAlertas();
+  const alerta = alertas.find(a => a.id === alertaId);
+  if (alerta) {
+    alerta.enabled = !alerta.enabled;
+    guardarAlertas(alertas);
+  }
+}
+
+/** Obtiene alertas de una parada específica */
+function obtenerAlertasDeParada(stopId, lineSlug) {
+  return obtenerAlertas().filter(a => a.stopId === stopId && (!lineSlug || a.lineSlug === lineSlug));
+}
+
+/** Verifica si hoy se aplica una alerta */
+function seAplicaAlertaHoy(alerta) {
+  if (!alerta.enabled) return false;
+
+  const hoy = new Date();
+  const dayOfWeek = hoy.getDay(); // 0=domingo, 1=lunes, etc.
+  const isoDay = dayOfWeek === 0 ? 7 : dayOfWeek; // ISO: 1=lunes, 7=domingo
+
+  switch (alerta.dayPattern) {
+    case "weekday":
+      return isoDay >= 1 && isoDay <= 5;
+    case "saturday":
+      return isoDay === 6;
+    case "sunday":
+      return isoDay === 7;
+    case "custom":
+      return alerta.customDays.includes(isoDay);
+    default:
+      return false;
+  }
+}
+
+/** Obtiene alertas que se aplican hoy */
+function obtenerAlertasDeHoy() {
+  return obtenerAlertas().filter(seAplicaAlertaHoy);
+}
+
+/** Detecta cambio de temporada (cambios de horarios) */
+function detectarCambioTemporada() {
+  const ahora = new Date().toISOString().split("T")[0].slice(0, 7);
+  const ultima = localStorage.getItem(SEASON_CHECK_KEY);
+  if (ultima !== ahora) {
+    localStorage.setItem(SEASON_CHECK_KEY, ahora);
+    return true;
+  }
+  return false;
+}
+
+/** Formatea una alerta para mostrarla */
+function formatearAlerta(alerta) {
+  const hh = String(alerta.hora).padStart(2, "0");
+  const mm = String(alerta.minutos).padStart(2, "0");
+  const tiempo = `${hh}:${mm}`;
+
+  let diasTexto = "";
+  switch (alerta.dayPattern) {
+    case "weekday":
+      diasTexto = "Entre semana";
+      break;
+    case "saturday":
+      diasTexto = "Sábados";
+      break;
+    case "sunday":
+      diasTexto = "Domingos";
+      break;
+    case "custom":
+      const diasNombres = ["L", "M", "X", "J", "V", "S", "D"];
+      diasTexto = alerta.customDays.sort((a, b) => a - b).map(d => diasNombres[d - 1]).join(" ");
+      break;
+  }
+
+  return { tiempo, diasTexto };
+}
+
+/** Renderiza paradas como círculos conectados */
+function renderStopsCircularView(container, paradasValidas, linea, onStopClick) {
+  container.innerHTML = "";
+
+  if (paradasValidas.length === 0) {
+    container.innerHTML = '<p class="empty">Esta línea no tiene paradas con datos.</p>';
+    return;
+  }
+
+  const view = document.createElement("div");
+  view.className = "stops-circular-view";
+
+  const list = document.createElement("div");
+  list.className = "stops-list-circular";
+
+  paradasValidas.forEach((id, idx) => {
+    const p = APP.data.paradas[id];
+    const esFav = esFavoritoParada(id);
+    const dep = proximaSalida(id, new Date(), { lineaSlug: linea.slug });
+    const fmt = formatDeparture(dep);
+
+    const item = document.createElement("div");
+    item.className = "stop-item-circular" + (idx === paradasValidas.length - 1 ? " last" : "");
+
+    const circleWrapper = document.createElement("div");
+    circleWrapper.className = "stop-circle-wrapper";
+
+    const circle = document.createElement("button");
+    circle.className = "stop-circle" + (esFav ? " favorite" : "");
+    circle.type = "button";
+    circle.textContent = idx + 1;
+    circle.title = p.nombre;
+
+    const connector = document.createElement("div");
+    connector.className = "stop-connector";
+
+    circleWrapper.appendChild(circle);
+    circleWrapper.appendChild(connector);
+
+    const info = document.createElement("div");
+    info.className = "stop-info";
+
+    const name = document.createElement("div");
+    name.className = "stop-name-circular";
+    name.textContent = p.nombre;
+
+    const muni = document.createElement("div");
+    muni.className = "stop-municipality";
+    muni.textContent = municipioDeParada(id) || "";
+
+    info.appendChild(name);
+    info.appendChild(muni);
+
+    item.appendChild(circleWrapper);
+    item.appendChild(info);
+
+    circle.addEventListener("click", () => {
+      if (onStopClick) onStopClick(id, item);
+    });
+
+    list.appendChild(item);
+  });
+
+  view.appendChild(list);
+  container.appendChild(view);
+}
+
+/** Renderiza horarios en formato horizontal */
+function renderHorarioHorizontal(container, paradaId, lineaSlug) {
+  container.innerHTML = "";
+  const hoy = new Date();
+
+  for (let i = 0; i < DIAS_HORARIO; i++) {
+    const fecha = new Date(hoy.getTime() + i * 86400000);
+    const franjas = horarioDelDia(paradaId, fecha, lineaSlug);
+
+    if (!franjas.length) continue;
+
+    const details = document.createElement("details");
+    details.open = i === 0;
+
+    const summary = document.createElement("summary");
+    summary.textContent = i === 0 ? "Hoy" : nombreDeDia(fecha);
+    details.appendChild(summary);
+
+    const horarioDiv = document.createElement("div");
+    horarioDiv.className = "horario-horizontal";
+
+    franjas.forEach(({ hora, minutos }) => {
+      minutos.forEach(minuto => {
+        const slot = document.createElement("button");
+        slot.type = "button";
+        slot.className = "time-slot";
+
+        const hourSpan = document.createElement("span");
+        hourSpan.className = "time-slot-hour";
+        hourSpan.textContent = String(hora).padStart(2, "0");
+
+        const minSpan = document.createElement("span");
+        minSpan.className = "time-slot-min";
+        minSpan.textContent = String(minuto).padStart(2, "0");
+
+        slot.appendChild(hourSpan);
+        slot.appendChild(minSpan);
+
+        slot.addEventListener("click", () => {
+          abrirModalAlerta(paradaId, lineaSlug, hora, minuto);
+        });
+
+        horarioDiv.appendChild(slot);
+      });
+    });
+
+    details.appendChild(horarioDiv);
+    container.appendChild(details);
+  }
+
+  if (!container.children.length) {
+    container.innerHTML = '<p class="empty">No hay horario disponible para esta parada.</p>';
+  }
+}
+
+/** Abre el modal de crear una alerta */
+function abrirModalAlerta(stopId, lineSlug, hora, minuto) {
+  const parada = APP.data.paradas[stopId];
+  const linea = lineaPorSlug(lineSlug);
+
+  if (!parada || !linea) return;
+
+  openModal(container => {
+    container.className = "modal-alert";
+
+    const title = document.createElement("div");
+    title.className = "modal-alert-title";
+    title.textContent = "Crear alerta";
+
+    const subtitle = document.createElement("div");
+    subtitle.className = "modal-alert-subtitle";
+    subtitle.textContent = `${parada.nombre} · ${nombreSinCodigo(linea.titulo)} a las ${String(hora).padStart(2, "0")}:${String(minuto).padStart(2, "0")}`;
+
+    const daySelector = document.createElement("div");
+    daySelector.className = "alert-day-selector";
+
+    const dayPatterns = [
+      { value: "weekday", label: "Entre semana (L-V)" },
+      { value: "saturday", label: "Sábados" },
+      { value: "sunday", label: "Domingos" }
+    ];
+
+    let selectedPattern = "weekday";
+    let customDays = [];
+
+    const weekdayCheckboxes = document.createElement("div");
+    weekdayCheckboxes.className = "day-weekdays";
+    weekdayCheckboxes.style.display = "none";
+    weekdayCheckboxes.id = "customDaysContainer";
+
+    const dayNames = ["L", "M", "X", "J", "V", "S", "D"];
+    const dayFullNames = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+
+    dayNames.forEach((name, idx) => {
+      const label = document.createElement("label");
+      label.className = "day-checkbox";
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = idx + 1;
+      checkbox.addEventListener("change", (e) => {
+        if (e.target.checked) {
+          customDays.push(parseInt(e.target.value));
+          label.classList.add("checked");
+        } else {
+          customDays = customDays.filter(d => d !== parseInt(e.target.value));
+          label.classList.remove("checked");
+        }
+      });
+
+      const span = document.createElement("span");
+      span.textContent = name;
+      span.title = dayFullNames[idx];
+
+      label.appendChild(checkbox);
+      label.appendChild(span);
+      weekdayCheckboxes.appendChild(label);
+    });
+
+    dayPatterns.forEach(pattern => {
+      const option = document.createElement("label");
+      option.className = "day-option";
+
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = "dayPattern";
+      radio.value = pattern.value;
+      radio.checked = pattern.value === "weekday";
+      radio.addEventListener("change", (e) => {
+        selectedPattern = e.target.value;
+        weekdayCheckboxes.style.display = selectedPattern === "custom" ? "grid" : "none";
+      });
+
+      const span = document.createElement("span");
+      span.textContent = pattern.label;
+
+      option.appendChild(radio);
+      option.appendChild(span);
+      daySelector.appendChild(option);
+    });
+
+    const customOption = document.createElement("label");
+    customOption.className = "day-option";
+
+    const customRadio = document.createElement("input");
+    customRadio.type = "radio";
+    customRadio.name = "dayPattern";
+    customRadio.value = "custom";
+    customRadio.addEventListener("change", (e) => {
+      selectedPattern = e.target.value;
+      weekdayCheckboxes.style.display = selectedPattern === "custom" ? "grid" : "none";
+    });
+
+    const customSpan = document.createElement("span");
+    customSpan.textContent = "Personalizado";
+
+    customOption.appendChild(customRadio);
+    customOption.appendChild(customSpan);
+    daySelector.appendChild(customOption);
+    daySelector.appendChild(weekdayCheckboxes);
+
+    const btnActivar = document.createElement("button");
+    btnActivar.type = "button";
+    btnActivar.className = "btn";
+    btnActivar.textContent = "Activar alerta";
+    btnActivar.style.width = "100%";
+    btnActivar.addEventListener("click", () => {
+      const pattern = selectedPattern === "custom" ? "custom" : selectedPattern;
+      const dias = pattern === "custom" ? customDays : [];
+
+      if (pattern === "custom" && dias.length === 0) {
+        alert("Selecciona al menos un día");
+        return;
+      }
+
+      crearAlerta(stopId, lineSlug, hora, minuto, pattern, dias);
+      closeModal();
+      renderMisAvisos();
+      mostrarNotificacionExito("Alerta creada");
+    });
+
+    container.appendChild(title);
+    container.appendChild(subtitle);
+    container.appendChild(daySelector);
+    container.appendChild(btnActivar);
+  });
+}
+
+/** Renderiza la sección "Mis Avisos" */
+function renderMisAvisos(container) {
+  const alertas = obtenerAlertas();
+
+  if (!container) {
+    container = document.getElementById("listaAvisos");
+    if (!container) return;
+  }
+
+  container.innerHTML = "";
+
+  if (alertas.length === 0) {
+    container.innerHTML = '<div class="card"><p class="empty">No hay alertas creadas aún. Haz click en una hora para crear una alerta.</p></div>';
+    return;
+  }
+
+  const card = document.createElement("div");
+  card.className = "card";
+
+  const title = document.createElement("h3");
+  title.className = "section-title";
+  title.innerHTML = icono("campana") + "Mis Alertas";
+  card.appendChild(title);
+
+  const list = document.createElement("div");
+  list.className = "alerts-list";
+
+  alertas.forEach(alerta => {
+    const parada = APP.data.paradas[alerta.stopId];
+    const linea = lineaPorSlug(alerta.lineSlug);
+
+    if (!parada || !linea) return;
+
+    const { tiempo, diasTexto } = formatearAlerta(alerta);
+    const seAplica = seAplicaAlertaHoy(alerta);
+    const badge = !seAplica && alerta.enabled ? " ⚠️" : "";
+
+    const item = document.createElement("div");
+    item.className = "alert-item";
+
+    const info = document.createElement("div");
+    info.className = "alert-item-info";
+
+    const linea_label = document.createElement("div");
+    linea_label.className = "alert-item-line";
+    linea_label.textContent = codigoLinea(linea.titulo) + " - " + nombreSinCodigo(linea.titulo);
+
+    const stop_label = document.createElement("div");
+    stop_label.className = "alert-item-stop";
+    stop_label.textContent = parada.nombre;
+
+    const time_label = document.createElement("div");
+    time_label.className = "alert-item-time";
+    time_label.textContent = tiempo;
+
+    const days_label = document.createElement("div");
+    days_label.className = "alert-item-days";
+    days_label.textContent = diasTexto;
+
+    if (!seAplica && alerta.enabled) {
+      const badgeEl = document.createElement("div");
+      badgeEl.className = "alert-item-badge";
+      badgeEl.textContent = "No hoy";
+      info.appendChild(badgeEl);
+    }
+
+    info.appendChild(linea_label);
+    info.appendChild(stop_label);
+    info.appendChild(time_label);
+    info.appendChild(days_label);
+
+    const actions = document.createElement("div");
+    actions.className = "alert-item-actions";
+
+    const btnToggle = document.createElement("button");
+    btnToggle.type = "button";
+    btnToggle.className = "btn-icon solo-ico";
+    btnToggle.title = alerta.enabled ? "Desactivar alerta" : "Activar alerta";
+    btnToggle.innerHTML = icono(alerta.enabled ? "ojo" : "ojo-cerrado");
+    btnToggle.addEventListener("click", () => {
+      toggleAlerta(alerta.id);
+      renderMisAvisos(container);
+    });
+
+    const btnDelete = document.createElement("button");
+    btnDelete.type = "button";
+    btnDelete.className = "btn-icon solo-ico";
+    btnDelete.title = "Eliminar alerta";
+    btnDelete.innerHTML = icono("papelera");
+    btnDelete.addEventListener("click", () => {
+      if (confirm("¿Eliminar esta alerta?")) {
+        eliminarAlerta(alerta.id);
+        renderMisAvisos(container);
+        mostrarNotificacionExito("Alerta eliminada");
+      }
+    });
+
+    actions.appendChild(btnToggle);
+    actions.appendChild(btnDelete);
+
+    item.appendChild(info);
+    item.appendChild(actions);
+    list.appendChild(item);
+  });
+
+  card.appendChild(list);
+  container.appendChild(card);
+}
+
+/** Muestra una notificación de éxito */
+function mostrarNotificacionExito(mensaje) {
+  const box = document.createElement("div");
+  box.className = "aviso-cuerpo";
+  box.innerHTML = `
+    <div class="aviso-titulo">${icono("ok")}${mensaje}</div>
+  `;
+  document.body.appendChild(box);
+  setTimeout(() => box.remove(), 3000);
+}
+
 /** Vista de detalle completa de una línea: mapa + lista de TODAS sus
  * paradas (unión de todos sus recorridos, en el orden fusionado
  * `orden_unificado`), cada una con su propia próxima salida — contando
@@ -2998,65 +3658,142 @@ function renderLineDetail(container, linea, defaultStopId, onBack, mapRef) {
     .sort((a, b) => b.paradas.length - a.paradas.length)[0];
   const trazadoLinea = bloqueLargo ? CTAN.trazados[bloqueLargo.trazado] : null;
 
+  let mapMarkers = {};
+
   const { markers } = renderMap(container.querySelector("#mapBox"), paradasValidas, id => {
-    const row = stopsListEl.querySelector(`.stoprow[data-id="${cssEscape(id)}"]`);
-    if (row) {
-      row.scrollIntoView({ behavior: "smooth", block: "center" });
-      openStopRow(row);
+    const item = stopsListEl.querySelector(`.stop-item-circular[data-id="${cssEscape(id)}"]`);
+    if (item) {
+      const circle = item.querySelector(".stop-circle");
+      item.scrollIntoView({ behavior: "smooth", block: "center" });
+      // Simular click en el círculo
+      circle.click();
     }
   }, mapRef, { trazado: trazadoLinea });
 
-  function openStopRow(row) {
-    stopsListEl.querySelectorAll(".stoprow-body").forEach(b => { if (b !== row.querySelector(".stoprow-body")) b.hidden = true; });
-    const body = row.querySelector(".stoprow-body");
-    const wasHidden = body.hidden;
-    body.hidden = !wasHidden ? true : false;
-    const id = row.dataset.id;
-    Object.entries(markers).forEach(([mid, m]) => setMarkerStyle(m, mid === id));
-    const p = APP.data.paradas[id];
-    if (wasHidden && p.lat != null && mapRef.map) mapRef.map.panTo([p.lat, p.lng]);
-    if (wasHidden && !body.dataset.built) {
-      renderBoard(body.querySelector(".boardBox"), id, linea.slug);
-      renderPdfLinea(body.querySelector(".pdfBox"), linea.slug);
-      renderHorarioSection(body.querySelector(".horarioBox"), id, linea.slug);
-      body.dataset.built = "1";
-    }
-  }
+  mapMarkers = markers;
 
-  let firstRow = null;
+  // Nueva vista: paradas como círculos conectados con horarios horizontales
+  const stopsContainer = document.createElement("div");
+  stopsContainer.className = "stops-circular-view";
+
+  const stopsList = document.createElement("div");
+  stopsList.className = "stops-list-circular";
+
+  let firstExpanded = null;
   paradasValidas.forEach((id, idx) => {
     const p = APP.data.paradas[id];
-    const dep = proximaSalida(id, new Date(), { lineaSlug: linea.slug });
-    const fmt = formatDeparture(dep);
-    // Bajo el nombre de la parada va su municipio, no el nombre de la
-    // variante. "M-101A Circular Bormujos - Castilleja - Tomares - S Juan
-    // A - Mairena (sent A)" ocupaba seis renglones en un móvil estrecho
-    // —ciento cuarenta píxeles por parada, ocho mil de lista— para repetir
-    // en cada fila algo que ya dice el título de la ficha.
-    const recorridoLabel = municipioDeParada(id) || "";
+    const esFav = esFavoritoParada(id);
+    const isFavOrDefault = esFav || id === defaultStopId || (idx === 0 && !defaultStopId);
 
-    const row = document.createElement("div");
-    row.className = "stoprow";
-    row.dataset.id = id;
-    row.innerHTML = `
-      <button type="button" class="stoprow-head">
-        <span class="stoprow-order">${idx + 1}</span>
-        <span class="stoprow-name">${escapeHtml(p.nombre)}<span class="stoprow-recorrido">${escapeHtml(recorridoLabel)}</span></span>
-        <span class="stoprow-time">${fmt.main}<span class="stoprow-sub">${escapeHtml(fmt.sub)}</span></span>
-      </button>
-      <div class="stoprow-body" hidden>
-        <div class="boardBox"></div>
-        <div class="pdfBox"></div>
-        <div class="horarioBox"></div>
-      </div>
-    `;
-    row.querySelector(".stoprow-head").addEventListener("click", () => openStopRow(row));
-    stopsListEl.appendChild(row);
-    if (id === defaultStopId || !firstRow) firstRow = row;
+    const item = document.createElement("div");
+    item.className = "stop-item-circular" + (idx === paradasValidas.length - 1 ? " last" : "");
+    item.dataset.id = id;
+
+    const circleWrapper = document.createElement("div");
+    circleWrapper.className = "stop-circle-wrapper";
+
+    const circle = document.createElement("button");
+    circle.className = "stop-circle" + (esFav ? " favorite" : "") + (isFavOrDefault ? " expanded" : "");
+    circle.type = "button";
+    circle.textContent = idx + 1;
+    circle.title = p.nombre;
+
+    const connector = document.createElement("div");
+    connector.className = "stop-connector";
+
+    circleWrapper.appendChild(circle);
+    circleWrapper.appendChild(connector);
+
+    const info = document.createElement("div");
+    info.className = "stop-info";
+
+    const name = document.createElement("div");
+    name.className = "stop-name-circular";
+    name.textContent = p.nombre;
+
+    const muni = document.createElement("div");
+    muni.className = "stop-municipality";
+    muni.textContent = municipioDeParada(id) || "";
+
+    info.appendChild(name);
+    info.appendChild(muni);
+
+    // Contenedor oculto para horarios y detalles
+    const body = document.createElement("div");
+    body.className = "stop-detail-body";
+    body.hidden = !isFavOrDefault;
+    body.style.marginLeft = "48px";
+    body.style.paddingBottom = "12px";
+
+    const boardBox = document.createElement("div");
+    boardBox.className = "boardBox";
+
+    const pdfBox = document.createElement("div");
+    pdfBox.className = "pdfBox";
+    pdfBox.style.marginBottom = "12px";
+
+    const horarioBox = document.createElement("div");
+    horarioBox.className = "horarioBox";
+
+    body.appendChild(boardBox);
+    body.appendChild(pdfBox);
+    body.appendChild(horarioBox);
+
+    item.appendChild(circleWrapper);
+    item.appendChild(info);
+    item.appendChild(body);
+
+    // Evento para expandir/contraer
+    circle.addEventListener("click", (e) => {
+      e.preventDefault();
+      const wasHidden = body.hidden;
+
+      // Ocultar todos los demás
+      stopsList.querySelectorAll(".stop-detail-body").forEach(b => {
+        if (b !== body) b.hidden = true;
+      });
+
+      // Mostrar/ocultar este
+      body.hidden = !wasHidden;
+      circle.classList.toggle("expanded");
+
+      // Renderizar contenido si es la primera vez
+      if (!wasHidden && !body.dataset.built) {
+        renderBoard(boardBox, id, linea.slug);
+        renderPdfLinea(pdfBox, linea.slug);
+        renderHorarioHorizontal(horarioBox, id, linea.slug);
+        body.dataset.built = "1";
+      }
+
+      // Actualizar estilos de marcadores en el mapa
+      if (mapMarkers && !wasHidden && p.lat != null && mapRef.map) {
+        Object.entries(mapMarkers).forEach(([mid, m]) => setMarkerStyle(m, mid === id));
+        mapRef.map.panTo([p.lat, p.lng]);
+      }
+    });
+
+    stopsList.appendChild(item);
+
+    if (isFavOrDefault && !firstExpanded) {
+      firstExpanded = item;
+    }
   });
 
-  openStopRow(firstRow);
-  if (defaultStopId) firstRow.scrollIntoView({ block: "nearest" });
+  stopsContainer.appendChild(stopsList);
+  stopsListEl.appendChild(stopsContainer);
+
+  // Renderizar el contenido de la primera parada expandida
+  if (firstExpanded) {
+    const body = firstExpanded.querySelector(".stop-detail-body");
+    const id = firstExpanded.dataset.id;
+    if (body && !body.dataset.built) {
+      renderBoard(body.querySelector(".boardBox"), id, linea.slug);
+      renderPdfLinea(body.querySelector(".pdfBox"), linea.slug);
+      renderHorarioHorizontal(body.querySelector(".horarioBox"), id, linea.slug);
+      body.dataset.built = "1";
+    }
+    if (defaultStopId) firstExpanded.scrollIntoView({ block: "nearest" });
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -6280,15 +7017,21 @@ async function renderAvisos() {
   const { mios, resto } = avisosOrdenados();
   actualizarChapaAvisos(mios.length);
 
+  let html = "";
+
+  // Mostrar "Mis Alertas" (alertas horarias creadas por el usuario)
+  html += renderMisAvisosHtml();
+
   if (!mios.length && !resto.length) {
-    box.innerHTML = `<div class="card"><h2 class="home-fav-title">Avisos</h2>
+    html += `<div class="card"><h2 class="home-fav-title">Avisos</h2>
       <p class="empty">${AVISOS.fecha
         ? "No hay ningún aviso publicado ahora mismo."
         : "No se han podido consultar los avisos. Comprueba la conexión."}</p></div>`;
+    box.innerHTML = html;
     return;
   }
 
-  box.innerHTML = `
+  html += `
     ${mios.length ? `<div class="card">
       <h2 class="home-fav-title">Te afectan</h2>
       <div class="detail-meta" style="margin-bottom:6px;">Avisos de líneas o paradas que sigues.</div>
@@ -6299,6 +7042,69 @@ async function renderAvisos() {
       ${resto.length ? resto.map(filaAviso).join("")
         : '<p class="empty">No hay más avisos.</p>'}
     </div>`;
+
+  box.innerHTML = html;
+}
+
+/** Renderiza la sección "Mis Alertas" como HTML (para integración en renderAvisos) */
+function renderMisAvisosHtml() {
+  const alertas = obtenerAlertas();
+
+  if (alertas.length === 0) {
+    return '<div class="card"><h3 class="section-title">Mis Alertas</h3><p class="empty">No hay alertas creadas aún. Haz click en una hora cuando veas los horarios de una parada para crear una alerta.</p></div>';
+  }
+
+  let html = `<div class="card"><h3 class="section-title">Mis Alertas</h3><div class="alerts-list">`;
+
+  alertas.forEach(alerta => {
+    const parada = APP.data.paradas[alerta.stopId];
+    const linea = lineaPorSlug(alerta.lineSlug);
+
+    if (!parada || !linea) return;
+
+    const { tiempo, diasTexto } = formatearAlerta(alerta);
+    const seAplica = seAplicaAlertaHoy(alerta);
+
+    html += `
+      <div class="alert-item">
+        <div class="alert-item-info">
+          ${!seAplica && alerta.enabled ? '<div class="alert-item-badge">No hoy</div>' : ""}
+          <div class="alert-item-line">${escapeHtml(codigoLinea(linea.titulo))} - ${escapeHtml(nombreSinCodigo(linea.titulo))}</div>
+          <div class="alert-item-stop">${escapeHtml(parada.nombre)}</div>
+          <div class="alert-item-time">${escapeHtml(tiempo)}</div>
+          <div class="alert-item-days">${escapeHtml(diasTexto)}</div>
+        </div>
+        <div class="alert-item-actions">
+          <button type="button" class="btn-icon solo-ico" data-toggle-alert="${alerta.id}" title="${alerta.enabled ? "Desactivar alerta" : "Activar alerta"}">${icono(alerta.enabled ? "ojo" : "ojo-cerrado")}</button>
+          <button type="button" class="btn-icon solo-ico" data-delete-alert="${alerta.id}" title="Eliminar alerta">${icono("papelera")}</button>
+        </div>
+      </div>`;
+  });
+
+  html += `</div></div>`;
+
+  // Agregar event listeners después de renderizar
+  setTimeout(() => {
+    document.querySelectorAll("[data-toggle-alert]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const alertaId = parseFloat(btn.dataset.toggleAlert);
+        toggleAlerta(alertaId);
+        renderAvisos();
+      });
+    });
+    document.querySelectorAll("[data-delete-alert]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const alertaId = parseFloat(btn.dataset.deleteAlert);
+        if (confirm("¿Eliminar esta alerta?")) {
+          eliminarAlerta(alertaId);
+          renderAvisos();
+          mostrarNotificacionExito("Alerta eliminada");
+        }
+      });
+    });
+  }, 0);
+
+  return html;
 }
 
 /** La chapa del menú sólo cuenta lo que te toca: un número que sube por

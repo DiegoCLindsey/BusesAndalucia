@@ -39,7 +39,7 @@ function servirLeafletLocal(page) {
 function servirQrLocal(page) {
   const dir = process.env.QR_LIB_DIR;
   if (!dir) return Promise.resolve();
-  return page.route('https://unpkg.com/qrcode-generator@2.0.4/qrcode.js', r =>
+  return page.route('https://cdn.jsdelivr.net/npm/qrcode-generator@2.0.4/qrcode.js', r =>
     r.fulfill({ contentType: 'application/javascript', body: fs.readFileSync(dir + '/qrcode.js', 'utf8') }));
 }
 

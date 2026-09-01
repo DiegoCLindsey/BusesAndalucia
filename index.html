@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="Próxima Salida">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon.svg">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -1085,7 +1085,7 @@
 
 <div id="modalRoot"></div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 "use strict";
 
@@ -3131,7 +3131,7 @@ function urlDeParada(stopId) {
   return location.origin + location.pathname + "?parada=" + encodeURIComponent(stopId);
 }
 
-const QR_LIB_URL = "https://unpkg.com/qrcode-generator@2.0.4/qrcode.js";
+const QR_LIB_URL = "https://cdn.jsdelivr.net/npm/qrcode-generator@2.0.4/qrcode.js";
 let cargaLibreriaQr = null;
 
 /** La librería de QR no se trae hasta que hace falta: es un extra que

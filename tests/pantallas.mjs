@@ -20,9 +20,9 @@ function servirLeafletLocal(page) {
   const dir = process.env.LEAFLET_DIR;
   if (!dir) return Promise.resolve();
   return Promise.all([
-    page.route('**/leaflet@*/dist/leaflet.js', r =>
+    page.route('**/*leaflet**/dist/leaflet.js', r =>
       r.fulfill({ contentType: 'application/javascript', body: fs.readFileSync(dir + '/leaflet.js', 'utf8') })),
-    page.route('**/leaflet@*/dist/leaflet.css', r =>
+    page.route('**/*leaflet**/dist/leaflet.css', r =>
       r.fulfill({ contentType: 'text/css', body: fs.readFileSync(dir + '/leaflet.css', 'utf8') }))
   ]);
 }

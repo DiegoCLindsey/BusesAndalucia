@@ -75,8 +75,8 @@ como aplicación en el móvil.
 | `data/catalogo.json` | Las paradas, líneas y municipios de toda Andalucía (460 KB) |
 | `data/{1..9}/horarios.json` | Los horarios de un área: bloques, calendario, trazados y grafo a pie |
 | `fuentes/paradas_*.json` | Respuesta de `/paradas` de la API, para regenerar sin red |
-| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas, directo_pie_bici, mejor_opcion, puntos_de_ruta) |
-| `package.json` | `npm test` lanza las diez suites |
+| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas, directo_pie_bici, mejor_opcion, puntos_de_ruta, bici_entre_paradas) |
+| `package.json` | `npm test` lanza las once suites |
 | `sw.js` | Service Worker: caché offline y notificaciones |
 | `manifest.json`, `icon.svg` | Instalación como PWA |
 | `build_from_gtfs.py` | Genera todo `data/` a partir del GTFS oficial |
@@ -361,23 +361,38 @@ no pasan por aquí.
   con la que comparar (llamadas sin geografía real, como en las
   pruebas), no penaliza nada.
 
-- **Vuelta a RAPTOR clásico: sin saltos a pie ni en bici a mitad de
-  trayecto.** Se probó a dejar que el buscador enganchase una línea
-  mejor pedaleando entre dos paradas a mitad de itinerario (no sólo al
-  principio y al final), con un radio cada vez mayor para cubrirlo. Dio
-  varios bugs reales por el camino —saltos encadenados sin autobús de
-  por medio, un tope de vecinos pensado para un radio mucho más pequeño—
-  y aun arreglados, el resultado era difícil de predecir: la ruta que
-  salía dependía de qué paradas quedaban dentro de un radio en línea
-  recta, no de una decisión que tuviera sentido explicar. Se ha quitado
-  esa parte entera del motor: dentro de la búsqueda sólo queda el paseo
-  de siempre para llegar a la primera parada, el de después de la
-  última, y el trasbordo a pie de hasta 600 m entre dos líneas (cruzar
-  la calle a la parada de enfrente, no perseguir una mejor a base de
-  bicicleta). "Ir directo, a pie o en bicicleta" —el punto de arriba— no
-  se ha tocado: es una alternativa aparte, sencilla de entender, y sigue
-  ahí. Lo que sustituye a los saltos automáticos es dejar que sea la
-  persona quien decida por dónde pasar: ver "Puntos de ruta", más abajo.
+- **Saltos a pie o en bici a mitad de trayecto: se quitaron, y han
+  vuelto con red de seguridad.** Dejar que el buscador enganche una
+  línea mejor pedaleando entre dos paradas a mitad de itinerario (no
+  sólo al principio y al final) dio varios bugs reales la primera vez
+  —saltos encadenados sin autobús de por medio, un tope de vecinos
+  pensado para un radio mucho más pequeño— y, aun arreglados, el
+  resultado seguía siendo difícil de predecir: la ruta que salía
+  dependía de qué paradas quedaban dentro de un radio en línea recta, no
+  de una decisión que tuviera sentido explicar. Se quitó esa parte
+  entera del motor (RAPTOR "clásico": sólo el paseo de siempre para
+  llegar a la primera parada, el de después de la última, y el
+  trasbordo a pie de hasta 600 m entre dos líneas), y su sustituto fueron
+  los puntos de ruta —dejar que sea la persona quien decida por dónde
+  pasar, ver el punto de abajo—.
+
+  Ha vuelto porque el propio caso que lo motivó (Guillena a Carmona, más
+  abajo) seguía sin resolverse bien ni con la selección por defecto
+  arreglada ni con los puntos de ruta a mano: la búsqueda en sí nunca
+  llegaba a encontrar la combinación corta, sólo la que daba un rodeo
+  enorme. Esta vez con una diferencia importante: `mejorOpcion()` ya
+  compara el rodeo de cada combinación contra la línea recta entre
+  origen y destino (el punto de arriba) y descarta las que dan una
+  vuelta desproporcionada, así que un salto en bici que enganche una
+  línea rara ya no puede colarse como opción por defecto sin que compita
+  con algo más sensato. Con la bicicleta activada, el buscador prueba
+  saltos de hasta 2,5 km entre paradas (antes 600 m a pie); sin ella,
+  sigue exactamente igual que en RAPTOR clásico. Caso real, de
+  principio a fin: Guillena a Carmona daba, sin bici, cinco trasbordos y
+  66,8 km recorridos (más del doble de los 31 km en línea recta),
+  llegando a las 20:06; con la bici activada baja a dos trasbordos,
+  45,6 km, y llega a las 17:19 — casi tres horas antes, con menos de la
+  mitad del rodeo.
 
 - **Puntos de ruta: un RAPTOR clásico por tramo, encadenado.** Se puede
   añadir una o varias paradas —o municipios— por los que el itinerario

@@ -247,24 +247,27 @@ no pasan por aquí.
   parada, y eso rompía justo lo que la pantalla tiene que responder: con
   dos paradas guardadas, un autobús que salía en un minuto quedaba por
   debajo de otro que salía en una hora sólo porque su parada iba después.
-  Ahora es una cola única ordenada por tiempo, cada fila se explica sola y
-  el número grande es el que se usa para decidir ("11 min"), no el que hay
-  que restar mentalmente ("15:03"). El resumen limita a dos salidas por
-  parada para que ninguna se quede fuera de pantalla, y se despliega
-  entero de un toque. Cuando a una salida le quedan diez minutos o menos,
-  debajo aparece la siguiente de esa misma línea y sentido —o el aviso de
-  que no hay otra hoy—: a esas alturas la pregunta ya no es "¿cuándo
-  pasa?" sino "¿corro o espero al otro?", y la respuesta cambia lo que
-  haces. Esa fila cuelga de la suya en vez de ir en su sitio por hora,
-  porque lo que dice sólo se entiende junto a la de arriba: cinco filas
-  más abajo, "16:53" ya no es "el siguiente de este". Esos topes —tres
-  por parada, cinco en total— recortaban en puro orden cronológico, sin
-  mirar si lo que quitaban era justo una línea que se sigue: en una
-  parada por la que pasan varias líneas seguidas, la que salía un poco
-  más tarde que las demás podía quedar fuera del resumen, o directamente
-  no aparecer. Ahora las salidas de una línea seguida se reservan primero
-  y sin ese tope por parada; lo que sobra de hueco hasta cinco lo llena
-  el resto, que sigue teniendo su tope de siempre. Ya no hay dos
+  Ahora es una cola única, cada fila se explica sola y el número grande es
+  el que se usa para decidir ("11 min"), no el que hay que restar
+  mentalmente ("15:03"). El resumen limita a tres salidas por parada para
+  que ninguna se quede fuera de pantalla, y se despliega entero de un
+  toque. Cuando a una salida le quedan diez minutos o menos, debajo
+  aparece la siguiente de esa misma línea y sentido —o el aviso de que no
+  hay otra hoy—: a esas alturas la pregunta ya no es "¿cuándo pasa?" sino
+  "¿corro o espero al otro?", y la respuesta cambia lo que haces. Esa fila
+  cuelga de la suya en vez de ir en su sitio por hora, porque lo que dice
+  sólo se entiende junto a la de arriba: cinco filas más abajo, "16:53" ya
+  no es "el siguiente de este". La cola no va sólo por tiempo: primero las
+  líneas que se siguen —con su código resaltado en verde, en gris el de
+  las demás— y dentro de cada grupo por urgencia, así que una línea
+  seguida con 20 minutos por delante sale antes que una que no se sigue
+  aunque ésta salga en 4. Los topes del resumen —tres por parada, cinco en
+  total— seguían el orden cronológico a ciegas, así que en una parada por
+  la que pasan varias líneas seguidas, la que salía un poco más tarde que
+  las demás podía quedar fuera del resumen, o directamente no aparecer.
+  Ahora esas salidas se reservan primero y sin el tope por parada; lo que
+  sobra de hueco hasta cinco lo llena el resto, que sigue teniendo su tope
+  de siempre. Ya no hay dos
   listados —"tus próximas salidas" y
   "paradas cerca de ti"— contando lo mismo con distinta letra: es uno.
   Inicio ya no lleva mapa: ocupaba media pantalla para

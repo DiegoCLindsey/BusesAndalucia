@@ -6448,16 +6448,30 @@ function pintarFiltroMunicipio(contenedor, onCambio) {
   contenedor.appendChild(fila);
 }
 
-/** Todas las salidas que vigilas, en una sola lista y ordenadas por lo
- * que falta para cada una.
+/** Con qué orden van las salidas en Inicio: primero las de una línea
+ * seguida, y dentro de cada grupo —seguidas y no seguidas— por lo que
+ * falta para cada una. No es sólo "el que se va antes": una línea que
+ * sigues con 20 minutos por delante va por delante de una que no sigues
+ * aunque ésta salga en 4, porque es la que de verdad te importa. Sin
+ * ninguna línea favorita, se queda en orden de urgencia sin más. */
+function comparadorSalidas(favoritas) {
+  return (a, b) => {
+    const fa = favoritas.has(a.lineaSlug) ? 0 : 1;
+    const fb = favoritas.has(b.lineaSlug) ? 0 : 1;
+    return fa !== fb ? fa - fb : a.espera.orden - b.espera.orden;
+  };
+}
+
+/** Todas las salidas que vigilas, en una sola lista: primero las líneas
+ * seguidas, y luego el resto, cada grupo por lo que falta (ver
+ * `comparadorSalidas`).
  *
  * Antes iban agrupadas por parada, y eso rompía justo lo que la pantalla
  * tiene que responder: con dos paradas guardadas, un autobús que salía en
  * un minuto quedaba por debajo de otro que salía en una hora, sólo porque
  * su parada iba después. Aquí no hay jerarquía de paradas: hay una cola
- * de autobuses, y arriba está el que se va antes. Cada fila se explica
- * sola —línea, hacia dónde y desde qué parada—, así que no hacen falta
- * cabeceras.
+ * de autobuses. Cada fila se explica sola —línea, hacia dónde y desde qué
+ * parada—, así que no hacen falta cabeceras.
  *
  * Y antes de ordenar, se poda: de cada línea y sentido queda la parada
  * más cercana. Sin eso, marcar la M-177 como favorita llenaba la pantalla
@@ -6530,7 +6544,7 @@ function salidasVigiladas(incluirOtrasLineas) {
   const favoritas = lineasFavoritasValidas();
   const cuenta = new Map();
   return salidas
-    .sort((a, b) => a.espera.orden - b.espera.orden)
+    .sort(comparadorSalidas(favoritas))
     .filter(sal => {
       if (favoritas.has(sal.lineaSlug)) return true;
       const n = (cuenta.get(sal.paradaId) || 0) + 1;
@@ -6556,7 +6570,9 @@ let VER_TODAS_SALIDAS = false;
  * cronológico puede dejar fuera justo la que más importa por salir un
  * poco más tarde que las demás. Las salidas de línea seguida se reservan
  * primero, sin ese tope; lo que sobra de hueco hasta cinco lo rellenan
- * las demás, ya sí con el tope de tres por parada. */
+ * las demás, ya sí con el tope de tres por parada. Al final se vuelve a
+ * ordenar con `comparadorSalidas`, así que en pantalla las seguidas
+ * siguen yendo antes que las demás, no mezcladas por hora. */
 function resumirSalidas(salidas) {
   const favoritas = lineasFavoritasValidas();
   const esPropia = sal => favoritas.has(sal.lineaSlug);
@@ -6568,7 +6584,7 @@ function resumirSalidas(salidas) {
     return n <= SALIDAS_POR_PARADA;
   });
   const hueco = Math.max(0, SALIDAS_VISIBLES - propias.length);
-  return [...propias, ...ajenas.slice(0, hueco)].sort((a, b) => a.espera.orden - b.espera.orden);
+  return [...propias, ...ajenas.slice(0, hueco)].sort(comparadorSalidas(favoritas));
 }
 
 /** La fila que cuelga de una salida inminente: el mismo autobús, el de
@@ -6643,7 +6659,7 @@ function renderHomeFavSalidas() {
 
   const filas = visibles.map(sal => `
     <div class="salida-fila" data-stop-id="${escapeHtml(sal.paradaId)}">
-      <span class="home-fav-code es-fav">${escapeHtml(sal.codigo)}</span>
+      <span class="home-fav-code${favoritas.has(sal.lineaSlug) ? " es-fav" : ""}">${escapeHtml(sal.codigo)}</span>
       <span class="salida-cuerpo">
         <span class="salida-hacia">hacia ${escapeHtml(sal.hacia)}</span>
         <span class="salida-parada">${escapeHtml(sal.paradaNombre)}${sal.dist != null ? " · " + escapeHtml(formatDistance(sal.dist)) : ""}</span>

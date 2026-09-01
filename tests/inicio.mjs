@@ -203,6 +203,28 @@ const preferencia = await page.evaluate(({ aqui, m177 }) => {
   casos.conLineaLaParadaSinCubrirOculta = resumenCon(false);
   casos.conLineaLaParadaSinCubrirVerMas = resumenCon(true);
 
+  // Chapina tiene dos andenes de la 177 a menos de cien metros el uno del
+  // otro: uno sólo sirve el sentido que se queda dentro de Sevilla
+  // (termina en Plaza de Armas) y el otro el que sale hacia Guillena.
+  // Siguiendo la línea sin parada elegida, sólo debe asomar el que sale
+  // del municipio — el otro no lleva a ningún sitio nuevo estando ya en
+  // Sevilla.
+  FAVORITOS.lineas = [{ slug: CTAN.lineas.find(l => l.codigo === m177).slug }];
+  FAVORITOS.paradas = [];
+  const chapinaV = idPor('CHAPINA C GONZALO JIMENEZ DE QUESADA (V)');
+  UBICACION = { lat: APP.data.paradas[chapinaV].lat, lng: APP.data.paradas[chapinaV].lng };
+  casos.chapinaMismoMunicipioFiltrado = resumen();
+
+  // Una parada favorita lejos y de otro municipio, sin ninguna línea
+  // seguida: por defecto no aporta nada útil (no se puede coger nada
+  // desde ahí sin desplazarse), así que se oculta; "ver más" sigue
+  // enseñándola, como con las paradas que sí cubre una línea.
+  FAVORITOS.lineas = [];
+  FAVORITOS.paradas = [{ id: idPor('PLAZA DE ARMAS'), nombre: 'PLAZA DE ARMAS' }];
+  UBICACION = { lat: aqui.latitude, lng: aqui.longitude };   // Guillena
+  casos.paradaLejosSinLineaOculta = resumenCon(false);
+  casos.paradaLejosSinLineaVerMas = resumenCon(true);
+
   FAVORITOS.lineas = []; FAVORITOS.paradas = [];
   return casos;
 }, { aqui: AQUI, m177: M177 });
@@ -264,6 +286,31 @@ ok(conVerMas.some(f => /^POLIGONO \(JUNTO A RENAULT\) TORREBLANCA$/i.test(f.para
   JSON.stringify(conVerMas.map(f => f.linea + ' · ' + f.parada)));
 ok(conVerMas.some(f => f.linea === 'M-177'),
   'sin perder la línea que sí se sigue');
+
+// Regresión: dos andenes de la misma línea a un paso el uno del otro, uno
+// hacia dentro del municipio y otro hacia fuera — sólo el que sale de
+// verdad tiene que asomar.
+const chapinaFiltrado = preferencia.chapinaMismoMunicipioFiltrado;
+ok(chapinaFiltrado.length > 0 && chapinaFiltrado.every(f => /Guillena/i.test(f.hacia)),
+  'junto a Chapina, sólo el sentido que sale de Sevilla (hacia Guillena)',
+  JSON.stringify(chapinaFiltrado.map(f => f.linea + ' hacia ' + f.hacia)));
+ok(chapinaFiltrado.every(f => !/Plaza De Armas/i.test(f.hacia)),
+  'y no el que se queda dentro de Sevilla (hacia Plaza de Armas)',
+  JSON.stringify(chapinaFiltrado.map(f => f.hacia)));
+
+// Regresión: una parada favorita lejos, sin ninguna línea seguida, no
+// aporta nada por defecto — pero "ver más" la sigue enseñando.
+const paradaLejosOculta = preferencia.paradaLejosSinLineaOculta;
+const paradaLejosVerMas = preferencia.paradaLejosSinLineaVerMas;
+// Sin ninguna candidata de favoritos que valga (queda demasiado lejos),
+// el resumen cae al mismo sitio que sin favoritos: lo que hay al lado,
+// no la favorita de otro pueblo.
+ok(paradaLejosOculta.every(f => !/^PLAZA DE ARMAS$/i.test(f.parada)),
+  'una parada favorita de otro municipio, sin línea seguida, no aparece por defecto',
+  JSON.stringify(paradaLejosOculta.map(f => f.parada)));
+ok(paradaLejosVerMas.some(f => /^PLAZA DE ARMAS$/i.test(f.parada)),
+  'pero sí aparece al pulsar "ver más"',
+  JSON.stringify(paradaLejosVerMas.map(f => f.parada)));
 
 ok(errores.length === 0, 'sin errores en consola', JSON.stringify(errores));
 console.log(fallos ? `\n${fallos} comprobaciones fallidas` : '\nTodo correcto');

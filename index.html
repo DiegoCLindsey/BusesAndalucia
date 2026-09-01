@@ -6232,6 +6232,27 @@ function distanciaA(paradaId) {
   return haversine(UBICACION.lat, UBICACION.lng, p.lat, p.lng);
 }
 
+/** El municipio en el que está la persona, adivinado por la parada más
+ * cercana a su ubicación — el mismo criterio que ya usa el área de
+ * referencia. `null` sin ubicación compartida. */
+function municipioActual() {
+  if (!UBICACION) return null;
+  const near = nearestStop(APP.data, UBICACION.lat, UBICACION.lng);
+  return near ? municipioDeParada(near.id) : null;
+}
+
+/** Si una parada favorita —sin línea seguida que la cubra— merece salir
+ * en el resumen de Inicio: a mano (sin ubicación no hay con qué
+ * decidir, así que se enseña), a menos de un km, o en el municipio en el
+ * que se está ahora mismo. Una parada favorita en otro pueblo, mientras
+ * se anda por aquí, no aporta nada y sólo llena la pantalla. */
+function paradaCercaOEnMiMunicipio(paradaId, miMunicipio) {
+  if (!UBICACION) return true;
+  const d = distanciaA(paradaId);
+  if (d != null && d <= RADIO_MI_PARADA) return true;
+  return !!miMunicipio && municipioDeParada(paradaId) === miMunicipio;
+}
+
 /** De qué paradas se puede coger cada línea que a la persona le importa.
  *
  * El orden de preferencia es el que tiene sentido para quien va a coger
@@ -6296,6 +6317,7 @@ function candidatasDeSeguimiento(incluirOtrasLineas = VER_TODAS_SALIDAS) {
   };
   const favoritas = lineasFavoritasValidas();
   const misParadas = FAVORITOS.paradas.map(f => f.id).filter(id => APP.data.paradas[id]);
+  const miMunicipio = municipioActual();
 
   FAVORITOS.lineas.forEach(fl => {
     const linea = APP.data.lineas.find(l => l.slug === fl.slug);
@@ -6309,9 +6331,7 @@ function candidatasDeSeguimiento(incluirOtrasLineas = VER_TODAS_SALIDAS) {
     // parada de casa es la mía en el pueblo, no cuando ando por Sevilla a
     // diecisiete kilómetros de ella. Allí manda la que tenga delante.
     const miasEnLinea = nodo ? misParadas.filter(id => nodo.paradas.has(id)) : [];
-    const miasCerca = UBICACION
-      ? miasEnLinea.filter(id => { const d = distanciaA(id); return d != null && d <= RADIO_MI_PARADA; })
-      : miasEnLinea;
+    const miasCerca = miasEnLinea.filter(id => paradaCercaOEnMiMunicipio(id, miMunicipio));
 
     // Mandan las paradas elegidas a mano; luego las mías si las tengo
     // cerca; luego la que pille más cerca del recorrido; y a ciegas, por
@@ -6327,12 +6347,18 @@ function candidatasDeSeguimiento(incluirOtrasLineas = VER_TODAS_SALIDAS) {
   // contada arriba, y con la línea que me importa: sacarla otra vez con
   // todo lo que para en ella llenaría la pantalla de autobuses que no
   // pienso coger. Las demás sí traen lo suyo, sea de quien sea — pero
-  // sólo si toca enseñarlas (ver arriba).
+  // sólo si toca enseñarlas (ver arriba). En el resumen por defecto,
+  // además, sólo si están a mano: una parada favorita de otro pueblo,
+  // mientras se anda por aquí, no aporta nada y sólo llena la pantalla
+  // de autobuses que no se pueden coger. Pedir "ver más" es pedir
+  // explícitamente verlo todo, así que ahí el filtro no se aplica.
   if (!favoritas.size || incluirOtrasLineas) {
     misParadas.forEach(id => {
       const nodo = GRAFO.paradas.get(id);
       const laCubreUnaFavorita = nodo && [...nodo.lineas].some(slug => favoritas.has(slug));
-      if (!laCubreUnaFavorita) anotar(id, null);
+      if (laCubreUnaFavorita) return;
+      if (!incluirOtrasLineas && !paradaCercaOEnMiMunicipio(id, miMunicipio)) return;
+      anotar(id, null);
     });
   }
 
@@ -6421,6 +6447,14 @@ function salidasVigiladas(incluirOtrasLineas) {
         lineaSlug: g.lineaSlug,
         codigo: codigoLinea(g.lineaTitulo),
         hacia: g.etiqueta,
+        // Un trayecto que termina en el mismo municipio en el que ya
+        // está la parada no lleva a ningún sitio nuevo —"hacia Plaza de
+        // Armas" no dice nada estando ya en Sevilla—: se marca para
+        // poder quitarlo más abajo si la línea tiene también un sentido
+        // que sí sale del municipio, aunque sea desde otra parada
+        // cercana (dos andenes del mismo cruce, cada uno con un sólo
+        // sentido: hace falta mirar la línea entera para verlo).
+        mismoMunicipio: municipioDeParada(g.destinoId) === municipio,
         espera,
         // A menos de diez minutos ya no se pregunta "¿cuándo pasa?" sino
         // "¿me da tiempo o espero al otro?", así que el otro entra en la
@@ -6433,11 +6467,25 @@ function salidasVigiladas(incluirOtrasLineas) {
     });
   });
 
+  // Por línea, si hay algún sentido que sale del municipio en el que se
+  // está, los que se quedan dentro sobran (ver arriba). Se dejan si son
+  // los únicos que hay para esa línea: mejor una salida "hacia dentro"
+  // que ninguna.
+  const porLinea = new Map();
+  mejores.forEach(sal => {
+    if (!porLinea.has(sal.lineaSlug)) porLinea.set(sal.lineaSlug, []);
+    porLinea.get(sal.lineaSlug).push(sal);
+  });
+  const salidas = [...porLinea.values()].flatMap(grupo => {
+    const fueraDelMunicipio = grupo.filter(sal => !sal.mismoMunicipio);
+    return fueraDelMunicipio.length ? fueraDelMunicipio : grupo;
+  });
+
   // De una parada cuyas líneas no sigo no hacen falta las quince que
   // pasan: con las tres primeras se sabe si hay que salir corriendo.
   const favoritas = lineasFavoritasValidas();
   const cuenta = new Map();
-  return [...mejores.values()]
+  return salidas
     .sort((a, b) => a.espera.orden - b.espera.orden)
     .filter(sal => {
       if (favoritas.has(sal.lineaSlug)) return true;

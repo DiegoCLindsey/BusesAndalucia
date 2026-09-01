@@ -220,6 +220,29 @@ no pasan por aquí.
   siendo "aquí"— pero no las de un final de trayecto que pilla a once
   kilómetros.
 
+- **Una parada favorita lejos no aporta nada.** Con ubicación compartida,
+  una parada favorita sin ninguna línea seguida que la cubra sólo entra
+  en el resumen si está a menos de un km o en el municipio en el que se
+  está ahora mismo —el mismo criterio que ya usaban las paradas propias
+  de una línea favorita—; si no, no se puede coger nada desde ahí sin
+  desplazarse, así que sólo llenaría la pantalla. "Ver más" la sigue
+  enseñando igual: pedirlo es pedir verlo todo, sin filtrar.
+
+- **Un trayecto que no sale del municipio no lleva a ningún sitio
+  nuevo.** El sentido de una línea se agrupa por el municipio en el que
+  termina (ver más abajo), y en un cruce concurrido puede haber dos
+  andenes de la misma línea a un paso el uno del otro: uno con un
+  sentido que se queda dentro del municipio en el que ya se está, y otro
+  que de verdad sale de él. El primero no dice nada útil —"hacia Plaza
+  de Armas" no ayuda estando ya en Sevilla— así que se descarta en
+  Inicio a favor del segundo, mirando todas las paradas cercanas de esa
+  línea a la vez (no sólo la de esa parada): en Chapina, siguiendo la
+  M-177, ya no sale "hacia Plaza de Armas" si el sentido "hacia Guillena"
+  también está a mano. Se enseña igual si es el único sentido que hay
+  para esa línea ahí —mejor una salida "hacia dentro" que ninguna—; y
+  esto no toca la ficha de una parada ni la pantalla de una línea, donde
+  sí interesa ver el recorrido entero.
+
 - **Lo que se enseña en Inicio.** El bloque de salidas iba agrupado por
   parada, y eso rompía justo lo que la pantalla tiene que responder: con
   dos paradas guardadas, un autobús que salía en un minuto quedaba por

@@ -75,8 +75,8 @@ como aplicación en el móvil.
 | `data/catalogo.json` | Las paradas, líneas y municipios de toda Andalucía (460 KB) |
 | `data/{1..9}/horarios.json` | Los horarios de un área: bloques, calendario, trazados y grafo a pie |
 | `fuentes/paradas_*.json` | Respuesta de `/paradas` de la API, para regenerar sin red |
-| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas, directo_pie_bici, mejor_opcion, puntos_de_ruta, bici_entre_paradas) |
-| `package.json` | `npm test` lanza las once suites |
+| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas, directo_pie_bici, mejor_opcion, puntos_de_ruta, bici_entre_paradas, qr_parada) |
+| `package.json` | `npm test` lanza las doce suites |
 | `sw.js` | Service Worker: caché offline y notificaciones |
 | `manifest.json`, `icon.svg` | Instalación como PWA |
 | `build_from_gtfs.py` | Genera todo `data/` a partir del GTFS oficial |
@@ -103,8 +103,8 @@ npm test
 ```
 
 `CHROMIUM_PATH` apunta a un Chromium ya instalado si no se quiere descargar
-el del paquete, y `LEAFLET_DIR` sirve Leaflet desde disco cuando no hay
-salida a internet.
+el del paquete, y `LEAFLET_DIR` / `QR_LIB_DIR` sirven Leaflet y la
+librería del QR desde disco cuando no hay salida a internet.
 
 ## De dónde salen los datos
 
@@ -492,6 +492,22 @@ no pasan por aquí.
   segundo plano, pero si cierras la app del todo no puede sonar. El
   diálogo lo dice antes de que actives nada, para no dejar a nadie
   esperando un aviso que no va a llegar.
+
+- **Un QR por parada, para pegarlo donde haga falta.** La idea: escanear
+  el código pegado en la marquesina de la parada de casa y ver directamente
+  su próxima salida, sin buscarla a mano. Cada parada tiene su propio
+  enlace (`?parada=<id>`, `urlDeParada()`); al entrar por ahí, la app abre
+  su ficha sola nada más arrancar (`abrirParadaDesdeUrl()`), y si el id ya
+  no existe en los datos avisa con claridad en vez de dejar un modal en
+  blanco. Dentro de la ficha, "Ver código QR" dibuja ese enlace como QR de
+  verdad, listo para una captura o para imprimir, y "Compartir esta
+  parada" lo manda por la vía nativa del móvil (o lo copia al
+  portapapeles si no hay `navigator.share`). El QR va siempre en negro
+  sobre blanco fijo, pase lo que pase con el tema oscuro: un fondo que
+  cambia de color es justo lo que un lector agradece menos. La librería
+  que dibuja el QR (de terceros, `qrcode-generator`) se trae de un CDN
+  sólo cuando se pulsa el botón, igual que Leaflet — un extra que casi
+  nadie toca no debería pesarle a todo el mundo desde el arranque.
 
 ## Licencia
 

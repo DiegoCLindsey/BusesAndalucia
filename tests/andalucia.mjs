@@ -106,7 +106,7 @@ const tras = await page.evaluate(slug => {
   return {
     areas: [...CTAN.horarios].sort(),
     recorrido: l.orden_unificado.length,
-    paradasEnFicha: document.querySelectorAll('#lineDetail .stoprow').length,
+    paradasEnFicha: document.querySelectorAll('#lineDetail .stop-item-circular').length,
     // Los bloques de las dos áreas conviven: nada se ha tirado al cargar.
     bloquesPorArea: [1, 3].map(idc => CTAN.bloques.filter(b =>
       CTAN.lineas.find(x => x.slug === b.lineaSlug).idc === idc).length)

@@ -312,6 +312,111 @@ ok(paradaLejosVerMas.some(f => /^PLAZA DE ARMAS$/i.test(f.parada)),
   'pero sí aparece al pulsar "ver más"',
   JSON.stringify(paradaLejosVerMas.map(f => f.parada)));
 
+/* ------------------------------------------------------------------ */
+/* Regresión: resumirSalidas no puede tapar una línea seguida            */
+/* ------------------------------------------------------------------ */
+// El caso real que lo destapó: en Chapina convergen varias líneas, y con
+// varias seguidas el resumen (tope de 3 por parada, 5 en total) recortaba
+// en puro orden cronológico sin mirar si lo que quitaba era justo la
+// línea que se sigue. Se construyen salidas de mentira —con el slug de
+// una línea real, que es lo único que resumirSalidas necesita mirar— para
+// dejarlo fijo sin depender de qué hora salga cada autobús hoy.
+const resumen = await page.evaluate(() => {
+  const slugReal = APP.data.lineas[0].slug;
+  const slugOtra = APP.data.lineas[1].slug;
+  FAVORITOS.lineas = [{ slug: slugReal }];
+  FAVORITOS.paradas = [];
+  const salida = (lineaSlug, paradaId, orden) => ({
+    lineaSlug, paradaId, codigo: lineaSlug, hacia: lineaSlug + ' ' + orden,
+    espera: { orden }
+  });
+  // Una parada con tres líneas que no se siguen saliendo antes, y la
+  // seguida saliendo la cuarta: el tope de tres por parada no puede
+  // dejarla fuera.
+  const topeParaParada = [
+    salida(slugOtra, 'p1', 1), salida(slugOtra, 'p1', 2), salida(slugOtra, 'p1', 3),
+    salida(slugReal, 'p1', 4)
+  ];
+  // Cinco salidas de otras líneas, en cinco paradas distintas (para no
+  // toparse con el tope por parada), todas antes que la seguida: el tope
+  // de cinco en total tampoco puede dejarla fuera.
+  const topeTotal = [
+    salida(slugOtra, 'p1', 1), salida(slugOtra, 'p2', 2), salida(slugOtra, 'p3', 3),
+    salida(slugOtra, 'p4', 4), salida(slugOtra, 'p5', 5), salida(slugReal, 'p6', 6)
+  ];
+  // Una línea seguida que sale más tarde (20) que otra que no se sigue (5)
+  // tiene que ir primero: el orden ya no es sólo por urgencia.
+  const favoritas = new Set([slugReal]);
+  const conUrgenciaDistinta = [
+    salida(slugOtra, 'p1', 5),
+    salida(slugReal, 'p1', 20)
+  ].sort(comparadorSalidas(favoritas)).map(s => s.lineaSlug);
+  // Y entre varias seguidas, manda la urgencia de cada una, como siempre.
+  const slugReal2 = APP.data.lineas[2].slug;
+  const favoritasVarias = new Set([slugReal, slugReal2]);
+  const variasSeguidas = [
+    salida(slugReal2, 'p1', 20),
+    salida(slugOtra, 'p1', 1),
+    salida(slugReal, 'p1', 5)
+  ].sort(comparadorSalidas(favoritasVarias)).map(s => s.lineaSlug);
+  const r = {
+    topeParaParada: resumirSalidas(topeParaParada).map(s => s.lineaSlug + '|' + s.espera.orden),
+    topeTotal: resumirSalidas(topeTotal).map(s => s.lineaSlug + '|' + s.espera.orden),
+    conUrgenciaDistinta, variasSeguidas
+  };
+  FAVORITOS.lineas = []; FAVORITOS.paradas = [];
+  return { ...r, slugReal, slugReal2, slugOtra };
+});
+console.log(JSON.stringify(resumen, null, 1));
+ok(resumen.topeParaParada.includes(resumen.slugReal + '|4'),
+  'el tope de tres por parada no tapa la línea seguida que llega la cuarta',
+  JSON.stringify(resumen.topeParaParada));
+ok(resumen.topeTotal.includes(resumen.slugReal + '|6'),
+  'ni el tope de cinco en total, aunque sea la sexta de la lista',
+  JSON.stringify(resumen.topeTotal));
+ok(resumen.conUrgenciaDistinta[0] === resumen.slugReal,
+  'entre una línea seguida que sale más tarde y una que no se sigue y sale antes, gana la seguida',
+  JSON.stringify(resumen.conUrgenciaDistinta));
+ok(JSON.stringify(resumen.variasSeguidas) === JSON.stringify([resumen.slugReal, resumen.slugReal2, resumen.slugOtra]),
+  'con varias líneas seguidas, van todas antes que las que no se siguen, y entre ellas por urgencia',
+  JSON.stringify(resumen.variasSeguidas));
+
+/* ------------------------------------------------------------------ */
+/* Regresión: en pantalla, la línea seguida resalta y va primero        */
+/* ------------------------------------------------------------------ */
+// Arroyo (177, seguida) y Torreblanca (120, favorita pero sin línea que la
+// cubra) sólo se juntan en pantalla con "ver más": ahí es donde se ve si
+// de verdad manda la línea seguida sobre la que no lo es.
+const prioridadEnPantalla = await page.evaluate(({ aqui, m177 }) => {
+  const idPor = n => Object.entries(APP.data.paradas).find(([, p]) => p.nombre.toUpperCase() === n.toUpperCase())[0];
+  UBICACION = { lat: aqui.latitude, lng: aqui.longitude };
+  FAVORITOS.lineas = [{ slug: CTAN.lineas.find(l => l.codigo === m177).slug }];
+  FAVORITOS.paradas = [
+    { id: idPor('AV ANDALUCIA (ARROYO)'), nombre: 'AV ANDALUCIA (ARROYO)' },
+    { id: idPor('POLIGONO (JUNTO A RENAULT) TORREBLANCA'), nombre: 'POLIGONO (JUNTO A RENAULT) TORREBLANCA' }
+  ];
+  VER_TODAS_SALIDAS = true;
+  renderHomeFavSalidas();
+  const filas = [...document.querySelectorAll('#homeFavSalidas .salida-fila[data-stop-id]')].map(f => {
+    const code = f.querySelector('.home-fav-code');
+    return { linea: code.textContent.trim(), esFav: code.classList.contains('es-fav') };
+  });
+  FAVORITOS.lineas = []; FAVORITOS.paradas = []; VER_TODAS_SALIDAS = false; UBICACION = null;
+  renderHomeFavSalidas();
+  return filas;
+}, { aqui: AQUI, m177: M177 });
+console.log(JSON.stringify(prioridadEnPantalla, null, 1));
+const primeraNoFav = prioridadEnPantalla.findIndex(f => !f.esFav);
+const ultimaFav = prioridadEnPantalla.map(f => f.esFav).lastIndexOf(true);
+ok(prioridadEnPantalla.some(f => f.esFav), 'hay alguna fila de línea seguida en pantalla', JSON.stringify(prioridadEnPantalla));
+ok(prioridadEnPantalla.some(f => !f.esFav), 'y alguna que no', JSON.stringify(prioridadEnPantalla));
+ok(primeraNoFav === -1 || ultimaFav < primeraNoFav,
+  'en pantalla, las líneas seguidas van todas antes que las que no se siguen',
+  JSON.stringify(prioridadEnPantalla));
+ok(prioridadEnPantalla.filter(f => f.esFav).every(f => f.linea === 'M-177'),
+  'y sólo el código de la línea seguida sale resaltado, el de las demás en gris',
+  JSON.stringify(prioridadEnPantalla));
+
 ok(errores.length === 0, 'sin errores en consola', JSON.stringify(errores));
 console.log(fallos ? `\n${fallos} comprobaciones fallidas` : '\nTodo correcto');
 await browser.close();

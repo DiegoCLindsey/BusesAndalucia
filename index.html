@@ -591,6 +591,19 @@
   }
   .detail-meta{font-size:12.5px; color:var(--text-mute); margin-top:3px;}
 
+  /* Fondo blanco fijo, pase lo que pase con el tema: el QR lo pone la
+   * librería en negro sobre blanco, y un lector no perdona un fondo
+   * oscuro alrededor cortando el margen silencioso. */
+  .qr-box{margin:10px 0;}
+  .qr-card{
+    background:#fff; color:#111; border-radius:var(--radius-sm);
+    padding:16px; display:flex; flex-direction:column; align-items:center;
+    gap:4px; text-align:center;
+  }
+  .qr-card svg{width:min(220px, 70vw); height:auto;}
+  .qr-card-titulo{margin:6px 0 0; font-weight:700; font-size:14px;}
+  .qr-card-parada{margin:0; font-size:12.5px; color:#555;}
+
   /* ---------- Modal ---------- */
   .modal-overlay{
     position:fixed; inset:0; z-index:3000;
@@ -1236,7 +1249,9 @@ const ICONOS = {
   cerca:     `<circle cx="12" cy="12" r="2.5"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4"/><path d="M5 19a10 10 0 0 1 0-14M19 5a10 10 0 0 1 0 14"/>`,
   aviso:     `<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/>`,
   lista:     `<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>`,
-  mas:       `<path d="M12 5v14M5 12h14"/>`
+  mas:       `<path d="M12 5v14M5 12h14"/>`,
+  compartir: `<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.7 7.6-4.5M8.2 13.3l7.6 4.5"/>`,
+  qr:        `<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM19 14v2M14 19h2M18.5 18.5h2.5v2.5"/>`
 };
 
 /** Color real de un token del tema. Leaflet no entiende `var(--brand)`:
@@ -3108,6 +3123,81 @@ function openLineModal(lineaSlug, defaultStopId) {
   });
 }
 
+/** El enlace directo a la ficha de una parada: lo que codifica el QR que
+ * se puede pegar físicamente junto a ella. Usa la URL donde está servida
+ * la propia app, así que funciona igual en GitHub Pages que en un
+ * servidor local para pruebas. */
+function urlDeParada(stopId) {
+  return location.origin + location.pathname + "?parada=" + encodeURIComponent(stopId);
+}
+
+const QR_LIB_URL = "https://unpkg.com/qrcode-generator@2.0.4/qrcode.js";
+let cargaLibreriaQr = null;
+
+/** La librería de QR no se trae hasta que hace falta: es un extra que
+ * casi nadie toca, y cargarla siempre penalizaría a todo el mundo de
+ * entrada. Una vez cargada se reusa: pedirla dos veces no tiene sentido. */
+function cargarLibreriaQr() {
+  if (typeof qrcode === "function") return Promise.resolve();
+  if (!cargaLibreriaQr) {
+    cargaLibreriaQr = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = QR_LIB_URL;
+      script.onload = () => resolve();
+      script.onerror = () => { cargaLibreriaQr = null; reject(new Error("no se pudo cargar la librería de QR")); };
+      document.head.appendChild(script);
+    });
+  }
+  return cargaLibreriaQr;
+}
+
+/** Comparte el enlace directo a una parada: la vía nativa del móvil si la
+ * hay (WhatsApp, Mensajes...), y si no, copiarlo al portapapeles para
+ * pegarlo donde haga falta. */
+async function compartirParada(stopId, nombreParada, boton) {
+  const url = urlDeParada(stopId);
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: "Próxima Salida — " + nombreParada, text: "Consulta tu próxima salida", url });
+      return;
+    } catch (e) {
+      if (e && e.name === "AbortError") return;   // cancelado a propósito, no es un fallo
+    }
+  }
+  const texto = boton.querySelector(".btn-chip-txt");
+  const original = texto.textContent;
+  try {
+    await navigator.clipboard.writeText(url);
+    texto.textContent = "Enlace copiado";
+  } catch (e) {
+    texto.textContent = url;   // sin portapapeles, al menos se puede leer y copiar a mano
+  }
+  setTimeout(() => { texto.textContent = original; }, 2500);
+}
+
+/** Dibuja el QR de la parada dentro de `caja`. El fondo blanco y las
+ * casillas negras van fijos en el propio SVG (los pone la librería),
+ * pase lo que pase con el tema oscuro: un QR con otros colores puede
+ * dejar de leerse bien según el lector. `typeNumber` 0 deja que la
+ * librería elija el tamaño más pequeño que quepa la URL. */
+function mostrarQrParada(caja, stopId, nombreParada) {
+  caja.hidden = false;
+  caja.innerHTML = '<p class="empty">Generando…</p>';
+  cargarLibreriaQr().then(() => {
+    const qr = qrcode(0, "M");
+    qr.addData(urlDeParada(stopId));
+    qr.make();
+    caja.innerHTML = `
+      <div class="qr-card">
+        ${qr.createSvgTag(6, 12)}
+        <p class="qr-card-titulo">Consulta tu próxima salida</p>
+        <p class="qr-card-parada">${escapeHtml(nombreParada)}</p>
+      </div>`;
+  }).catch(() => {
+    caja.innerHTML = '<p class="empty">No se ha podido generar el código QR. Comprueba la conexión.</p>';
+  });
+}
+
 /** Contenido "todas las líneas de esta parada", con horario completo
  * (no solo las 4 primeras como en el popup del mapa) y cada línea
  * pulsable para abrir su ficha completa. Pensado para paradas con
@@ -3122,6 +3212,8 @@ function buildStopScheduleModalContent(container, stopId) {
   container.innerHTML = `
     <h3 class="detail-title">${escapeHtml(p.nombre)} <button type="button" class="btn-fav" id="btnFavParadaModal" title="Guardar esta parada">${icono("estrella")}</button></h3>
     <div class="detail-meta">${municipio ? escapeHtml(municipio) : ""}</div>
+    <div class="chip-row" id="stopScheduleActions"></div>
+    <div class="qr-box" id="stopQrBox" hidden></div>
     <ul class="servicelist" id="stopScheduleList" style="margin-top:10px;"></ul>
   `;
   container.querySelector("#btnFavParadaModal").addEventListener("click", e => {
@@ -3129,17 +3221,36 @@ function buildStopScheduleModalContent(container, stopId) {
     pintarEstrella(e.currentTarget, esFavoritoParada(stopId));
     renderHomeFavSalidas();
   });
+  const acciones = container.querySelector("#stopScheduleActions");
   const notifParada = getNotificacion(stopId, null);
   const btnNotif = document.createElement("button");
   btnNotif.type = "button";
   btnNotif.className = "btn-chip";
-  btnNotif.style.margin = "8px 0 4px 0";
-  btnNotif.innerHTML = icono("campana") + (notifParada ? `Aviso ${notifParada.antelacionMin} min antes` : "Avísame antes de la salida");
+  btnNotif.innerHTML = icono("campana") + `<span class="btn-chip-txt">${notifParada ? `Aviso ${notifParada.antelacionMin} min antes` : "Avísame antes de la salida"}</span>`;
   btnNotif.addEventListener("click", () => abrirDialogoNotificacion(stopId, null, () => {
     buildStopScheduleModalContent(container, stopId);
     renderHomeFavSalidas();
   }));
-  container.insertBefore(btnNotif, container.querySelector("#stopScheduleList"));
+  acciones.appendChild(btnNotif);
+
+  const btnCompartir = document.createElement("button");
+  btnCompartir.type = "button";
+  btnCompartir.className = "btn-chip";
+  btnCompartir.innerHTML = icono("compartir") + '<span class="btn-chip-txt">Compartir esta parada</span>';
+  btnCompartir.addEventListener("click", () => compartirParada(stopId, p.nombre, btnCompartir));
+  acciones.appendChild(btnCompartir);
+
+  const qrBox = container.querySelector("#stopQrBox");
+  const btnQr = document.createElement("button");
+  btnQr.type = "button";
+  btnQr.className = "btn-chip";
+  btnQr.innerHTML = icono("qr") + '<span class="btn-chip-txt">Ver código QR</span>';
+  btnQr.addEventListener("click", () => {
+    if (!qrBox.hidden) { qrBox.hidden = true; return; }
+    mostrarQrParada(qrBox, stopId, p.nombre);
+  });
+  acciones.appendChild(btnQr);
+
   const list = container.querySelector("#stopScheduleList");
   if (!grupos.length) {
     // Hay paradas donde todos los recorridos TERMINAN: la hora que
@@ -6448,16 +6559,30 @@ function pintarFiltroMunicipio(contenedor, onCambio) {
   contenedor.appendChild(fila);
 }
 
-/** Todas las salidas que vigilas, en una sola lista y ordenadas por lo
- * que falta para cada una.
+/** Con qué orden van las salidas en Inicio: primero las de una línea
+ * seguida, y dentro de cada grupo —seguidas y no seguidas— por lo que
+ * falta para cada una. No es sólo "el que se va antes": una línea que
+ * sigues con 20 minutos por delante va por delante de una que no sigues
+ * aunque ésta salga en 4, porque es la que de verdad te importa. Sin
+ * ninguna línea favorita, se queda en orden de urgencia sin más. */
+function comparadorSalidas(favoritas) {
+  return (a, b) => {
+    const fa = favoritas.has(a.lineaSlug) ? 0 : 1;
+    const fb = favoritas.has(b.lineaSlug) ? 0 : 1;
+    return fa !== fb ? fa - fb : a.espera.orden - b.espera.orden;
+  };
+}
+
+/** Todas las salidas que vigilas, en una sola lista: primero las líneas
+ * seguidas, y luego el resto, cada grupo por lo que falta (ver
+ * `comparadorSalidas`).
  *
  * Antes iban agrupadas por parada, y eso rompía justo lo que la pantalla
  * tiene que responder: con dos paradas guardadas, un autobús que salía en
  * un minuto quedaba por debajo de otro que salía en una hora, sólo porque
  * su parada iba después. Aquí no hay jerarquía de paradas: hay una cola
- * de autobuses, y arriba está el que se va antes. Cada fila se explica
- * sola —línea, hacia dónde y desde qué parada—, así que no hacen falta
- * cabeceras.
+ * de autobuses. Cada fila se explica sola —línea, hacia dónde y desde qué
+ * parada—, así que no hacen falta cabeceras.
  *
  * Y antes de ordenar, se poda: de cada línea y sentido queda la parada
  * más cercana. Sin eso, marcar la M-177 como favorita llenaba la pantalla
@@ -6530,7 +6655,7 @@ function salidasVigiladas(incluirOtrasLineas) {
   const favoritas = lineasFavoritasValidas();
   const cuenta = new Map();
   return salidas
-    .sort((a, b) => a.espera.orden - b.espera.orden)
+    .sort(comparadorSalidas(favoritas))
     .filter(sal => {
       if (favoritas.has(sal.lineaSlug)) return true;
       const n = (cuenta.get(sal.paradaId) || 0) + 1;
@@ -6547,14 +6672,30 @@ let VER_TODAS_SALIDAS = false;
  * tiene ocho líneas y otra una, enseñar las cinco primeras por hora deja
  * la segunda parada fuera de la pantalla justo cuando es la que
  * interesa. Se limita lo que aporta cada parada, y al desplegar se ve
- * todo sin recortes. */
+ * todo sin recortes.
+ *
+ * El tope por parada y el de cinco en total son para la "morralla" —
+ * líneas que no se siguen, coladas por la parada favorita— no para las
+ * líneas que sí se siguen: si tres autobuses de líneas seguidas paran en
+ * el mismo sitio, recortar a tres por parada o a cinco en total en orden
+ * cronológico puede dejar fuera justo la que más importa por salir un
+ * poco más tarde que las demás. Las salidas de línea seguida se reservan
+ * primero, sin ese tope; lo que sobra de hueco hasta cinco lo rellenan
+ * las demás, ya sí con el tope de tres por parada. Al final se vuelve a
+ * ordenar con `comparadorSalidas`, así que en pantalla las seguidas
+ * siguen yendo antes que las demás, no mezcladas por hora. */
 function resumirSalidas(salidas) {
+  const favoritas = lineasFavoritasValidas();
+  const esPropia = sal => favoritas.has(sal.lineaSlug);
+  const propias = salidas.filter(esPropia).slice(0, SALIDAS_VISIBLES);
   const cuenta = new Map();
-  return salidas.filter(sal => {
+  const ajenas = salidas.filter(sal => !esPropia(sal)).filter(sal => {
     const n = (cuenta.get(sal.paradaId) || 0) + 1;
     cuenta.set(sal.paradaId, n);
     return n <= SALIDAS_POR_PARADA;
-  }).slice(0, SALIDAS_VISIBLES);
+  });
+  const hueco = Math.max(0, SALIDAS_VISIBLES - propias.length);
+  return [...propias, ...ajenas.slice(0, hueco)].sort(comparadorSalidas(favoritas));
 }
 
 /** La fila que cuelga de una salida inminente: el mismo autobús, el de
@@ -6629,7 +6770,7 @@ function renderHomeFavSalidas() {
 
   const filas = visibles.map(sal => `
     <div class="salida-fila" data-stop-id="${escapeHtml(sal.paradaId)}">
-      <span class="home-fav-code es-fav">${escapeHtml(sal.codigo)}</span>
+      <span class="home-fav-code${favoritas.has(sal.lineaSlug) ? " es-fav" : ""}">${escapeHtml(sal.codigo)}</span>
       <span class="salida-cuerpo">
         <span class="salida-hacia">hacia ${escapeHtml(sal.hacia)}</span>
         <span class="salida-parada">${escapeHtml(sal.paradaNombre)}${sal.dist != null ? " · " + escapeHtml(formatDistance(sal.dist)) : ""}</span>
@@ -6770,6 +6911,23 @@ function registrarServiceWorker() {
     .catch(err => console.warn("No se pudo registrar el Service Worker", err));
 }
 
+/** Si se entra desde un QR o un enlace directo a una parada
+ * (?parada=<id>, ver `urlDeParada`), abre su ficha nada más arrancar, sin
+ * que haga falta buscarla a mano. Es el caso de uso completo del QR:
+ * escanear y ver la próxima salida, no escanear y encima tener que
+ * encontrar la parada entre miles. */
+function abrirParadaDesdeUrl() {
+  const id = new URLSearchParams(location.search).get("parada");
+  if (!id) return;
+  if (!APP.data.paradas[id]) {
+    openModal(cont => {
+      cont.innerHTML = '<p class="empty">Esa parada ya no existe en los datos, o el enlace no es válido.</p>';
+    });
+    return;
+  }
+  openModalConHorarios(areaDeParada(id), cont => buildStopScheduleModalContent(cont, id));
+}
+
 async function init() {
   limpiarCachesViejas();
   migrarFavoritosViejos();
@@ -6786,6 +6944,7 @@ async function init() {
     setStatus("No se han podido cargar los horarios. Comprueba la conexión y vuelve a entrar.", true);
     return;
   }
+  abrirParadaDesdeUrl();
   // Los horarios que hacen falta desde el primer segundo: los del área que
   // se estaba usando y los de las áreas donde tienes algo guardado. El
   // resto llega cuando se abre una parada o una línea de por allí.

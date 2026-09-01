@@ -75,8 +75,8 @@ como aplicación en el móvil.
 | `data/catalogo.json` | Las paradas, líneas y municipios de toda Andalucía (460 KB) |
 | `data/{1..9}/horarios.json` | Los horarios de un área: bloques, calendario, trazados y grafo a pie |
 | `fuentes/paradas_*.json` | Respuesta de `/paradas` de la API, para regenerar sin red |
-| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas, directo_pie_bici, mejor_opcion, puntos_de_ruta, bici_entre_paradas) |
-| `package.json` | `npm test` lanza las once suites |
+| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas, directo_pie_bici, mejor_opcion, puntos_de_ruta, bici_entre_paradas, qr_parada) |
+| `package.json` | `npm test` lanza las doce suites |
 | `sw.js` | Service Worker: caché offline y notificaciones |
 | `manifest.json`, `icon.svg` | Instalación como PWA |
 | `build_from_gtfs.py` | Genera todo `data/` a partir del GTFS oficial |
@@ -103,8 +103,8 @@ npm test
 ```
 
 `CHROMIUM_PATH` apunta a un Chromium ya instalado si no se quiere descargar
-el del paquete, y `LEAFLET_DIR` sirve Leaflet desde disco cuando no hay
-salida a internet.
+el del paquete, y `LEAFLET_DIR` / `QR_LIB_DIR` sirven Leaflet y la
+librería del QR desde disco cuando no hay salida a internet.
 
 ## De dónde salen los datos
 
@@ -247,17 +247,27 @@ no pasan por aquí.
   parada, y eso rompía justo lo que la pantalla tiene que responder: con
   dos paradas guardadas, un autobús que salía en un minuto quedaba por
   debajo de otro que salía en una hora sólo porque su parada iba después.
-  Ahora es una cola única ordenada por tiempo, cada fila se explica sola y
-  el número grande es el que se usa para decidir ("11 min"), no el que hay
-  que restar mentalmente ("15:03"). El resumen limita a dos salidas por
-  parada para que ninguna se quede fuera de pantalla, y se despliega
-  entero de un toque. Cuando a una salida le quedan diez minutos o menos,
-  debajo aparece la siguiente de esa misma línea y sentido —o el aviso de
-  que no hay otra hoy—: a esas alturas la pregunta ya no es "¿cuándo
-  pasa?" sino "¿corro o espero al otro?", y la respuesta cambia lo que
-  haces. Esa fila cuelga de la suya en vez de ir en su sitio por hora,
-  porque lo que dice sólo se entiende junto a la de arriba: cinco filas
-  más abajo, "16:53" ya no es "el siguiente de este". Ya no hay dos
+  Ahora es una cola única, cada fila se explica sola y el número grande es
+  el que se usa para decidir ("11 min"), no el que hay que restar
+  mentalmente ("15:03"). El resumen limita a tres salidas por parada para
+  que ninguna se quede fuera de pantalla, y se despliega entero de un
+  toque. Cuando a una salida le quedan diez minutos o menos, debajo
+  aparece la siguiente de esa misma línea y sentido —o el aviso de que no
+  hay otra hoy—: a esas alturas la pregunta ya no es "¿cuándo pasa?" sino
+  "¿corro o espero al otro?", y la respuesta cambia lo que haces. Esa fila
+  cuelga de la suya en vez de ir en su sitio por hora, porque lo que dice
+  sólo se entiende junto a la de arriba: cinco filas más abajo, "16:53" ya
+  no es "el siguiente de este". La cola no va sólo por tiempo: primero las
+  líneas que se siguen —con su código resaltado en verde, en gris el de
+  las demás— y dentro de cada grupo por urgencia, así que una línea
+  seguida con 20 minutos por delante sale antes que una que no se sigue
+  aunque ésta salga en 4. Los topes del resumen —tres por parada, cinco en
+  total— seguían el orden cronológico a ciegas, así que en una parada por
+  la que pasan varias líneas seguidas, la que salía un poco más tarde que
+  las demás podía quedar fuera del resumen, o directamente no aparecer.
+  Ahora esas salidas se reservan primero y sin el tope por parada; lo que
+  sobra de hueco hasta cinco lo llena el resto, que sigue teniendo su tope
+  de siempre. Ya no hay dos
   listados —"tus próximas salidas" y
   "paradas cerca de ti"— contando lo mismo con distinta letra: es uno.
   Inicio ya no lleva mapa: ocupaba media pantalla para
@@ -482,6 +492,22 @@ no pasan por aquí.
   segundo plano, pero si cierras la app del todo no puede sonar. El
   diálogo lo dice antes de que actives nada, para no dejar a nadie
   esperando un aviso que no va a llegar.
+
+- **Un QR por parada, para pegarlo donde haga falta.** La idea: escanear
+  el código pegado en la marquesina de la parada de casa y ver directamente
+  su próxima salida, sin buscarla a mano. Cada parada tiene su propio
+  enlace (`?parada=<id>`, `urlDeParada()`); al entrar por ahí, la app abre
+  su ficha sola nada más arrancar (`abrirParadaDesdeUrl()`), y si el id ya
+  no existe en los datos avisa con claridad en vez de dejar un modal en
+  blanco. Dentro de la ficha, "Ver código QR" dibuja ese enlace como QR de
+  verdad, listo para una captura o para imprimir, y "Compartir esta
+  parada" lo manda por la vía nativa del móvil (o lo copia al
+  portapapeles si no hay `navigator.share`). El QR va siempre en negro
+  sobre blanco fijo, pase lo que pase con el tema oscuro: un fondo que
+  cambia de color es justo lo que un lector agradece menos. La librería
+  que dibuja el QR (de terceros, `qrcode-generator`) se trae de un CDN
+  sólo cuando se pulsa el botón, igual que Leaflet — un extra que casi
+  nadie toca no debería pesarle a todo el mundo desde el arranque.
 
 ## Licencia
 

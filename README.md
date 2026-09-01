@@ -257,7 +257,14 @@ no pasan por aquí.
   pasa?" sino "¿corro o espero al otro?", y la respuesta cambia lo que
   haces. Esa fila cuelga de la suya en vez de ir en su sitio por hora,
   porque lo que dice sólo se entiende junto a la de arriba: cinco filas
-  más abajo, "16:53" ya no es "el siguiente de este". Ya no hay dos
+  más abajo, "16:53" ya no es "el siguiente de este". Esos topes —tres
+  por parada, cinco en total— recortaban en puro orden cronológico, sin
+  mirar si lo que quitaban era justo una línea que se sigue: en una
+  parada por la que pasan varias líneas seguidas, la que salía un poco
+  más tarde que las demás podía quedar fuera del resumen, o directamente
+  no aparecer. Ahora las salidas de una línea seguida se reservan primero
+  y sin ese tope por parada; lo que sobra de hueco hasta cinco lo llena
+  el resto, que sigue teniendo su tope de siempre. Ya no hay dos
   listados —"tus próximas salidas" y
   "paradas cerca de ti"— contando lo mismo con distinta letra: es uno.
   Inicio ya no lleva mapa: ocupaba media pantalla para

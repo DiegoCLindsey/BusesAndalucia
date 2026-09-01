@@ -312,6 +312,53 @@ ok(paradaLejosVerMas.some(f => /^PLAZA DE ARMAS$/i.test(f.parada)),
   'pero sí aparece al pulsar "ver más"',
   JSON.stringify(paradaLejosVerMas.map(f => f.parada)));
 
+/* ------------------------------------------------------------------ */
+/* Regresión: resumirSalidas no puede tapar una línea seguida            */
+/* ------------------------------------------------------------------ */
+// El caso real que lo destapó: en Chapina convergen varias líneas, y con
+// varias seguidas el resumen (tope de 3 por parada, 5 en total) recortaba
+// en puro orden cronológico sin mirar si lo que quitaba era justo la
+// línea que se sigue. Se construyen salidas de mentira —con el slug de
+// una línea real, que es lo único que resumirSalidas necesita mirar— para
+// dejarlo fijo sin depender de qué hora salga cada autobús hoy.
+const resumen = await page.evaluate(() => {
+  const slugReal = APP.data.lineas[0].slug;
+  const slugOtra = APP.data.lineas[1].slug;
+  FAVORITOS.lineas = [{ slug: slugReal }];
+  FAVORITOS.paradas = [];
+  const salida = (lineaSlug, paradaId, orden) => ({
+    lineaSlug, paradaId, codigo: lineaSlug, hacia: lineaSlug + ' ' + orden,
+    espera: { orden }
+  });
+  // Una parada con tres líneas que no se siguen saliendo antes, y la
+  // seguida saliendo la cuarta: el tope de tres por parada no puede
+  // dejarla fuera.
+  const topeParaParada = [
+    salida(slugOtra, 'p1', 1), salida(slugOtra, 'p1', 2), salida(slugOtra, 'p1', 3),
+    salida(slugReal, 'p1', 4)
+  ];
+  // Cinco salidas de otras líneas, en cinco paradas distintas (para no
+  // toparse con el tope por parada), todas antes que la seguida: el tope
+  // de cinco en total tampoco puede dejarla fuera.
+  const topeTotal = [
+    salida(slugOtra, 'p1', 1), salida(slugOtra, 'p2', 2), salida(slugOtra, 'p3', 3),
+    salida(slugOtra, 'p4', 4), salida(slugOtra, 'p5', 5), salida(slugReal, 'p6', 6)
+  ];
+  const r = {
+    topeParaParada: resumirSalidas(topeParaParada).map(s => s.lineaSlug + '|' + s.espera.orden),
+    topeTotal: resumirSalidas(topeTotal).map(s => s.lineaSlug + '|' + s.espera.orden)
+  };
+  FAVORITOS.lineas = []; FAVORITOS.paradas = [];
+  return { ...r, slugReal };
+});
+console.log(JSON.stringify(resumen, null, 1));
+ok(resumen.topeParaParada.includes(resumen.slugReal + '|4'),
+  'el tope de tres por parada no tapa la línea seguida que llega la cuarta',
+  JSON.stringify(resumen.topeParaParada));
+ok(resumen.topeTotal.includes(resumen.slugReal + '|6'),
+  'ni el tope de cinco en total, aunque sea la sexta de la lista',
+  JSON.stringify(resumen.topeTotal));
+
 ok(errores.length === 0, 'sin errores en consola', JSON.stringify(errores));
 console.log(fallos ? `\n${fallos} comprobaciones fallidas` : '\nTodo correcto');
 await browser.close();

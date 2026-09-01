@@ -6547,14 +6547,28 @@ let VER_TODAS_SALIDAS = false;
  * tiene ocho líneas y otra una, enseñar las cinco primeras por hora deja
  * la segunda parada fuera de la pantalla justo cuando es la que
  * interesa. Se limita lo que aporta cada parada, y al desplegar se ve
- * todo sin recortes. */
+ * todo sin recortes.
+ *
+ * El tope por parada y el de cinco en total son para la "morralla" —
+ * líneas que no se siguen, coladas por la parada favorita— no para las
+ * líneas que sí se siguen: si tres autobuses de líneas seguidas paran en
+ * el mismo sitio, recortar a tres por parada o a cinco en total en orden
+ * cronológico puede dejar fuera justo la que más importa por salir un
+ * poco más tarde que las demás. Las salidas de línea seguida se reservan
+ * primero, sin ese tope; lo que sobra de hueco hasta cinco lo rellenan
+ * las demás, ya sí con el tope de tres por parada. */
 function resumirSalidas(salidas) {
+  const favoritas = lineasFavoritasValidas();
+  const esPropia = sal => favoritas.has(sal.lineaSlug);
+  const propias = salidas.filter(esPropia).slice(0, SALIDAS_VISIBLES);
   const cuenta = new Map();
-  return salidas.filter(sal => {
+  const ajenas = salidas.filter(sal => !esPropia(sal)).filter(sal => {
     const n = (cuenta.get(sal.paradaId) || 0) + 1;
     cuenta.set(sal.paradaId, n);
     return n <= SALIDAS_POR_PARADA;
-  }).slice(0, SALIDAS_VISIBLES);
+  });
+  const hueco = Math.max(0, SALIDAS_VISIBLES - propias.length);
+  return [...propias, ...ajenas.slice(0, hueco)].sort((a, b) => a.espera.orden - b.espera.orden);
 }
 
 /** La fila que cuelga de una salida inminente: el mismo autobús, el de

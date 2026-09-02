@@ -934,18 +934,21 @@
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
 
-  /* Aviso de salida inminente */
+  /* Notificación de éxito para alertas */
   .aviso-cuerpo{
-    position:fixed; left:50%; transform:translateX(-50%);
-    bottom:calc(74px + env(safe-area-inset-bottom, 0px)); z-index:2500;
-    width:min(26rem, calc(100vw - 24px));
-    background:var(--card); border:1px solid var(--hairline);
-    border-radius:var(--radius); padding:15px;
-    box-shadow:0 18px 46px -18px rgba(0,0,0,.5);
-    animation:subirAviso .26s cubic-bezier(.2,.9,.3,1);
+    position:fixed; top:12px; right:12px; z-index:2500;
+    background:var(--brand); color:#fff; border:none;
+    border-radius:8px; padding:12px 16px;
+    box-shadow:0 8px 24px rgba(0,0,0,.2);
+    animation:popNotif .3s cubic-bezier(.34,1.56,.64,1),
+              fadeOutNotif .3s cubic-bezier(.34,1.56,.64,1) 2.7s forwards;
+    display:flex; align-items:center; gap:8px;
+    font-size:14px; font-weight:600;
+    max-width:calc(100vw - 24px);
   }
-  @keyframes subirAviso{from{transform:translate(-50%,16px); opacity:0;} to{transform:translate(-50%,0); opacity:1;}}
-  .aviso-titulo{font-size:15px; font-weight:700; letter-spacing:-.015em;}
+  @keyframes popNotif{from{transform:scale(.8); opacity:0;} to{transform:scale(1); opacity:1;}}
+  @keyframes fadeOutNotif{to{transform:scale(.9); opacity:0;}}
+  .aviso-titulo{font-size:14px; font-weight:700; color:#fff; letter-spacing:-.015em; display:flex; align-items:center; gap:6px;}
   .aviso-salida{font-size:13px; color:var(--text-soft); margin-top:3px;}
   .aviso-nota{font-size:11.5px; color:var(--text-mute); margin-top:6px;}
   .aviso-acciones{display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;}
@@ -1002,25 +1005,42 @@
     font-size:14px; color:var(--text-mute); font-weight:600; margin-bottom:8px;
   }
 
-  /* Horarios en formato horizontal */
-  .horario-horizontal{
-    display:flex; flex-wrap:wrap; gap:8px; padding:8px 0; margin:8px 0;
-    align-items:center;
+  /* Horarios en formato de matriz */
+  .horario-tipo-titulo{
+    font-size:12px; font-weight:700; color:var(--text); margin-top:16px; margin-bottom:8px;
+    padding:8px 0; border-bottom:2px solid var(--brand);
   }
-  .time-slot{
-    display:inline-flex; align-items:baseline; gap:1px;
-    background:var(--surface); border:1px solid var(--hairline);
-    padding:6px 10px; border-radius:8px; cursor:pointer;
-    transition:all .2s ease; font-size:14px; font-weight:600;
+  .horario-matriz{
+    display:flex; flex-direction:column; gap:0; margin-bottom:16px;
+    border:1px solid var(--hairline); border-radius:8px; overflow:hidden;
+    background:var(--surface);
   }
-  .time-slot:hover{
-    border-color:var(--brand); background:var(--surface-strong);
+  .horario-fila{
+    display:flex; gap:0; flex:1;
   }
-  .time-slot-hour{
-    color:var(--brand); font-weight:700;
+  .horario-dia-tag{
+    flex:1; padding:8px 4px; text-align:center; font-size:11px;
+    font-weight:700; background:var(--brand); color:#fff;
+    border-right:1px solid var(--hairline);
   }
-  .time-slot-min{
-    color:var(--text-soft); font-weight:600;
+  .horario-dia-tag:last-child{
+    border-right:none;
+  }
+  .horario-dia-col{
+    flex:1; display:flex; flex-direction:column; gap:4px; padding:8px 4px;
+    border-right:1px solid var(--hairline); align-items:center;
+  }
+  .horario-dia-col:last-child{
+    border-right:none;
+  }
+  .horario-tiempo{
+    padding:4px 6px; font-size:11px; font-weight:600;
+    background:var(--surface-strong); border:1px solid var(--hairline);
+    border-radius:4px; cursor:pointer; color:var(--brand);
+    transition:all .2s ease; min-width:36px;
+  }
+  .horario-tiempo:hover{
+    background:var(--brand); color:#fff; border-color:var(--brand);
   }
 
   /* Modal de alertas */
@@ -3292,57 +3312,116 @@ function renderStopsCircularView(container, paradasValidas, linea, onStopClick) 
   container.appendChild(view);
 }
 
-/** Renderiza horarios en formato horizontal */
+/** Renderiza horarios en formato de matriz: días de semana como columnas */
 function renderHorarioHorizontal(container, paradaId, lineaSlug) {
   container.innerHTML = "";
   const hoy = new Date();
 
+  // Agrupar horarios por tipo de día (weekday, saturday, sunday)
+  const horariosPorTipo = { weekday: {}, saturday: {}, sunday: {} };
+  const fechasVistas = new Set();
+
   for (let i = 0; i < DIAS_HORARIO; i++) {
     const fecha = new Date(hoy.getTime() + i * 86400000);
-    const franjas = horarioDelDia(paradaId, fecha, lineaSlug);
+    const dayOfWeek = fecha.getDay(); // 0=domingo, 1=lunes..., 6=sábado
+    const dayKey = fecha.toISOString().split('T')[0];
+    const diaDelMes = fecha.getDate();
+    const nombreDia = nombreDeDia(fecha).split(',')[0]; // Solo el nombre sin la fecha
 
+    if (fechasVistas.has(dayKey)) continue;
+    fechasVistas.add(dayKey);
+
+    const franjas = horarioDelDia(paradaId, fecha, lineaSlug);
     if (!franjas.length) continue;
 
-    const details = document.createElement("details");
-    details.open = i === 0;
+    // Determinar tipo de día
+    let tipo = "weekday";
+    if (dayOfWeek === 0) tipo = "sunday";
+    else if (dayOfWeek === 6) tipo = "saturday";
 
-    const summary = document.createElement("summary");
-    summary.textContent = i === 0 ? "Hoy" : nombreDeDia(fecha);
-    details.appendChild(summary);
-
-    const horarioDiv = document.createElement("div");
-    horarioDiv.className = "horario-horizontal";
-
-    franjas.forEach(({ hora, minutos }) => {
+    // Almacenar horarios por día del mes
+    const horariosDel = franjas.reduce((acc, {hora, minutos}) => {
       minutos.forEach(minuto => {
-        const slot = document.createElement("button");
-        slot.type = "button";
-        slot.className = "time-slot";
-
-        const hourSpan = document.createElement("span");
-        hourSpan.className = "time-slot-hour";
-        hourSpan.textContent = String(hora).padStart(2, "0");
-
-        const minSpan = document.createElement("span");
-        minSpan.className = "time-slot-min";
-        minSpan.textContent = String(minuto).padStart(2, "0");
-
-        slot.appendChild(hourSpan);
-        slot.appendChild(minSpan);
-
-        slot.addEventListener("click", () => {
-          abrirModalAlerta(paradaId, lineaSlug, hora, minuto);
-        });
-
-        horarioDiv.appendChild(slot);
+        const timeStr = `${String(hora).padStart(2, "0")}${String(minuto).padStart(2, "0")}`;
+        acc.push({ hora, minuto, timeStr });
       });
-    });
+      return acc;
+    }, []);
 
-    details.appendChild(horarioDiv);
-    container.appendChild(details);
+    horariosPorTipo[tipo][diaDelMes] = {
+      nombreDia,
+      horarios: horariosDel,
+      dayOfWeek
+    };
   }
 
-  if (!container.children.length) {
+  // Renderizar cada tipo de día
+  const tipos = [
+    { key: "weekday", label: "LUNES A VIERNES" },
+    { key: "saturday", label: "SÁBADOS" },
+    { key: "sunday", label: "DOMINGOS" }
+  ];
+
+  let tieneAlgun = false;
+
+  tipos.forEach(({key, label}) => {
+    const diasDelTipo = horariosPorTipo[key];
+    if (!Object.keys(diasDelTipo).length) return;
+
+    tieneAlgun = true;
+
+    // Título del tipo de día
+    const titulo = document.createElement("div");
+    titulo.className = "horario-tipo-titulo";
+    titulo.textContent = label;
+    container.appendChild(titulo);
+
+    // Contenedor de la matriz
+    const matrizDiv = document.createElement("div");
+    matrizDiv.className = "horario-matriz";
+
+    // Fila de números de día
+    const diasRow = document.createElement("div");
+    diasRow.className = "horario-fila";
+
+    Object.keys(diasDelTipo).sort((a, b) => a - b).forEach(diaDelMes => {
+      const dayObj = diasDelTipo[diaDelMes];
+      const dayTag = document.createElement("div");
+      dayTag.className = "horario-dia-tag";
+      dayTag.textContent = String(diaDelMes).padStart(2, "0");
+      diasRow.appendChild(dayTag);
+    });
+
+    matrizDiv.appendChild(diasRow);
+
+    // Fila de horarios
+    const horariosRow = document.createElement("div");
+    horariosRow.className = "horario-fila";
+
+    Object.keys(diasDelTipo).sort((a, b) => a - b).forEach(diaDelMes => {
+      const dayObj = diasDelTipo[diaDelMes];
+      const dayCol = document.createElement("div");
+      dayCol.className = "horario-dia-col";
+
+      dayObj.horarios.forEach(({hora, minuto}) => {
+        const timeBtn = document.createElement("button");
+        timeBtn.type = "button";
+        timeBtn.className = "horario-tiempo";
+        timeBtn.textContent = `${String(hora).padStart(2, "0")}${String(minuto).padStart(2, "0")}`;
+        timeBtn.addEventListener("click", () => {
+          abrirModalAlerta(paradaId, lineaSlug, hora, minuto);
+        });
+        dayCol.appendChild(timeBtn);
+      });
+
+      horariosRow.appendChild(dayCol);
+    });
+
+    matrizDiv.appendChild(horariosRow);
+    container.appendChild(matrizDiv);
+  });
+
+  if (!tieneAlgun) {
     container.innerHTML = '<p class="empty">No hay horario disponible para esta parada.</p>';
   }
 }
@@ -7014,38 +7093,11 @@ function filaAviso(aviso) {
 async function renderAvisos() {
   const box = document.getElementById("listaAvisos");
   if (!box) return;
-  if (!AVISOS.lista.length && !AVISOS.fecha) {
-    box.innerHTML = '<div class="card"><p class="empty">Consultando avisos…</p></div>';
-  }
-  await cargarAvisos(false);
-  const { mios, resto } = avisosOrdenados();
-  actualizarChapaAvisos(mios.length);
 
   let html = "";
 
   // Mostrar "Mis Alertas" (alertas horarias creadas por el usuario)
   html += renderMisAvisosHtml();
-
-  if (!mios.length && !resto.length) {
-    html += `<div class="card"><h2 class="home-fav-title">Avisos</h2>
-      <p class="empty">${AVISOS.fecha
-        ? "No hay ningún aviso publicado ahora mismo."
-        : "No se han podido consultar los avisos. Comprueba la conexión."}</p></div>`;
-    box.innerHTML = html;
-    return;
-  }
-
-  html += `
-    ${mios.length ? `<div class="card">
-      <h2 class="home-fav-title">Te afectan</h2>
-      <div class="detail-meta" style="margin-bottom:6px;">Avisos de líneas o paradas que sigues.</div>
-      ${mios.map(filaAviso).join("")}
-    </div>` : ""}
-    <div class="card">
-      <h2 class="home-fav-title">${mios.length ? "Los demás avisos" : "Avisos"}</h2>
-      ${resto.length ? resto.map(filaAviso).join("")
-        : '<p class="empty">No hay más avisos.</p>'}
-    </div>`;
 
   box.innerHTML = html;
 }

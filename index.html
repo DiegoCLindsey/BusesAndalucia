@@ -957,17 +957,24 @@
 
   /* Paradas como círculos conectados */
   .stops-circular-view{
-    position:relative; padding:20px 0;
+    position:relative; padding:20px 0; max-width:100%;
   }
   .stops-list-circular{
-    display:flex; flex-direction:column; gap:0; position:relative;
+    display:flex; flex-direction:column; gap:0; position:relative; width:100%;
   }
+  /* Cada parada: fila de cabecera (círculo + nombre) y, debajo, a todo lo
+     ancho, el cuerpo con horarios. Antes el cuerpo era un tercer elemento
+     flex en la misma fila que el nombre, así que en pantallas estrechas el
+     nombre se comprimía a una columna diminuta y el horario quedaba
+     encajonado a su derecha. */
   .stop-item-circular{
-    display:flex; align-items:flex-start; gap:16px; margin-bottom:2px;
+    position:relative; margin-bottom:2px; width:100%; box-sizing:border-box;
+  }
+  .stop-row{
+    display:flex; align-items:flex-start; gap:16px; position:relative; z-index:1;
   }
   .stop-circle-wrapper{
-    flex:none; width:32px; height:100%; display:flex; flex-direction:column; align-items:center;
-    position:relative;
+    flex:none; width:32px; display:flex; justify-content:center;
   }
   .stop-circle{
     width:32px; height:32px; border-radius:50%; border:2px solid var(--brand);
@@ -987,9 +994,11 @@
   .stop-circle.favorite.expanded{
     background:var(--amber);
   }
+  /* La línea conectora corre por detrás de toda la ficha —incluido el
+     cuerpo cuando está abierto— para que no se corte al expandir. */
   .stop-connector{
-    flex:1; width:2px; background:var(--hairline); margin:2px 0;
-    position:absolute; top:32px; bottom:0;
+    width:2px; background:var(--hairline);
+    position:absolute; left:15px; top:32px; bottom:-2px; z-index:0;
   }
   .stop-item-circular.last .stop-connector{display:none;}
   .stop-info{
@@ -997,47 +1006,70 @@
   }
   .stop-name-circular{
     font-size:14px; font-weight:700; color:var(--text); margin-bottom:2px;
+    overflow-wrap:anywhere;
   }
   .stop-municipality{
     font-size:12px; color:var(--text-mute);
   }
-  .stop-collapsed-indicator{
-    font-size:14px; color:var(--text-mute); font-weight:600; margin-bottom:8px;
+  .stop-detail-body{
+    margin-left:48px; padding-bottom:12px; box-sizing:border-box;
+    max-width:calc(100% - 48px); overflow-x:hidden;
   }
+  @media (max-width:420px){
+    .stop-detail-body{ margin-left:0; max-width:100%; }
+  }
+  /* El grupo de paradas plegadas reutiliza la misma fila/círculo/conector
+     que una parada normal, para que la línea vertical no se corte al
+     llegar a un "· · ·". El círculo lleva puntos en vez de un número, y
+     el propio texto es el botón que despliega las paradas ocultas. */
+  .stop-circle-dots{
+    border-style:dashed; cursor:default; font-size:16px; letter-spacing:-1px;
+  }
+  .stop-circle-dots.expanded{
+    background:var(--surface-strong); color:var(--brand);
+  }
+  .stop-collapsed-toggle{
+    background:none; border:none; padding:6px 0; margin-top:2px;
+    font-size:13px; font-weight:700; color:var(--text-mute); cursor:pointer;
+    text-align:left;
+  }
+  .stop-collapsed-toggle:hover{ color:var(--brand); }
+  .stop-collapsed-detalle{ padding-top:2px; }
 
-  /* Horarios en formato de matriz */
+  /* Horarios en formato de matriz: una tabla por tipo de día —de lunes a
+     viernes, sábados, domingos y festivos—, con las horas como cabecera y
+     cada salida de esa hora en su fila. Como la de los horarios oficiales
+     en papel/PDF de los operadores. */
   .horario-tipo-titulo{
     font-size:12px; font-weight:700; color:var(--text); margin-top:16px; margin-bottom:8px;
-    padding:8px 0; border-bottom:2px solid var(--brand);
+    padding:8px 0; border-bottom:2px solid var(--brand); letter-spacing:.02em;
   }
-  .horario-matriz{
-    display:flex; flex-direction:column; gap:0; margin-bottom:16px;
-    border:1px solid var(--hairline); border-radius:8px; overflow:hidden;
-    background:var(--surface);
+  .horario-matriz-scroll{
+    overflow-x:auto; margin-bottom:16px; border:1px solid var(--hairline);
+    border-radius:8px; background:var(--surface); max-width:100%;
+    -webkit-overflow-scrolling:touch;
   }
-  .horario-fila{
-    display:flex; gap:0; flex:1;
+  .horario-matriz-tabla{
+    border-collapse:collapse; width:100%;
   }
-  .horario-dia-tag{
-    flex:1; padding:8px 4px; text-align:center; font-size:11px;
-    font-weight:700; background:var(--brand); color:#fff;
-    border-right:1px solid var(--hairline);
+  .horario-matriz-tabla th{
+    padding:6px 4px; text-align:center; font-size:11px; font-weight:700;
+    background:var(--brand); color:#fff; white-space:nowrap;
+    border-right:1px solid rgba(255,255,255,.25);
+    position:sticky; top:0;
   }
-  .horario-dia-tag:last-child{
-    border-right:none;
+  .horario-matriz-tabla th:last-child{ border-right:none; }
+  .horario-matriz-tabla td{
+    padding:4px; text-align:center; border-right:1px solid var(--hairline);
+    border-top:1px solid var(--hairline); vertical-align:middle;
   }
-  .horario-dia-col{
-    flex:1; display:flex; flex-direction:column; gap:4px; padding:8px 4px;
-    border-right:1px solid var(--hairline); align-items:center;
-  }
-  .horario-dia-col:last-child{
-    border-right:none;
-  }
+  .horario-matriz-tabla td:last-child{ border-right:none; }
+  .horario-matriz-tabla tr:first-child td{ border-top:none; }
   .horario-tiempo{
     padding:4px 6px; font-size:11px; font-weight:600;
     background:var(--surface-strong); border:1px solid var(--hairline);
     border-radius:4px; cursor:pointer; color:var(--brand);
-    transition:all .2s ease; min-width:36px;
+    transition:all .2s ease; min-width:34px; white-space:nowrap;
   }
   .horario-tiempo:hover{
     background:var(--brand); color:#fff; border-color:var(--brand);
@@ -2008,6 +2040,16 @@ function construirGrafo() {
 function municipioDeParada(paradaId) {
   const n = GRAFO.paradas.get(paradaId);
   return n ? n.municipio : null;
+}
+
+/** El municipio del usuario, si lo sabemos: el de la parada más cercana a
+ * la ubicación que haya compartido en Inicio. Sin ubicación, no se
+ * inventa nada. Se usa para priorizar, dentro de una línea larga, qué
+ * parada se abre sola al entrar. */
+function municipioUsuarioActual() {
+  if (!UBICACION) return null;
+  const near = nearestStop(APP.data, UBICACION.lat, UBICACION.lng);
+  return near ? municipioDeParada(near.id) : null;
 }
 
 function paradasDeMunicipio(nombre) {
@@ -3312,113 +3354,85 @@ function renderStopsCircularView(container, paradasValidas, linea, onStopClick) 
   container.appendChild(view);
 }
 
-/** Renderiza horarios en formato de matriz: días de semana como columnas */
+/** Renderiza los horarios de una parada como en los horarios oficiales en
+ * papel: una tabla por tipo de día —de lunes a viernes, sábados, domingos
+ * y festivos—, con las horas del día como cabecera de columna y, debajo de
+ * cada una, sus salidas (una por fila). Nada de repetir la misma tabla
+ * fecha a fecha: es el patrón semanal, no un calendario. Para cada tipo se
+ * usa la primera fecha próxima que le corresponde —hoy mismo si toca— como
+ * muestra de qué circula esos días. */
 function renderHorarioHorizontal(container, paradaId, lineaSlug) {
   container.innerHTML = "";
   const hoy = new Date();
 
-  // Agrupar horarios por tipo de día (weekday, saturday, sunday)
-  const horariosPorTipo = { weekday: {}, saturday: {}, sunday: {} };
-  const fechasVistas = new Set();
-
-  for (let i = 0; i < DIAS_HORARIO; i++) {
-    const fecha = new Date(hoy.getTime() + i * 86400000);
-    const dayOfWeek = fecha.getDay(); // 0=domingo, 1=lunes..., 6=sábado
-    const dayKey = fecha.toISOString().split('T')[0];
-    const diaDelMes = fecha.getDate();
-    const nombreDia = nombreDeDia(fecha).split(',')[0]; // Solo el nombre sin la fecha
-
-    if (fechasVistas.has(dayKey)) continue;
-    fechasVistas.add(dayKey);
-
-    const franjas = horarioDelDia(paradaId, fecha, lineaSlug);
-    if (!franjas.length) continue;
-
-    // Determinar tipo de día
-    let tipo = "weekday";
-    if (dayOfWeek === 0) tipo = "sunday";
-    else if (dayOfWeek === 6) tipo = "saturday";
-
-    // Almacenar horarios por día del mes
-    const horariosDel = franjas.reduce((acc, {hora, minutos}) => {
-      minutos.forEach(minuto => {
-        const timeStr = `${String(hora).padStart(2, "0")}${String(minuto).padStart(2, "0")}`;
-        acc.push({ hora, minuto, timeStr });
-      });
-      return acc;
-    }, []);
-
-    horariosPorTipo[tipo][diaDelMes] = {
-      nombreDia,
-      horarios: horariosDel,
-      dayOfWeek
-    };
-  }
-
-  // Renderizar cada tipo de día
   const tipos = [
-    { key: "weekday", label: "LUNES A VIERNES" },
-    { key: "saturday", label: "SÁBADOS" },
-    { key: "sunday", label: "DOMINGOS" }
+    { label: "De lunes a viernes", test: d => d >= 1 && d <= 5 },
+    { label: "Sábados", test: d => d === 6 },
+    { label: "Domingos y festivos", test: d => d === 0 }
   ];
 
   let tieneAlgun = false;
 
-  tipos.forEach(({key, label}) => {
-    const diasDelTipo = horariosPorTipo[key];
-    if (!Object.keys(diasDelTipo).length) return;
+  tipos.forEach(({ label, test }) => {
+    let fechaMuestra = null;
+    for (let i = 0; i < 7; i++) {
+      const fecha = new Date(hoy.getTime() + i * 86400000);
+      if (test(fecha.getDay())) { fechaMuestra = fecha; break; }
+    }
+    if (!fechaMuestra) return;
+
+    const franjas = horarioDelDia(paradaId, fechaMuestra, lineaSlug);
+    if (!franjas.length) return;
 
     tieneAlgun = true;
 
-    // Título del tipo de día
     const titulo = document.createElement("div");
     titulo.className = "horario-tipo-titulo";
     titulo.textContent = label;
     container.appendChild(titulo);
 
-    // Contenedor de la matriz
-    const matrizDiv = document.createElement("div");
-    matrizDiv.className = "horario-matriz";
+    const horas = franjas.map(f => f.hora).sort((a, b) => a - b);
+    const porHora = new Map(franjas.map(f => [f.hora, f.minutos.slice().sort((a, b) => a - b)]));
+    const maxFilas = Math.max(...franjas.map(f => f.minutos.length));
 
-    // Fila de números de día
-    const diasRow = document.createElement("div");
-    diasRow.className = "horario-fila";
+    const scrollWrap = document.createElement("div");
+    scrollWrap.className = "horario-matriz-scroll";
 
-    Object.keys(diasDelTipo).sort((a, b) => a - b).forEach(diaDelMes => {
-      const dayObj = diasDelTipo[diaDelMes];
-      const dayTag = document.createElement("div");
-      dayTag.className = "horario-dia-tag";
-      dayTag.textContent = String(diaDelMes).padStart(2, "0");
-      diasRow.appendChild(dayTag);
+    const table = document.createElement("table");
+    table.className = "horario-matriz-tabla";
+
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    horas.forEach(hora => {
+      const th = document.createElement("th");
+      th.textContent = String(hora).padStart(2, "0");
+      headRow.appendChild(th);
     });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
 
-    matrizDiv.appendChild(diasRow);
-
-    // Fila de horarios
-    const horariosRow = document.createElement("div");
-    horariosRow.className = "horario-fila";
-
-    Object.keys(diasDelTipo).sort((a, b) => a - b).forEach(diaDelMes => {
-      const dayObj = diasDelTipo[diaDelMes];
-      const dayCol = document.createElement("div");
-      dayCol.className = "horario-dia-col";
-
-      dayObj.horarios.forEach(({hora, minuto}) => {
-        const timeBtn = document.createElement("button");
-        timeBtn.type = "button";
-        timeBtn.className = "horario-tiempo";
-        timeBtn.textContent = `${String(hora).padStart(2, "0")}${String(minuto).padStart(2, "0")}`;
-        timeBtn.addEventListener("click", () => {
-          abrirModalAlerta(paradaId, lineaSlug, hora, minuto);
-        });
-        dayCol.appendChild(timeBtn);
+    const tbody = document.createElement("tbody");
+    for (let fila = 0; fila < maxFilas; fila++) {
+      const tr = document.createElement("tr");
+      horas.forEach(hora => {
+        const td = document.createElement("td");
+        const minuto = (porHora.get(hora) || [])[fila];
+        if (minuto != null) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "horario-tiempo";
+          btn.textContent = String(minuto).padStart(2, "0");
+          btn.addEventListener("click", () => abrirModalAlerta(paradaId, lineaSlug, hora, minuto));
+          td.appendChild(btn);
+        }
+        tr.appendChild(td);
       });
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
 
-      horariosRow.appendChild(dayCol);
-    });
-
-    matrizDiv.appendChild(horariosRow);
-    container.appendChild(matrizDiv);
+    scrollWrap.appendChild(table);
+    container.appendChild(scrollWrap);
   });
 
   if (!tieneAlgun) {
@@ -3762,121 +3776,182 @@ function renderLineDetail(container, linea, defaultStopId, onBack, mapRef) {
   const stopsList = document.createElement("div");
   stopsList.className = "stops-list-circular";
 
-  let firstExpanded = null;
-  paradasValidas.forEach((id, idx) => {
+  // Una línea larga puede tener 40 paradas: enseñarlas todas de golpe
+  // sepulta lo que importa. Por defecto sólo se ven la cabecera, el
+  // destino y las paradas favoritas; el resto se pliega en tramos
+  // "N paradas más" que se despliegan al tocarlos. Si no se ha pedido una
+  // parada en concreto, se prioriza —y se abre sola— la más cercana al
+  // municipio del usuario, si lo sabemos por su ubicación.
+  const ultimaIdx = paradasValidas.length - 1;
+  const miMunicipio = defaultStopId ? null : municipioUsuarioActual();
+  const municipioPinId = miMunicipio
+    ? paradasValidas.find(id => municipioDeParada(id) === miMunicipio)
+    : null;
+  const stopPorDefecto = defaultStopId || municipioPinId || paradasValidas[0];
+
+  const siempreVisibles = new Set([paradasValidas[0], paradasValidas[ultimaIdx], stopPorDefecto]);
+  paradasValidas.forEach(id => { if (esFavoritoParada(id)) siempreVisibles.add(id); });
+
+  const abiertosPorDefecto = [];
+
+  function crearStopItem(id, idx) {
     const p = APP.data.paradas[id];
     const esFav = esFavoritoParada(id);
-    const isFavOrDefault = esFav || id === defaultStopId || (idx === 0 && !defaultStopId);
+    const isFavOrDefault = esFav || id === stopPorDefecto;
 
     const item = document.createElement("div");
-    item.className = "stop-item-circular" + (idx === paradasValidas.length - 1 ? " last" : "");
+    item.className = "stop-item-circular" + (idx === ultimaIdx ? " last" : "");
     item.dataset.id = id;
+
+    const connector = document.createElement("div");
+    connector.className = "stop-connector";
+    item.appendChild(connector);
+
+    const row = document.createElement("div");
+    row.className = "stop-row";
 
     const circleWrapper = document.createElement("div");
     circleWrapper.className = "stop-circle-wrapper";
-
     const circle = document.createElement("button");
     circle.className = "stop-circle" + (esFav ? " favorite" : "") + (isFavOrDefault ? " expanded" : "");
     circle.type = "button";
     circle.textContent = idx + 1;
     circle.title = p.nombre;
-
-    const connector = document.createElement("div");
-    connector.className = "stop-connector";
-
     circleWrapper.appendChild(circle);
-    circleWrapper.appendChild(connector);
 
     const info = document.createElement("div");
     info.className = "stop-info";
-
     const name = document.createElement("div");
     name.className = "stop-name-circular";
     name.textContent = p.nombre;
-
     const muni = document.createElement("div");
     muni.className = "stop-municipality";
     muni.textContent = municipioDeParada(id) || "";
-
     info.appendChild(name);
     info.appendChild(muni);
 
-    // Contenedor oculto para horarios y detalles
+    row.appendChild(circleWrapper);
+    row.appendChild(info);
+    item.appendChild(row);
+
     const body = document.createElement("div");
     body.className = "stop-detail-body";
     body.hidden = !isFavOrDefault;
-    body.style.marginLeft = "48px";
-    body.style.paddingBottom = "12px";
 
     const boardBox = document.createElement("div");
     boardBox.className = "boardBox";
-
     const pdfBox = document.createElement("div");
     pdfBox.className = "pdfBox";
     pdfBox.style.marginBottom = "12px";
-
     const horarioBox = document.createElement("div");
     horarioBox.className = "horarioBox";
-
     body.appendChild(boardBox);
     body.appendChild(pdfBox);
     body.appendChild(horarioBox);
-
-    item.appendChild(circleWrapper);
-    item.appendChild(info);
     item.appendChild(body);
 
-    // Evento para expandir/contraer
-    circle.addEventListener("click", (e) => {
+    const construirContenido = () => {
+      if (body.dataset.built) return;
+      renderBoard(boardBox, id, linea.slug);
+      renderPdfLinea(pdfBox, linea.slug);
+      renderHorarioHorizontal(horarioBox, id, linea.slug);
+      body.dataset.built = "1";
+    };
+
+    circle.addEventListener("click", e => {
       e.preventDefault();
-      const wasHidden = body.hidden;
+      const vaAAbrirse = body.hidden;
 
-      // Ocultar todos los demás
-      stopsList.querySelectorAll(".stop-detail-body").forEach(b => {
-        if (b !== body) b.hidden = true;
-      });
+      // Se cierra cualquier otra que estuviera abierta: sólo una
+      // desplegada a la vez, para no acumular horarios sin fin en pantalla.
+      stopsList.querySelectorAll(".stop-detail-body").forEach(b => { if (b !== body) b.hidden = true; });
+      stopsList.querySelectorAll(".stop-circle.expanded").forEach(c => { if (c !== circle) c.classList.remove("expanded"); });
 
-      // Mostrar/ocultar este
-      body.hidden = !wasHidden;
-      circle.classList.toggle("expanded");
+      body.hidden = !vaAAbrirse;
+      circle.classList.toggle("expanded", vaAAbrirse);
+      if (vaAAbrirse) construirContenido();
 
-      // Renderizar contenido si es la primera vez
-      if (!wasHidden && !body.dataset.built) {
-        renderBoard(boardBox, id, linea.slug);
-        renderPdfLinea(pdfBox, linea.slug);
-        renderHorarioHorizontal(horarioBox, id, linea.slug);
-        body.dataset.built = "1";
-      }
-
-      // Actualizar estilos de marcadores en el mapa
-      if (mapMarkers && !wasHidden && p.lat != null && mapRef.map) {
+      if (mapMarkers && vaAAbrirse && p.lat != null && mapRef.map) {
         Object.entries(mapMarkers).forEach(([mid, m]) => setMarkerStyle(m, mid === id));
         mapRef.map.panTo([p.lat, p.lng]);
       }
     });
 
-    stopsList.appendChild(item);
+    if (isFavOrDefault) abiertosPorDefecto.push({ item, construirContenido, id });
 
-    if (isFavOrDefault && !firstExpanded) {
-      firstExpanded = item;
+    return item;
+  }
+
+  let pendienteColapso = [];
+  const volcarColapso = () => {
+    if (!pendienteColapso.length) return;
+    const grupo = pendienteColapso;
+    pendienteColapso = [];
+
+    const grupoWrapper = document.createElement("div");
+    grupoWrapper.className = "stop-item-circular stop-collapsed-group";
+
+    const connector = document.createElement("div");
+    connector.className = "stop-connector";
+    grupoWrapper.appendChild(connector);
+
+    const row = document.createElement("div");
+    row.className = "stop-row";
+    const circleWrapper = document.createElement("div");
+    circleWrapper.className = "stop-circle-wrapper";
+    const dotsCircle = document.createElement("div");
+    dotsCircle.className = "stop-circle stop-circle-dots";
+    dotsCircle.textContent = "⋯";
+    circleWrapper.appendChild(dotsCircle);
+
+    const info = document.createElement("div");
+    info.className = "stop-info";
+    const toggleBtn = document.createElement("button");
+    toggleBtn.type = "button";
+    toggleBtn.className = "stop-collapsed-toggle";
+    const etiquetaCerrado = `${grupo.length} parada${grupo.length === 1 ? "" : "s"} más`;
+    toggleBtn.textContent = etiquetaCerrado;
+    info.appendChild(toggleBtn);
+
+    row.appendChild(circleWrapper);
+    row.appendChild(info);
+    grupoWrapper.appendChild(row);
+
+    const detalle = document.createElement("div");
+    detalle.className = "stop-detail-body stop-collapsed-detalle";
+    detalle.hidden = true;
+    grupo.forEach(item => detalle.appendChild(item));
+    grupoWrapper.appendChild(detalle);
+
+    toggleBtn.addEventListener("click", () => {
+      detalle.hidden = !detalle.hidden;
+      toggleBtn.textContent = detalle.hidden ? etiquetaCerrado : "Ocultar";
+      dotsCircle.classList.toggle("expanded", !detalle.hidden);
+    });
+
+    stopsList.appendChild(grupoWrapper);
+  };
+
+  paradasValidas.forEach((id, idx) => {
+    const item = crearStopItem(id, idx);
+    if (siempreVisibles.has(id)) {
+      volcarColapso();
+      stopsList.appendChild(item);
+    } else {
+      pendienteColapso.push(item);
     }
   });
+  volcarColapso();
 
   stopsContainer.appendChild(stopsList);
   stopsListEl.appendChild(stopsContainer);
 
-  // Renderizar el contenido de la primera parada expandida
-  if (firstExpanded) {
-    const body = firstExpanded.querySelector(".stop-detail-body");
-    const id = firstExpanded.dataset.id;
-    if (body && !body.dataset.built) {
-      renderBoard(body.querySelector(".boardBox"), id, linea.slug);
-      renderPdfLinea(body.querySelector(".pdfBox"), linea.slug);
-      renderHorarioHorizontal(body.querySelector(".horarioBox"), id, linea.slug);
-      body.dataset.built = "1";
-    }
-    if (defaultStopId) firstExpanded.scrollIntoView({ block: "nearest" });
-  }
+  // Se construye el contenido de todas las paradas que arrancan
+  // desplegadas —no sólo de la primera—, que si no una favorita se ve
+  // marcada pero vacía.
+  abiertosPorDefecto.forEach(({ construirContenido }) => construirContenido());
+  const objetivo = abiertosPorDefecto.find(o => o.id === stopPorDefecto) || abiertosPorDefecto[0];
+  if (objetivo && (defaultStopId || municipioPinId)) objetivo.item.scrollIntoView({ block: "nearest" });
 }
 
 /* ------------------------------------------------------------------ */

@@ -13,7 +13,26 @@ de Andalucía**, que no participan ni respaldan esto. Los horarios son
 
 👉 **[Abrir la aplicación](https://diegoclindsey.github.io/BusesAndalucia/)**
 
-## Qué hace
+## Scope reducido: pegatinas de QR en las paradas
+
+La versión que se sirve ahora mismo está pensada para un uso muy concreto:
+pegar una pegatina con un código QR en cada parada que se va visitando. Al
+escanearla, la app se abre directamente en la ficha de esa parada, con las
+líneas que pasan hoy y sus próximas salidas — sin buscar nada a mano. Desde
+ahí se puede **filtrar por línea** (si la parada tiene varias) y **guardar
+la parada o cualquiera de sus líneas como favorita**; lo guardado aparece
+luego en **Inicio**, con la cuenta atrás de un vistazo. Para quien ya tiene
+la app abierta y se encuentra una pegatina, el botón **Escanear QR** de la
+cabecera hace lo mismo usando la cámara.
+
+Por eso el menú inferior (Líneas, Ruta, Avisos) y el buscador de destino de
+Inicio están **ocultos, no borrados**: el resto de la funcionalidad de más
+abajo sigue en el código, entera y sin tocar, lista para reactivarse
+quitando el `hidden` correspondiente en `index.html` (se explica con
+comentarios en el propio fichero, junto al `<nav>`) el día que vuelva a
+hacer falta.
+
+## Qué hace (todo lo que hay en el código, servido o no)
 
 - **Inicio** — una sola lista con tus próximas salidas, ordenada por lo
   que falta para cada una: primero el autobús que se va antes, venga de la
@@ -23,33 +42,39 @@ de Andalucía**, que no participan ni respaldan esto. Los horarios son
   nadie cuenta minutos). De cada línea sale una sola parada, la que tengas
   más cerca.
   Si no has guardado nada y compartes la ubicación, la lista enseña lo que
-  pasa por las paradas que tienes al lado. Debajo, el buscador de destino.
-- **Líneas** — las 432 líneas de Andalucía, con las próximas salidas en las
-  paradas que tú elijas, recorrido en mapa, horario completo y PDF oficial
-  de cada parada.
-- **Ruta** — de parada a parada, de un punto del mapa, desde tu ubicación o
-  **de municipio a municipio** (eligiéndolo en el buscador o tocando su
-  círculo en el mapa). Enseña las combinaciones de líneas disponibles y se
-  queda con la que llega antes de verdad —salvo que una con menos
-  trasbordos se quede a un cuarto de hora o menos, o que la más rápida
-  meta un rodeo desproporcionado y haya otra con menos vueltas, en cuyo
-  caso gana la sencilla o la más directa—, sin pedirte que elijas ningún
-  criterio de optimización. El
-  itinerario se lee como una línea vertical: hora y
-  sitio en cada punto, qué coges entre punto y punto, y cuánto esperas en
-  cada trasbordo. Cuando no hay manera de llegar, dice por qué — y si se
-  puede ir **directo, a pie o en bicicleta** (interruptor aparte, porque
-  no todo el mundo tiene una a mano), esa distancia también se ofrece como
-  una opción más, sin desplazar a la de autobús del puesto por defecto.
-  También se pueden añadir **puntos de ruta intermedios** —una parada o
-  un municipio por el que el itinerario tiene que pasar sí o sí— entre el
-  origen y el destino, bien a mano o directamente desde "Añadir a la
-  ruta" en el globo de una parada o un municipio del mapa. Cada punto
+  pasa por las paradas que tienes al lado.
+- **Ficha de parada** (a la que lleva el QR) — las líneas que pasan hoy con
+  su próxima salida, filtrables por línea, y una estrella para guardar la
+  parada entera o cada línea suelta. También trae "Ver código QR" (para
+  imprimir la pegatina), "Compartir esta parada" y un aviso opcional unos
+  minutos antes de la salida.
+- **Líneas** *(oculto)* — las 432 líneas de Andalucía, con las próximas
+  salidas en las paradas que tú elijas, recorrido en mapa, horario completo
+  y PDF oficial de cada parada.
+- **Ruta** *(oculto)* — de parada a parada, de un punto del mapa, desde tu
+  ubicación o **de municipio a municipio** (eligiéndolo en el buscador o
+  tocando su círculo en el mapa). Enseña las combinaciones de líneas
+  disponibles y se queda con la que llega antes de verdad —salvo que una
+  con menos trasbordos se quede a un cuarto de hora o menos, o que la más
+  rápida meta un rodeo desproporcionado y haya otra con menos vueltas, en
+  cuyo caso gana la sencilla o la más directa—, sin pedirte que elijas
+  ningún criterio de optimización. El itinerario se lee como una línea
+  vertical: hora y sitio en cada punto, qué coges entre punto y punto, y
+  cuánto esperas en cada trasbordo. Cuando no hay manera de llegar, dice
+  por qué — y si se puede ir **directo, a pie o en bicicleta** (interruptor
+  aparte, porque no todo el mundo tiene una a mano), esa distancia también
+  se ofrece como una opción más, sin desplazar a la de autobús del puesto
+  por defecto. También se pueden añadir **puntos de ruta intermedios** —una
+  parada o un municipio por el que el itinerario tiene que pasar sí o sí—
+  entre el origen y el destino, bien a mano o directamente desde "Añadir a
+  la ruta" en el globo de una parada o un municipio del mapa. Cada punto
   admite además "ir andando desde el punto anterior", para forzar ese
   tramo en línea recta en vez de esperar a que el buscador le encuentre
   autobús.
-- **Favoritos** — paradas, líneas y rutas guardadas, con recálculo automático.
-- **Avisos** — que te avise 5, 10 o 15 minutos antes de que salga tu
+- **Favoritos** — paradas, líneas y rutas guardadas, con recálculo
+  automático (rutas favoritas *oculto*, por depender de Ruta).
+- **Avisos** *(oculto su listado; el aviso puntual desde la ficha de parada
+  sigue servido)* — que te avise 5, 10 o 15 minutos antes de que salga tu
   autobús, mientras la app siga abierta.
 - **Claro y noche** — el tema sigue al del móvil y se puede fijar a mano
   desde la cabecera.
@@ -75,8 +100,9 @@ como aplicación en el móvil.
 | `data/catalogo.json` | Las paradas, líneas y municipios de toda Andalucía (460 KB) |
 | `data/{1..9}/horarios.json` | Los horarios de un área: bloques, calendario, trazados y grafo a pie |
 | `fuentes/paradas_*.json` | Respuesta de `/paradas` de la API, para regenerar sin red |
-| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas, directo_pie_bici, mejor_opcion, puntos_de_ruta, bici_entre_paradas, qr_parada) |
-| `package.json` | `npm test` lanza las doce suites |
+| `lib/qrcode.js`, `lib/jsQR.js` | Generar y leer códigos QR, servidos en local (no desde CDN) |
+| `tests/` | Pruebas de humo con Playwright (motor, pantallas, inicio, líneas, andalucía, andalucía_rango, rutas_largas, directo_pie_bici, mejor_opcion, puntos_de_ruta, bici_entre_paradas, qr_parada, escaner_qr) |
+| `package.json` | `npm test` lanza las trece suites |
 | `sw.js` | Service Worker: caché offline y notificaciones |
 | `manifest.json`, `icon.svg` | Instalación como PWA |
 | `build_from_gtfs.py` | Genera todo `data/` a partir del GTFS oficial |

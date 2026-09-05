@@ -182,6 +182,7 @@
   }
 
   /* ---------- Navegación inferior ---------- */
+  .nav[hidden]{display:none;}   /* .nav ya fija su propio `display`, así que el `hidden` del HTML por sí solo no basta para ocultarla */
   .nav{
     position:fixed; bottom:0; left:0; right:0; z-index:60;
     display:flex; justify-content:space-around;
@@ -603,6 +604,18 @@
   .qr-card svg{width:min(220px, 70vw); height:auto;}
   .qr-card-titulo{margin:6px 0 0; font-weight:700; font-size:14px;}
   .qr-card-parada{margin:0; font-size:12.5px; color:#555;}
+
+  /* ---------- Escáner de QR (cámara) ---------- */
+  .qr-scan-box{
+    position:relative; margin:10px 0; border-radius:var(--radius-sm);
+    overflow:hidden; background:#000; aspect-ratio:1/1; max-width:340px;
+  }
+  .qr-scan-box video{width:100%; height:100%; object-fit:cover; display:block;}
+  .qr-scan-frame{
+    position:absolute; inset:14%; border:3px solid rgba(255,255,255,.85);
+    border-radius:18px; pointer-events:none;
+    box-shadow:0 0 0 999px rgba(0,0,0,.28);
+  }
 
   /* ---------- Modal ---------- */
   .modal-overlay{
@@ -1172,13 +1185,19 @@
     <h1><span class="marca-ico" id="marcaIco"></span><span class="marca-texto">Próxima Salida</span></h1>
     <div class="header-actions">
       <button class="btn-icon solo-ico" id="btnTema" type="button" title="Cambiar tema"></button>
+      <button class="btn-icon" id="btnEscanearQr" type="button" data-ico="qr">Escanear QR</button>
       <button class="btn-icon" id="btnAbrirFavoritos" type="button">Favoritos</button>
     </div>
   </div>
   <div class="status-line" id="dataStatus"></div>
 </header>
 
-<nav class="nav" id="mainNav">
+<!-- El resto de pantallas (Líneas, Ruta, Avisos) se queda hecho y en el
+     código, pero no se sirve: el uso pensado es pegar un QR en cada
+     parada y que la app se abra directamente en su ficha, así que no
+     hace falta ni un menú para navegar a otro sitio. Para reactivarlas,
+     basta con quitar el `hidden` de aquí abajo. -->
+<nav class="nav" id="mainNav" hidden>
   <button class="nav-btn active" data-screen="screenInicio" type="button" data-ico="reloj">Inicio</button>
   <button class="nav-btn" data-screen="screenLineas" type="button" data-ico="bus">Líneas</button>
   <button class="nav-btn" data-screen="screenRuta" type="button" data-ico="brujula">Ruta</button>
@@ -1189,7 +1208,10 @@
 
   <section id="screenInicio" class="screen active">
     <div id="homeFavSalidas"></div>
-    <div class="card home-search">
+    <!-- El buscador de destino es la puerta a "Ruta", que en esta versión
+         se queda en el código pero no se sirve (ver el comentario junto
+         al <nav>). Se puede recuperar quitando este `hidden`. -->
+    <div class="card home-search" hidden>
       <p class="home-search-title">¿A dónde quieres ir?</p>
       <input type="text" class="input" id="homeDestinoInput" list="listaParadas" placeholder="Parada o municipio de destino…">
       <div class="home-origen-line" id="homeOrigenLine">
@@ -1283,7 +1305,9 @@
     <h3 class="section-title" data-ico="bus">Líneas</h3>
     <div id="favLineasList"></div>
   </div>
-  <div id="favRutasList"></div>
+  <!-- Rutas favoritas pertenece a "Ruta", que no se sirve aquí: se deja
+       oculta en vez de borrada, ver el comentario junto al <nav>. -->
+  <div id="favRutasList" hidden></div>
 </aside>
 
 <footer id="pie"></footer>
@@ -3960,6 +3984,7 @@ function renderLineDetail(container, linea, defaultStopId, onBack, mapRef) {
 function closeModal() {
   const root = document.getElementById("modalRoot");
   if (CURRENT_MODAL_MAP_REF.map) { CURRENT_MODAL_MAP_REF.map.remove(); CURRENT_MODAL_MAP_REF.map = null; }
+  detenerEscanerQr();
   root.innerHTML = "";
 }
 
@@ -4093,6 +4118,120 @@ function mostrarQrParada(caja, stopId, nombreParada) {
   });
 }
 
+/* ------------------------------------------------------------------ */
+/* Escanear el QR de una parada con la cámara                          */
+/* ------------------------------------------------------------------ */
+const JSQR_LIB_URL = "./lib/jsQR.js";
+let cargaLibreriaJsQr = null;
+
+/** Igual que `cargarLibreriaQr`, pero para el lector: bajo demanda y
+ * reutilizando la carga si ya se pidió. */
+function cargarLibreriaJsQr() {
+  if (typeof jsQR === "function") return Promise.resolve();
+  if (!cargaLibreriaJsQr) {
+    cargaLibreriaJsQr = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = JSQR_LIB_URL;
+      script.onload = () => resolve();
+      script.onerror = () => { cargaLibreriaJsQr = null; reject(new Error("no se pudo cargar el lector de QR")); };
+      document.head.appendChild(script);
+    });
+  }
+  return cargaLibreriaJsQr;
+}
+
+/** El texto que trae un QR leído por la cámara puede ser el enlace
+ * completo que genera `urlDeParada` (lo normal, viniendo de una pegatina
+ * hecha con esta misma app) o, para quien pegue su propio QR, el id de
+ * la parada a pelo. Cualquier otra cosa no es un QR de parada nuestro. */
+function paradaIdDesdeTextoQr(texto) {
+  const limpio = String(texto || "").trim();
+  if (!limpio) return null;
+  try {
+    const id = new URL(limpio).searchParams.get("parada");
+    if (id) return APP.data.paradas[id] ? id : null;
+  } catch (e) { /* no era una URL: se prueba como id a pelo */ }
+  return APP.data.paradas[limpio] ? limpio : null;
+}
+
+/** Referencia a la cámara abierta y al bucle de lectura, para poder
+ * cortar ambos al cerrar el modal (igual que `CURRENT_MODAL_MAP_REF` con
+ * el mapa de Leaflet): dejar la cámara encendida de fondo no es opción. */
+let CURRENT_MODAL_QR_REF = { stream: null, raf: null };
+
+function detenerEscanerQr() {
+  if (CURRENT_MODAL_QR_REF.raf) cancelAnimationFrame(CURRENT_MODAL_QR_REF.raf);
+  if (CURRENT_MODAL_QR_REF.stream) CURRENT_MODAL_QR_REF.stream.getTracks().forEach(t => t.stop());
+  CURRENT_MODAL_QR_REF = { stream: null, raf: null };
+}
+
+/** Botón "Escanear QR" de la cabecera: es la otra mitad del caso de uso
+ * completo (junto a `abrirParadaDesdeUrl`) para quien ya tiene la app
+ * abierta y se encuentra una pegatina, en vez de partir de cero con el
+ * lector de la cámara del móvil. */
+function abrirEscanerQr() {
+  openModal(container => buildQrScannerContent(container));
+}
+
+function buildQrScannerContent(container) {
+  container.innerHTML = `
+    <h3 class="detail-title">Escanea el QR de la parada</h3>
+    <p class="detail-meta">Apunta con la cámara a la pegatina, sin necesidad de tocar nada más.</p>
+    <div class="qr-scan-box">
+      <video id="qrScanVideo" playsinline muted></video>
+      <div class="qr-scan-frame" aria-hidden="true"></div>
+    </div>
+    <p class="empty" id="qrScanEstado">Pidiendo acceso a la cámara…</p>
+  `;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    container.querySelector("#qrScanEstado").textContent = "Este navegador no permite usar la cámara aquí: prueba a abrir el enlace de la parada a mano.";
+    return;
+  }
+
+  const video = container.querySelector("#qrScanVideo");
+  const estado = container.querySelector("#qrScanEstado");
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+  const analizarFrame = () => {
+    // Si el modal ya no es este (se cerró, o se abrió otro encima) el
+    // bucle se corta solo: no hay nada más que mirar.
+    if (document.getElementById("modalContent") !== container) return;
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imagen = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const resultado = jsQR(imagen.data, imagen.width, imagen.height);
+      if (resultado && resultado.data) {
+        const id = paradaIdDesdeTextoQr(resultado.data);
+        if (id) {
+          closeModal();
+          openModalConHorarios(areaDeParada(id), cont => buildStopScheduleModalContent(cont, id));
+          return;
+        }
+        estado.textContent = "Ese código QR no lleva a ninguna parada de esta app.";
+      }
+    }
+    CURRENT_MODAL_QR_REF.raf = requestAnimationFrame(analizarFrame);
+  };
+
+  Promise.all([
+    cargarLibreriaJsQr(),
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+  ]).then(([, stream]) => {
+    // Puede que mientras cargaba se haya cerrado el modal, o abierto otro.
+    if (document.getElementById("modalContent") !== container) { stream.getTracks().forEach(t => t.stop()); return; }
+    CURRENT_MODAL_QR_REF.stream = stream;
+    video.srcObject = stream;
+    video.play();
+    estado.textContent = "Buscando el código…";
+    CURRENT_MODAL_QR_REF.raf = requestAnimationFrame(analizarFrame);
+  }).catch(() => {
+    estado.textContent = "No se ha podido acceder a la cámara. Revisa los permisos del navegador.";
+  });
+}
+
 /** Contenido "todas las líneas de esta parada", con horario completo
  * (no solo las 4 primeras como en el popup del mapa) y cada línea
  * pulsable para abrir su ficha completa. Pensado para paradas con
@@ -4109,6 +4248,7 @@ function buildStopScheduleModalContent(container, stopId) {
     <div class="detail-meta">${municipio ? escapeHtml(municipio) : ""}</div>
     <div class="chip-row" id="stopScheduleActions"></div>
     <div class="qr-box" id="stopQrBox" hidden></div>
+    <div class="chip-row" id="stopLineFilter"></div>
     <ul class="servicelist" id="stopScheduleList" style="margin-top:10px;"></ul>
   `;
   container.querySelector("#btnFavParadaModal").addEventListener("click", e => {
@@ -4157,10 +4297,41 @@ function buildStopScheduleModalContent(container, stopId) {
       : "Sin datos de horario para esta parada.";
     list.parentNode.insertBefore(aviso, list);
   }
+
+  // Filtro por línea: sólo tiene sentido enseñarlo si hay más de una
+  // pasando por aquí. Es un simple mostrar/ocultar filas, no un
+  // re-render, así que no se pierde el estado del QR ni de las estrellas.
+  const filtroBox = container.querySelector("#stopLineFilter");
+  const lineasUnicas = [...new Map(grupos.map(g => [g.lineaSlug, codigoLinea(g.lineaTitulo)])).entries()];
+  let filtroLinea = "";
+  if (lineasUnicas.length > 1) {
+    const pintaFiltro = () => {
+      filtroBox.innerHTML = "";
+      const pinta = (etiqueta, valor) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "muni-chip" + (filtroLinea === valor ? " active" : "");
+        b.textContent = etiqueta;
+        b.addEventListener("click", () => {
+          filtroLinea = valor;
+          list.querySelectorAll("li[data-linea-slug]").forEach(li => {
+            li.hidden = !!filtroLinea && li.dataset.lineaSlug !== filtroLinea;
+          });
+          pintaFiltro();
+        });
+        filtroBox.appendChild(b);
+      };
+      pinta("Todas", "");
+      lineasUnicas.forEach(([slug, codigo]) => pinta(codigo, slug));
+    };
+    pintaFiltro();
+  }
+
   grupos.forEach(g => {
     const fmt = formatDeparture(g.dep);
     const li = document.createElement("li");
     li.className = "serviceitem";
+    li.dataset.lineaSlug = g.lineaSlug;
     // El título completo de la línea es su recorrido entero
     // ("M-177 - Camas - Guillena - Pi Los Girasoles - Sevilla - Torre De
     // La Reina"): ocupaba dos renglones por fila para decir algo que el
@@ -4170,9 +4341,21 @@ function buildStopScheduleModalContent(container, stopId) {
       <div style="flex:1; min-width:0;">
         <div class="servicename">hacia ${escapeHtml(g.etiqueta)}</div>
       </div>
+      <button type="button" class="btn-fav linea-fav${esFavoritoLinea(g.lineaSlug) ? " es-fav" : ""}" title="Guardar esta línea">${icono("estrella")}</button>
       <div class="servicetime">${fmt.main}<span class="servicesub">${escapeHtml(fmt.sub)}</span></div>
     `;
     li.addEventListener("click", () => openLineModal(g.lineaSlug, stopId));
+    const btnFavLinea = li.querySelector(".linea-fav");
+    btnFavLinea.addEventListener("click", e => {
+      e.stopPropagation();
+      toggleFavoritoLinea(g.lineaSlug);
+      // Al guardarla desde aquí, se ancla a esta parada y este sentido:
+      // es la que se estaba mirando, así que es la que debe salir en
+      // Inicio, no las cabeceras por defecto de la línea entera.
+      if (esFavoritoLinea(g.lineaSlug)) anadirReferencia(g.lineaSlug, stopId, g.sentidoClave);
+      pintarEstrella(btnFavLinea, esFavoritoLinea(g.lineaSlug));
+      renderHomeFavSalidas();
+    });
     list.appendChild(li);
   });
 }
@@ -7692,8 +7875,11 @@ function renderHomeFavSalidas() {
   if (!candidatasCompleta.length) {
     box.innerHTML = hayFavoritos ? "" : `<div class="card home-fav-card">
       <h2 class="home-fav-title">Tus próximas salidas</h2>
-      <p class="empty">Comparte tu ubicación para ver lo que pasa por las paradas que tienes al lado, o guarda una línea o una parada con la estrella.</p>
+      <p class="empty">Escanea el código QR de una parada para ver sus líneas y guardar la que te interese: aparecerá aquí con la cuenta atrás.</p>
+      <button type="button" class="btn-chip" id="btnEscanearQrInicio">${icono("qr")}<span class="btn-chip-txt">Escanear código QR</span></button>
     </div>`;
+    const btnQrInicio = box.querySelector("#btnEscanearQrInicio");
+    if (btnQrInicio) btnQrInicio.addEventListener("click", abrirEscanerQr);
     return;
   }
 
@@ -7832,6 +8018,7 @@ function wireTabs() {
   document.getElementById("btnAbrirFavoritos").addEventListener("click", abrirDrawerFavoritos);
   document.getElementById("btnCerrarFavoritos").addEventListener("click", cerrarDrawerFavoritos);
   document.getElementById("drawerOverlay").addEventListener("click", cerrarDrawerFavoritos);
+  document.getElementById("btnEscanearQr").addEventListener("click", abrirEscanerQr);
 }
 
 /* ------------------------------------------------------------------ */

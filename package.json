@@ -6,7 +6,7 @@
   "license": "MIT",
   "scripts": {
     "servir": "python3 -m http.server 8765",
-    "test": "node tests/motor.mjs && node tests/pantallas.mjs && node tests/inicio.mjs && node tests/lineas.mjs && node tests/andalucia.mjs && node tests/andalucia_rango.mjs && node tests/rutas_largas.mjs && node tests/directo_pie_bici.mjs && node tests/mejor_opcion.mjs && node tests/puntos_de_ruta.mjs && node tests/bici_entre_paradas.mjs && node tests/qr_parada.mjs",
+    "test": "node tests/motor.mjs && node tests/pantallas.mjs && node tests/inicio.mjs && node tests/lineas.mjs && node tests/andalucia.mjs && node tests/andalucia_rango.mjs && node tests/rutas_largas.mjs && node tests/directo_pie_bici.mjs && node tests/mejor_opcion.mjs && node tests/puntos_de_ruta.mjs && node tests/bici_entre_paradas.mjs && node tests/qr_parada.mjs && node tests/escaner_qr.mjs",
     "test:motor": "node tests/motor.mjs",
     "test:pantallas": "node tests/pantallas.mjs",
     "test:inicio": "node tests/inicio.mjs",
@@ -18,7 +18,8 @@
     "test:mejor_opcion": "node tests/mejor_opcion.mjs",
     "test:puntos_de_ruta": "node tests/puntos_de_ruta.mjs",
     "test:bici_entre_paradas": "node tests/bici_entre_paradas.mjs",
-    "test:qr_parada": "node tests/qr_parada.mjs"
+    "test:qr_parada": "node tests/qr_parada.mjs",
+    "test:escaner_qr": "node tests/escaner_qr.mjs"
   },
   "devDependencies": {
     "leaflet": "1.9.4",
